@@ -12,11 +12,6 @@ class SignalWindowManager:
         self.data = None
         self.time_data = None
         self.processed_data = None
-        
-        # Create menu for window management
-        self.setup_menu()
-        
-        # Initialize window counters for separate instances
         self.window_counters = {
             'baseline': 0,
             'normalization': 0,
@@ -25,31 +20,16 @@ class SignalWindowManager:
         
         app_logger.debug("Window manager initialized")
 
-    def setup_menu(self):
-        """Setup menu for window management"""
-        menubar = tk.Menu(self.parent)
-        self.parent.config(menu=menubar)
-        
-        # Create Windows menu
-        window_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Windows", menu=window_menu)
-        
-        # Add window options
-        window_menu.add_command(label="Baseline Correction",
-                              command=self.open_baseline_window)
-        window_menu.add_command(label="Normalization",
-                              command=self.open_normalization_window)
-        window_menu.add_command(label="Integration",
-                              command=self.open_integration_window)
-        window_menu.add_separator()
-        window_menu.add_command(label="Close All Windows",
-                              command=self.close_all_windows)
-
     def set_data(self, time_data, data):
         """Set data for processing"""
         self.time_data = time_data
         self.data = data
         self.processed_data = data.copy()
+        
+        # Update all existing windows with new data
+        self.update_all_windows()
+        
+        app_logger.debug("Data updated in window manager")
 
     def get_window_key(self, base_name, preserve_main=False):
         """Generate unique window key"""
@@ -79,7 +59,7 @@ class SignalWindowManager:
             if preserve_main:
                 window.title(f"Baseline Correction #{self.window_counters['baseline']}")
             
-            app_logger.info(f"Baseline correction window opened (preserve_main={preserve_main})")
+            app_logger.info(f"Baseline window opened (preserve_main={preserve_main})")
             
         except Exception as e:
             app_logger.error(f"Error opening baseline window: {str(e)}")
@@ -96,7 +76,12 @@ class SignalWindowManager:
             # Create window with appropriate callback
             callback = None if preserve_main else self.on_normalization_update
             window = NormalizationWindow(self.parent, callback)
-            window.set_data(self.time_data, self.processed_data or self.data)
+            
+            # Set data based on what's available
+            if preserve_main:
+                window.set_data(self.time_data, self.data)
+            else:
+                window.set_data(self.time_data, self.processed_data or self.data)
             
             # Store window reference
             window_key = self.get_window_key('normalization', preserve_main)
@@ -123,7 +108,12 @@ class SignalWindowManager:
             # Create window with appropriate callback
             callback = None if preserve_main else self.on_integration_update
             window = IntegrationWindow(self.parent, callback)
-            window.set_data(self.time_data, self.processed_data or self.data)
+            
+            # Set data based on what's available
+            if preserve_main:
+                window.set_data(self.time_data, self.data)
+            else:
+                window.set_data(self.time_data, self.processed_data or self.data)
             
             # Store window reference
             window_key = self.get_window_key('integration', preserve_main)
@@ -139,41 +129,57 @@ class SignalWindowManager:
             app_logger.error(f"Error opening integration window: {str(e)}")
             raise
 
+    def update_all_windows(self):
+        """Update all open windows with current data"""
+        try:
+            for window_key, window in self.windows.items():
+                if window and window.winfo_exists():
+                    if '_' in window_key:  # Separate window
+                        window.set_data(self.time_data, self.data)
+                    else:  # Main processing window
+                        window.set_data(self.time_data, self.processed_data or self.data)
+            
+            app_logger.debug("All windows updated with new data")
+            
+        except Exception as e:
+            app_logger.error(f"Error updating windows: {str(e)}")
+            raise
+
     def close_all_windows(self):
         """Close all open processing windows"""
-        for window in self.windows.values():
-            if window and window.winfo_exists():
-                window.destroy()
-        self.windows.clear()
-        
-        # Reset window counters
-        for key in self.window_counters:
-            self.window_counters[key] = 0
+        try:
+            for window in self.windows.values():
+                if window and window.winfo_exists():
+                    window.destroy()
+                    
+            self.windows.clear()
             
-        app_logger.info("All processing windows closed")
+            # Reset window counters
+            for key in self.window_counters:
+                self.window_counters[key] = 0
+                
+            app_logger.info("All windows closed")
+            
+        except Exception as e:
+            app_logger.error(f"Error closing windows: {str(e)}")
+            raise
 
     def on_baseline_update(self, processed_data):
         """Handle baseline correction updates"""
         self.processed_data = processed_data
         app_logger.info("Baseline correction applied")
-        
-        # Update other windows if open
         self._update_dependent_windows('baseline')
 
     def on_normalization_update(self, processed_data):
         """Handle normalization updates"""
         self.processed_data = processed_data
         app_logger.info("Normalization applied")
-        
-        # Update other windows if open
         self._update_dependent_windows('normalization')
 
     def on_integration_update(self, results):
         """Handle integration updates"""
-        app_logger.info(f"Integration results: {results['integral_value']:.6f}")
-        
-        # Here you might want to store or display the results
-        # in your main application
+        if isinstance(results, dict) and 'integral_value' in results:
+            app_logger.info(f"Integration results: {results['integral_value']:.6f}")
 
     def _update_dependent_windows(self, source_window):
         """Update other windows after changes"""
@@ -196,8 +202,10 @@ class SignalWindowManager:
         """Remove references to closed windows"""
         closed_windows = []
         for key, window in self.windows.items():
-            if not window.winfo_exists():
+            if not window or not window.winfo_exists():
                 closed_windows.append(key)
         
         for key in closed_windows:
             del self.windows[key]
+        
+        app_logger.debug(f"Cleaned up {len(closed_windows)} closed windows")
