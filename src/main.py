@@ -1,6 +1,6 @@
 import tkinter as tk
-from .gui.app import SignalAnalyzerApp  # Fixed import
-from .utils.logger import app_logger
+from src.gui.app import SignalAnalyzerApp  # Using absolute import
+from src.utils.logger import app_logger
 
 def main():
     try:
