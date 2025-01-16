@@ -1,67 +1,52 @@
 import numpy as np
 from scipy import signal
-from scipy.integrate import simps
 from src.utils.logger import app_logger
 
 class ActionPotentialProcessor:
     def __init__(self, data, time_data, params=None):
         """
-        A processor for multi-step patch-clamp signals. 
-        The multi-step approach 'lays to zero' each voltage step.
-        
-        Args:
-            data (array-like): Current data in pA.
-            time_data (array-like): Time data in seconds.
-            params (dict): e.g. {
-                'n_cycles': 2,
-                't0': 20,      # ms
-                't1': 100,     # ms
-                't2': 100,     # ms
-                't3': 1000,    # ms
-                'V0': -80,     # mV
-                'V1': -100,    # mV
-                'V2': 10,      # mV
-                'cell_area_cm2': 1e-4
-            }
-        """
-        self.data = np.array(data)           # pA
-        self.time_data = np.array(time_data) # seconds
+        Multi-step patch clamp data processor.
 
+        data in pA, time_data in seconds.
+        Typical params keys:
+          'n_cycles', 't0', 't1', 't2', 't3',
+          'V0', 'V1', 'V2',
+          'cell_area_cm2'.
+        """
+        self.data = np.array(data)
+        self.time_data = np.array(time_data)
         self.params = params or {
             'n_cycles': 2,
-            't0': 20,   # ms
-            't1': 100,  # ms
-            't2': 100,  # ms
-            't3': 1000, # ms
-            'V0': -80,  # mV
-            'V1': -100, # mV
-            'V2': 10,   # mV
+            't0': 20,
+            't1': 100,
+            't2': 100,
+            't3': 1000,
+            'V0': -80,
+            'V1': -100,
+            'V2': 10,
             'cell_area_cm2': 1e-4
         }
 
         self.processed_data = None
         self.baseline = None
-        
-        # Storage for cycles and time windows
         self.cycles = []
         self.cycle_times = []
         self.cycle_indices = []
-        
+
         app_logger.debug(f"Parameters validated: {self.params}")
 
     def process_signal(self):
         """
-        1) baseline_correction_initial
-        2) multi_segment_normalization
-        3) find_cycles
-        4) optional additional normalization
-        5) calculate_integral
+        The main pipeline:
+          1. baseline_correction_initial
+          2. multi_segment_normalization
+          3. find_cycles
+          4. calculate_integral
         """
         try:
             self.baseline_correction_initial()
             self.multi_segment_normalization()
             self.find_cycles()
-            # self.normalize_signal()  # Optional further step
             results = self.calculate_integral()
 
             if not results:
@@ -71,9 +56,9 @@ class ActionPotentialProcessor:
                     'cycle_indices': []
                 }
             return self.processed_data, self.time_data, results
-        
+
         except Exception as e:
-            app_logger.error(f"Error in signal processing: {str(e)}")
+            app_logger.error(f"Error in process_signal: {str(e)}")
             return None, None, {
                 'integral_value': f"Error: {str(e)}",
                 'capacitance_uF_cm2': 'Error',
@@ -82,211 +67,142 @@ class ActionPotentialProcessor:
 
     def baseline_correction_initial(self):
         """
-        Step A: Remove an initial offset using the first t0 ms or up to 1000 samples,
-        whichever is smaller. We do a median to reduce outlier influence.
+        Step 1: Subtract the median of the first t0 ms (or up to 1000 points).
         """
         sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
         t0_samps = int(self.params['t0'] * sampling_rate / 1000)
-        baseline_win = min(t0_samps, 1000, len(self.data))
+        baseline_window = min(t0_samps, 1000, len(self.data))
 
-        baseline_slice = self.data[:baseline_win]
-        self.baseline = np.median(baseline_slice)
+        if baseline_window < 1:
+            self.baseline = np.median(self.data)
+        else:
+            self.baseline = np.median(self.data[:baseline_window])
+
         self.processed_data = self.data - self.baseline
-
-        app_logger.info(f"Initial baseline correction: removed {self.baseline:.2f} pA")
+        app_logger.info(f"Initial baseline correction: subtracted {self.baseline:.2f} pA")
 
     def multi_segment_normalization(self):
         """
-        Enhanced segment-wise normalization with adaptive window sizes and robust error handling
+        Advanced multi-step normalization with auto-detected plateau:
+        - For each segment i>0:
+            1) Identify a stable plateau region by scanning rolling std/derivative.
+            2) Fit a 2-point line from plateau[0:20] -> plateau[-20:] offsets.
+            3) Subtract that line from the entire segment.
+        - If detection fails, fallback to a simpler skip-then-measure median approach.
         """
         try:
-            # Calculate sampling rate
             sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-            
-            # Convert time parameters to sample counts
             t0_samps = int(self.params['t0'] * sampling_rate / 1000)
             t1_samps = int(self.params['t1'] * sampling_rate / 1000)
             t2_samps = int(self.params['t2'] * sampling_rate / 1000)
             t3_samps = int(self.params.get('t3', 0) * sampling_rate / 1000)
+
+            seg_lengths = [t0_samps, t1_samps, t2_samps, t3_samps]
+            segments = []
+            idx_start = 0
             
-            def remove_spikes(data, threshold_std=3.0, window_size=51):
-                """Remove spikes while preserving baseline"""
-                if len(data) < window_size:
-                    window_size = max(5, len(data) // 2)
-                    if window_size % 2 == 0:
-                        window_size += 1
-                        
-                half_window = window_size // 2
-                rolling_med = np.zeros_like(data)
-                rolling_std = np.zeros_like(data)
+            # Build segment list
+            for length in seg_lengths:
+                if length <= 0:
+                    continue
+                idx_end = min(idx_start + length, len(self.processed_data))
+                if idx_end <= idx_start:
+                    break
+                segments.append((idx_start, idx_end))
+                idx_start = idx_end
+
+            # Segment0 pinned by baseline_correction_initial()
+            for seg_i in range(1, len(segments)):
+                s_start, s_end = segments[seg_i]
+                seg_len = s_end - s_start
+                if seg_len < 50:
+                    continue
+
+                # We'll attempt to detect a stable plateau in the segment
+                seg_data = self.processed_data[s_start:s_end].copy()
+
+                # 1) Rolling derivative or std detection
+                #    We'll compute a rolling standard deviation in windows of ~50 points
+                #    and pick the region with the smallest std.
+                window_size = max(30, seg_len // 10)  # e.g. 30 or 1/10th of segment
+                rolling_std = []
+                for i in range(seg_len):
+                    start_i = max(0, i - window_size // 2)
+                    end_i   = min(seg_len, i + window_size // 2)
+                    sub = seg_data[start_i:end_i]
+                    rolling_std.append(np.std(sub))
+                rolling_std = np.array(rolling_std)
+
+                # find the index of minimal std
+                best_idx = np.argmin(rolling_std)
+                # define a plateau region around best_idx
+                plateau_half = window_size // 2
+                plat_start = max(0, best_idx - plateau_half)
+                plat_end   = min(seg_len, best_idx + plateau_half)
                 
-                for i in range(len(data)):
-                    start_idx = max(0, i - half_window)
-                    end_idx = min(len(data), i + half_window + 1)
-                    window_data = data[start_idx:end_idx]
-                    rolling_med[i] = np.median(window_data)
-                    rolling_std[i] = np.std(window_data)
-                
-                # Identify spikes
-                spike_mask = np.abs(data - rolling_med) > threshold_std * rolling_std
-                
-                # Replace spikes with interpolated values
-                cleaned_data = data.copy()
-                if np.any(spike_mask):
-                    non_spike_indices = np.where(~spike_mask)[0]
-                    spike_indices = np.where(spike_mask)[0]
-                    
-                    if len(non_spike_indices) > 0:  # Only interpolate if we have non-spike points
-                        cleaned_data[spike_indices] = np.interp(
-                            spike_indices, 
-                            non_spike_indices, 
-                            data[non_spike_indices]
-                        )
-                
-                return cleaned_data
-            
-            def find_stable_baseline(data, min_window=50):
-                """Find stable baseline using adaptive window sizes"""
-                # Adjust window size based on data length
-                data_len = len(data)
-                if data_len < min_window:
-                    return np.median(data), np.std(data)
-                    
-                # Try different window sizes
-                window_sizes = [
-                    min(data_len, size) 
-                    for size in [data_len//10, data_len//5, data_len//2]
-                    if size >= min_window
-                ]
-                
-                if not window_sizes:  # If no valid window sizes, use single window
-                    window_sizes = [data_len]
-                
-                best_mad = float('inf')
-                best_median = 0
-                
-                for window_size in window_sizes:
-                    for start in range(0, data_len - window_size + 1, window_size//2):
-                        window_data = data[start:start + window_size]
-                        median = np.median(window_data)
-                        mad = np.median(np.abs(window_data - median))
-                        
-                        if mad < best_mad:
-                            best_mad = mad
-                            best_median = median
-                
-                return best_median, best_mad
-            
-            # Initial baseline correction
-            initial_baseline = np.median(self.data[:min(1000, t0_samps)])
-            self.processed_data = self.data - initial_baseline
-            app_logger.info(f"Initial baseline correction: removed {initial_baseline:.2f} pA")
-            
-            # Process each segment
-            current_idx = 0
-            for duration, name in [(t0_samps, "t0"), (t1_samps, "t1"), 
-                                (t2_samps, "t2"), (t3_samps, "t3")]:
-                if duration > 0:
-                    end_idx = min(current_idx + duration, len(self.processed_data))
-                    segment_data = self.processed_data[current_idx:end_idx]
-                    
-                    if len(segment_data) < 5:  # Skip very short segments
-                        current_idx = end_idx
-                        continue
-                    
-                    # Remove spikes first
-                    cleaned_data = remove_spikes(segment_data)
-                    
-                    # Find stable baseline
-                    baseline, mad = find_stable_baseline(cleaned_data)
-                    
-                    # Determine if segment needs correction
-                    is_stable = mad < 50  # pA
-                    should_correct = abs(baseline) > 20 or name in ['t1', 't2', 't3']
-                    
-                    if should_correct and is_stable:
-                        # Apply correction
-                        self.processed_data[current_idx:end_idx] -= baseline
-                        app_logger.debug(
-                            f"Segment {name}: Corrected baseline by {baseline:.2f} pA "
-                            f"(MAD: {mad:.2f})"
-                        )
-                    else:
-                        app_logger.debug(
-                            f"Segment {name}: No correction needed "
-                            f"(baseline: {baseline:.2f} pA, MAD: {mad:.2f})"
-                        )
-                    
-                    # Re-clean after baseline correction
-                    self.processed_data[current_idx:end_idx] = remove_spikes(
-                        self.processed_data[current_idx:end_idx]
-                    )
-                    
-                    current_idx = end_idx
-            
-            # Final alignment check
-            if len(self.processed_data) > 1000:
-                final_region = self.processed_data[-1000:]
-                final_baseline = np.median(final_region)
-                if abs(final_baseline) > 10:  # Stricter final threshold
-                    self.processed_data -= final_baseline
-                    app_logger.info(f"Applied final baseline correction of {final_baseline:.2f} pA")
-            
-            app_logger.info("Advanced multi-segment normalization completed successfully")
-            
+                # Ensure we have at least 40 points or so
+                if (plat_end - plat_start) < 40:
+                    # fallback simpler approach
+                    plateau_offset = np.median(seg_data[10:50])
+                    self.processed_data[s_start:s_end] -= plateau_offset
+                    continue
+
+                # 2) Two‐point linear baseline from the plateau
+                #    We'll measure the first ~20 points and last ~20 points in that plateau region.
+                sub_plat = seg_data[plat_start:plat_end]
+                if (plat_end - plat_start) < 50:
+                    # if short, just do a single median
+                    plateau_offset = np.median(sub_plat)
+                    self.processed_data[s_start:s_end] -= plateau_offset
+                    continue
+
+                offset_start = np.median(sub_plat[:20])
+                offset_end   = np.median(sub_plat[-20:])
+                plateau_len  = (plat_end - plat_start)
+
+                slope = (offset_end - offset_start) / max(1, plateau_len - 1)
+
+                # 3) Subtract line from entire segment
+                for i in range(seg_len):
+                    # map i -> local plateau index
+                    # let's define i_plat = i - plat_start, clamped
+                    i_plat = min(max(i - plat_start, 0), plateau_len - 1)
+                    local_offset = offset_start + slope * i_plat
+                    self.processed_data[s_start + i] -= local_offset
+
+            app_logger.info("Advanced multi-segment normalization with auto plateau detection done.")
+
         except Exception as e:
-            app_logger.error(f"Error in multi-segment normalization: {str(e)}")
+            app_logger.error(f"Error in multi_segment_normalization: {str(e)}")
             raise
 
     def find_cycles(self):
         """
-        Step C: Identify negative peaks using find_peaks on -signal,
-        ignoring big noise by using std-based prominence.
+        Step 3: Identify negative peaks using find_peaks on -self.processed_data.
         """
         sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-        t1_samples = int(self.params['t1'] * sampling_rate / 1000)
+        # use t1 to set a typical cycle distance
+        t1_samps = int(self.params['t1'] * sampling_rate / 1000)
 
         neg_peaks, _ = signal.find_peaks(-self.processed_data,
                                          prominence=np.std(self.processed_data),
-                                         distance=t1_samples)
+                                         distance=t1_samps)
 
         for i, peak in enumerate(neg_peaks[: self.params['n_cycles']]):
-            start = max(0, peak - t1_samples//2)
-            end = min(len(self.processed_data), peak + t1_samples*2)
-            
+            start = max(0, peak - t1_samps // 2)
+            end = min(len(self.processed_data), peak + t1_samps * 2)
             cycle = self.processed_data[start:end]
             cycle_time = self.time_data[start:end] - self.time_data[start]
-            
+
             self.cycles.append(cycle)
             self.cycle_times.append(cycle_time)
             self.cycle_indices.append((start, end))
             app_logger.debug(f"Cycle {i+1} found at index {peak}")
 
-    def normalize_signal(self):
-        """
-        Step D (optional): Additional baseline or scale 
-        after multi_segment_normalization if needed.
-        """
-        if not self.cycles:
-            app_logger.info("No cycles for final normalization, skipping.")
-            return
-
-        # Example: subtract mean of each cycle's first 50 points
-        offset_vals = []
-        for cyc in self.cycles:
-            if len(cyc) > 50:
-                offset_vals.append(np.mean(cyc[:50]))
-        if offset_vals:
-            final_offset = np.mean(offset_vals)
-            self.processed_data -= final_offset
-            for i, (start, end) in enumerate(self.cycle_indices):
-                self.cycles[i] = self.processed_data[start:end]
-            app_logger.info(f"Final offset subtracted: {final_offset:.2f} pA")
-
     def calculate_integral(self):
         """
-        Step E: Integrate the first cycle above threshold => total charge => 
-        compute capacitance in µF/cm² using (V1 - V0).
+        Step 4: Integrate the first cycle above a 10% threshold => total charge => 
+        compute capacitance => return results.
         """
         try:
             if not self.cycles:
@@ -302,6 +218,7 @@ class ActionPotentialProcessor:
             time_in_s = cycle_time
             voltage_diff_in_V = (self.params['V1'] - self.params['V0']) * 1e-3
 
+            # find threshold
             peak_curr = np.max(np.abs(current_in_A))
             thr = 0.1 * peak_curr
             mask = np.abs(current_in_A) > thr
