@@ -247,29 +247,55 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error updating analysis: {str(e)}")
 
     def on_action_potential_analysis(self, params):
-        """Handle action potential analysis"""
-        try:
-            if self.filtered_data is None:
-                messagebox.showwarning("Analysis", "No filtered data available")
-                return None
+        """Handle action potential analysis or visibility changes."""
+        # Check if this is a visibility update
+        if isinstance(params, dict) and params.get('visibility_update'):
+            # If we have data to show, update the plot with current visibility settings
+            if hasattr(self, 'processed_data') and self.processed_data is not None:
+                self.update_plot_with_processed_data(
+                    self.processed_data, 
+                    self.orange_curve, 
+                    self.orange_times
+                )
+            return
 
-            # Create processor with current data
-            processor = ActionPotentialProcessor(self.filtered_data, self.time_data, params)
+        # Regular analysis path
+        if self.filtered_data is None:
+            messagebox.showwarning("Analysis", "No filtered data available")
+            return
             
-            # Process signal and get results
-            processed_data, time_data, results = processor.process_signal()
+        try:
+            # Create processor instance
+            self.action_potential_processor = ActionPotentialProcessor(
+                self.filtered_data,
+                self.time_data,
+                params
+            )
             
-            # Update plot if successful
-            if processed_data is not None and results:
-                self.plot_action_potential(processed_data, time_data)
-                app_logger.info("Action potential analysis completed successfully")
-                return results
-                
-            return None
-                
+            # Process signal
+            processed_data, orange_curve, orange_times, results = self.action_potential_processor.process_signal()
+            
+            if processed_data is None:
+                messagebox.showwarning("Analysis", 
+                                    "Analysis failed: " + str(results.get('integral_value', 'Unknown error')))
+                return
+            
+            # Store the data
+            self.processed_data = processed_data
+            self.orange_curve = orange_curve
+            self.orange_times = orange_times
+            
+            # Update plot
+            self.update_plot_with_processed_data(processed_data, orange_curve, orange_times)
+            
+            # Update results display
+            self.action_potential_tab.update_results(results)
+            
+            app_logger.info("Action potential analysis completed successfully")
+            
         except Exception as e:
             app_logger.error(f"Error in action potential analysis: {str(e)}")
-            raise
+            messagebox.showerror("Error", f"Analysis failed: {str(e)}")
 
     def plot_action_potential(self, processed_data, time_data):
         """Plot action potential analysis results"""
@@ -448,8 +474,8 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error exporting figure: {str(e)}")
             messagebox.showerror("Error", f"Failed to export figure: {str(e)}")
 
-    def update_plot_with_processed_data(self, processed_data, processed_time):
-        """Update plot with processed data ensuring time alignment"""
+    def update_plot_with_processed_data(self, processed_data, orange_curve, orange_times):
+        """Update plot with processed data and orange curve, respecting visibility settings."""
         try:
             self.ax.clear()
             
@@ -458,29 +484,38 @@ class SignalAnalyzerApp:
             
             # Plot original data with transparency
             if view_params.get('show_original', True):
-                self.ax.plot(self.time_data, self.data, 'b-', 
+                self.ax.plot(self.time_data * 1000, self.data, 'b-', 
                         label='Original Signal', alpha=0.3)
             
             # Plot filtered data
             if view_params.get('show_filtered', True):
-                self.ax.plot(self.time_data, self.filtered_data, 'r-', 
+                self.ax.plot(self.time_data * 1000, self.filtered_data, 'r-', 
                         label='Filtered Signal', alpha=0.5)
             
-            # Plot processed data
-            self.ax.plot(processed_time, processed_data, 'g-', 
-                        label='Processed Signal', linewidth=2)
+            # Plot processed data if enabled
+            if processed_data is not None and self.action_potential_tab.show_processed.get():
+                self.ax.plot(self.time_data * 1000, processed_data, 'g-', 
+                            label='Processed Signal', linewidth=1.5)
+            
+            # Plot orange curve if enabled
+            if (orange_curve is not None and 
+                orange_times is not None and 
+                self.action_potential_tab.show_average.get()):
+                self.ax.plot(orange_times * 1000, orange_curve, 'orange', 
+                            label='50-point Average', linewidth=1.5)
             
             # Set labels and grid
+            self.ax.set_xlabel('Time (ms)')
             self.ax.set_ylabel('Current (pA)')
             self.ax.grid(True)
             self.ax.legend()
             
-            # Format time axis to milliseconds
-            self.format_time_axis()
-            
             # Update axis limits if specified
             if 'y_min' in view_params and 'y_max' in view_params:
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
+                
+            if 't_min' in view_params and 't_max' in view_params:
+                self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
             
             self.fig.tight_layout()
             self.canvas.draw_idle()
