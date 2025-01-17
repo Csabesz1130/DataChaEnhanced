@@ -1,8 +1,10 @@
+# src/gui/plot_windows/normalization_window.py
+
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
 from src.utils.logger import app_logger
-from src.gui.plot_windows.plot_window_base import PlotWindowBase
+from .plot_window_base import PlotWindowBase
 
 class NormalizationWindow(PlotWindowBase):
     def __init__(self, parent, callback=None):
@@ -15,17 +17,25 @@ class NormalizationWindow(PlotWindowBase):
         self.v1 = tk.DoubleVar(value=20.0)   # Final voltage
         self.custom_min = tk.DoubleVar(value=0.0)
         self.custom_max = tk.DoubleVar(value=1.0)
+        self.show_reference = tk.BooleanVar(value=True)
+        self.show_stats = tk.BooleanVar(value=True)
+        self.auto_update = tk.BooleanVar(value=True)
         
-        # Add trace to variables for auto-update
-        self.v0.trace_add("write", lambda *args: self.update_plot())
-        self.v1.trace_add("write", lambda *args: self.update_plot())
-        self.custom_min.trace_add("write", lambda *args: self.update_plot())
-        self.custom_max.trace_add("write", lambda *args: self.update_plot())
+        # Initialize statistics
+        self.stats_var = tk.StringVar(value="No data")
         
-        # Setup specific controls
+        # Setup parameter traces
+        self.setup_variable_traces()
+        
+        # Setup controls
         self.setup_normalization_controls()
         
         app_logger.debug("Normalization window initialized")
+
+    def setup_variable_traces(self):
+        """Setup variable traces for auto-update"""
+        for var in [self.v0, self.v1, self.custom_min, self.custom_max]:
+            var.trace_add("write", self.on_parameter_change)
 
     def setup_normalization_controls(self):
         """Setup normalization specific controls"""
@@ -45,48 +55,69 @@ class NormalizationWindow(PlotWindowBase):
         voltage_frame = ttk.LabelFrame(self.control_frame, text="Voltage Range")
         voltage_frame.pack(fill='x', padx=5, pady=5)
         
-        ttk.Label(voltage_frame, text="V0 (mV):").pack()
-        ttk.Entry(voltage_frame, textvariable=self.v0).pack(pady=2)
+        # V0 controls
+        v0_frame = ttk.Frame(voltage_frame)
+        v0_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(v0_frame, text="V0 (mV):").pack(side='left')
+        ttk.Entry(v0_frame, textvariable=self.v0, width=10).pack(side='right')
         ttk.Scale(voltage_frame, from_=-100, to=0,
-                 variable=self.v0, orient='horizontal').pack(fill='x', pady=2)
+                 variable=self.v0, orient='horizontal').pack(fill='x')
         
-        ttk.Label(voltage_frame, text="V1 (mV):").pack()
-        ttk.Entry(voltage_frame, textvariable=self.v1).pack(pady=2)
+        # V1 controls
+        v1_frame = ttk.Frame(voltage_frame)
+        v1_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(v1_frame, text="V1 (mV):").pack(side='left')
+        ttk.Entry(v1_frame, textvariable=self.v1, width=10).pack(side='right')
         ttk.Scale(voltage_frame, from_=0, to=100,
-                 variable=self.v1, orient='horizontal').pack(fill='x', pady=2)
+                 variable=self.v1, orient='horizontal').pack(fill='x')
         
         # Custom range controls
         custom_frame = ttk.LabelFrame(self.control_frame, text="Custom Range")
         custom_frame.pack(fill='x', padx=5, pady=5)
         
-        ttk.Label(custom_frame, text="Min Value:").pack()
-        ttk.Entry(custom_frame, textvariable=self.custom_min).pack(pady=2)
+        # Min value controls
+        min_frame = ttk.Frame(custom_frame)
+        min_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(min_frame, text="Min:").pack(side='left')
+        ttk.Entry(min_frame, textvariable=self.custom_min, width=10).pack(side='right')
         ttk.Scale(custom_frame, from_=-10, to=10,
-                 variable=self.custom_min, orient='horizontal').pack(fill='x', pady=2)
+                 variable=self.custom_min, orient='horizontal').pack(fill='x')
         
-        ttk.Label(custom_frame, text="Max Value:").pack()
-        ttk.Entry(custom_frame, textvariable=self.custom_max).pack(pady=2)
+        # Max value controls
+        max_frame = ttk.Frame(custom_frame)
+        max_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(max_frame, text="Max:").pack(side='left')
+        ttk.Entry(max_frame, textvariable=self.custom_max, width=10).pack(side='right')
         ttk.Scale(custom_frame, from_=-10, to=10,
-                 variable=self.custom_max, orient='horizontal').pack(fill='x', pady=2)
+                 variable=self.custom_max, orient='horizontal').pack(fill='x')
+        
+        # Display options
+        display_frame = ttk.LabelFrame(self.control_frame, text="Display Options")
+        display_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Checkbutton(display_frame, text="Show Reference Lines",
+                       variable=self.show_reference,
+                       command=self.update_plot).pack(pady=2)
+        
+        ttk.Checkbutton(display_frame, text="Show Statistics",
+                       variable=self.show_stats,
+                       command=self.update_statistics).pack(pady=2)
+        
+        ttk.Checkbutton(display_frame, text="Auto Update",
+                       variable=self.auto_update).pack(pady=2)
         
         # Statistics display
-        stats_frame = ttk.LabelFrame(self.control_frame, text="Statistics")
-        stats_frame.pack(fill='x', padx=5, pady=5)
+        self.stats_frame = ttk.LabelFrame(self.control_frame, text="Statistics")
+        self.stats_frame.pack(fill='x', padx=5, pady=5)
         
-        self.stats_var = tk.StringVar(value="No data")
-        stats_label = ttk.Label(stats_frame, textvariable=self.stats_var,
-                              wraplength=200, justify='left')
-        stats_label.pack(pady=5)
+        ttk.Label(self.stats_frame, textvariable=self.stats_var,
+                 wraplength=200, justify='left').pack(pady=5)
         
-        # Reference lines toggle
-        self.show_refs = tk.BooleanVar(value=True)
-        ttk.Checkbutton(self.control_frame, text="Show Reference Lines",
-                       variable=self.show_refs,
-                       command=self.update_plot).pack(pady=5)
-        
-        # Reset button
+        # Control buttons
+        ttk.Button(self.control_frame, text="Update",
+                  command=self.update_plot).pack(pady=2)
         ttk.Button(self.control_frame, text="Reset",
-                  command=self.reset_normalization).pack(pady=5)
+                  command=self.reset_normalization).pack(pady=2)
 
     def normalize_data(self):
         """Normalize data based on selected method"""
@@ -119,27 +150,48 @@ class NormalizationWindow(PlotWindowBase):
 
     def update_statistics(self):
         """Update statistics display"""
-        if self.processed_data is None:
+        if self.processed_data is None or not self.show_stats.get():
+            self.stats_var.set("No data")
             return
             
-        stats = {
-            'min': np.min(self.processed_data),
-            'max': np.max(self.processed_data),
-            'mean': np.mean(self.processed_data),
-            'std': np.std(self.processed_data),
-            'range': np.ptp(self.processed_data)
-        }
-        
-        stats_text = (
-            f"Statistics:\n"
-            f"Min: {stats['min']:.2f}\n"
-            f"Max: {stats['max']:.2f}\n"
-            f"Mean: {stats['mean']:.2f}\n"
-            f"Std Dev: {stats['std']:.2f}\n"
-            f"Range: {stats['range']:.2f}"
-        )
-        
-        self.stats_var.set(stats_text)
+        try:
+            orig_stats = {
+                'min': np.min(self.data),
+                'max': np.max(self.data),
+                'mean': np.mean(self.data),
+                'std': np.std(self.data)
+            }
+            
+            norm_stats = {
+                'min': np.min(self.processed_data),
+                'max': np.max(self.processed_data),
+                'mean': np.mean(self.processed_data),
+                'std': np.std(self.processed_data)
+            }
+            
+            stats_text = (
+                f"Original Data:\n"
+                f"  Min: {orig_stats['min']:.2f}\n"
+                f"  Max: {orig_stats['max']:.2f}\n"
+                f"  Mean: {orig_stats['mean']:.2f}\n"
+                f"  Std: {orig_stats['std']:.2f}\n\n"
+                f"Normalized Data:\n"
+                f"  Min: {norm_stats['min']:.2f}\n"
+                f"  Max: {norm_stats['max']:.2f}\n"
+                f"  Mean: {norm_stats['mean']:.2f}\n"
+                f"  Std: {norm_stats['std']:.2f}"
+            )
+            
+            self.stats_var.set(stats_text)
+            
+        except Exception as e:
+            app_logger.error(f"Error updating statistics: {str(e)}")
+            self.stats_var.set(f"Error: {str(e)}")
+
+    def on_parameter_change(self, *args):
+        """Handle parameter changes"""
+        if self.auto_update.get():
+            self.update_plot()
 
     def update_plot(self):
         """Update plot with normalized data"""
@@ -162,10 +214,10 @@ class NormalizationWindow(PlotWindowBase):
             
             # Plot normalized data
             self.ax.plot(self.time_data, self.processed_data, 'r-',
-                        label='Normalized')
+                        label='Normalized', linewidth=1.5)
             
             # Add reference lines if enabled
-            if self.show_refs.get():
+            if self.show_reference.get():
                 if self.norm_method.get() == "voltage":
                     self.ax.axhline(y=self.v0.get(), color='g',
                                   linestyle='--', label='V0')
@@ -177,13 +229,18 @@ class NormalizationWindow(PlotWindowBase):
                     self.ax.axhline(y=self.custom_max.get(), color='g',
                                   linestyle='--', label='Max')
             
+            # Set labels and grid
             self.ax.set_xlabel("Time (s)")
             self.ax.set_ylabel("Signal")
             self.ax.legend()
             self.ax.grid(True)
             
+            # Update plot
             self.fig.tight_layout()
             self.canvas.draw()
+            
+            # Store view state
+            self.store_current_view()
             
             app_logger.debug("Normalization plot updated")
             
@@ -198,11 +255,28 @@ class NormalizationWindow(PlotWindowBase):
         self.v1.set(20.0)
         self.custom_min.set(0.0)
         self.custom_max.set(1.0)
-        self.show_refs.set(True)
+        self.show_reference.set(True)
+        self.show_stats.set(True)
         self.update_plot()
 
     def on_accept(self):
         """Handle accept button click"""
         if self.callback:
-            self.callback(self.processed_data)
+            result = {
+                'processed_data': self.processed_data,
+                'method': self.norm_method.get(),
+                'parameters': {
+                    'v0': self.v0.get(),
+                    'v1': self.v1.get(),
+                    'custom_min': self.custom_min.get(),
+                    'custom_max': self.custom_max.get()
+                },
+                'statistics': {
+                    'original_min': np.min(self.data),
+                    'original_max': np.max(self.data),
+                    'normalized_min': np.min(self.processed_data),
+                    'normalized_max': np.max(self.processed_data)
+                }
+            }
+            self.callback(result)
         self.destroy()

@@ -1,3 +1,5 @@
+# src/gui/plot_windows/integration_window.py
+
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
@@ -16,12 +18,12 @@ class IntegrationWindow(PlotWindowBase):
         self.range_start = tk.DoubleVar(value=0.0)
         self.range_end = tk.DoubleVar(value=1.0)
         self.show_filled = tk.BooleanVar(value=True)
+        self.show_cumulative = tk.BooleanVar(value=True)
         
         # Integration results
         self.integral_value = tk.StringVar(value="Not calculated")
         self.integral_data = None
         
-        # Setup specific controls
         self.setup_integration_controls()
         
         app_logger.debug("Integration window initialized")
@@ -48,17 +50,27 @@ class IntegrationWindow(PlotWindowBase):
                        variable=self.use_range,
                        command=self.update_plot).pack(pady=2)
         
-        ttk.Label(range_frame, text="Start Time (s):").pack()
-        ttk.Entry(range_frame, textvariable=self.range_start).pack(pady=2)
+        # Start time control with slider
+        start_frame = ttk.Frame(range_frame)
+        start_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(start_frame, text="Start:").pack(side='left')
+        ttk.Entry(start_frame, textvariable=self.range_start,
+                 width=10).pack(side='right')
         ttk.Scale(range_frame, from_=0, to=1,
-                 variable=self.range_start, orient='horizontal',
-                 command=lambda *args: self.update_plot()).pack(fill='x', pady=2)
+                 variable=self.range_start,
+                 orient='horizontal',
+                 command=lambda *args: self.update_plot()).pack(fill='x')
         
-        ttk.Label(range_frame, text="End Time (s):").pack()
-        ttk.Entry(range_frame, textvariable=self.range_end).pack(pady=2)
+        # End time control with slider
+        end_frame = ttk.Frame(range_frame)
+        end_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(end_frame, text="End:").pack(side='left')
+        ttk.Entry(end_frame, textvariable=self.range_end,
+                 width=10).pack(side='right')
         ttk.Scale(range_frame, from_=0, to=1,
-                 variable=self.range_end, orient='horizontal',
-                 command=lambda *args: self.update_plot()).pack(fill='x', pady=2)
+                 variable=self.range_end,
+                 orient='horizontal',
+                 command=lambda *args: self.update_plot()).pack(fill='x')
         
         # Display options
         display_frame = ttk.LabelFrame(self.control_frame, text="Display Options")
@@ -68,6 +80,10 @@ class IntegrationWindow(PlotWindowBase):
                        variable=self.show_filled,
                        command=self.update_plot).pack(pady=2)
         
+        ttk.Checkbutton(display_frame, text="Show Cumulative",
+                       variable=self.show_cumulative,
+                       command=self.update_plot).pack(pady=2)
+        
         # Results display
         results_frame = ttk.LabelFrame(self.control_frame, text="Integration Results")
         results_frame.pack(fill='x', padx=5, pady=5)
@@ -75,7 +91,7 @@ class IntegrationWindow(PlotWindowBase):
         ttk.Label(results_frame, textvariable=self.integral_value,
                  wraplength=200, justify='left').pack(pady=5)
         
-        # Add calculate button
+        # Calculate button
         ttk.Button(self.control_frame, text="Calculate",
                   command=self.calculate_integral).pack(pady=5)
 
@@ -83,23 +99,38 @@ class IntegrationWindow(PlotWindowBase):
         """Override set_data to update range scales"""
         super().set_data(time_data, data)
         
-        # Update range scales with actual time limits
-        t_min = np.min(time_data)
-        t_max = np.max(time_data)
-        
-        for scale in self.control_frame.findall('ttk.Scale'):
-            scale.configure(from_=t_min, to=t_max)
-        
-        self.range_start.set(t_min)
-        self.range_end.set(t_max)
+        if time_data is not None:
+            t_min = np.min(time_data)
+            t_max = np.max(time_data)
+            
+            # Update range scales
+            for widget in self.control_frame.winfo_children():
+                if isinstance(widget, ttk.Scale):
+                    widget.configure(from_=t_min, to=t_max)
+            
+            self.range_start.set(t_min)
+            self.range_end.set(t_max)
+
+    # Add these methods to the IntegrationWindow class
+
+    def set_normalized_data(self, normalized_data, normalization_params):
+        """Set normalized data and its parameters"""
+        self.normalization_params = normalization_params
+        self.original_data = self.data  # Store original data
+        self.data = normalized_data
+        self.processed_data = normalized_data.copy()
+        self.update_plot()
+        app_logger.debug("Set normalized data with parameters: " + str(normalization_params))
+
+    # In IntegrationWindow class:
 
     def calculate_integral(self):
-        """Calculate the integral of the signal"""
+        """Calculate the integral using proper time units"""
         try:
             if self.processed_data is None:
                 return
             
-            # Get data range
+            # Get data range in real time units
             if self.use_range.get():
                 start_idx = np.searchsorted(self.time_data, self.range_start.get())
                 end_idx = np.searchsorted(self.time_data, self.range_end.get())
@@ -109,30 +140,33 @@ class IntegrationWindow(PlotWindowBase):
                 t = self.time_data
                 y = self.processed_data
             
-            # Calculate integral
+            # Calculate integral in proper units
             if self.integration_method.get() == "simps":
+                # Simpson's integration using real time intervals
                 integral = simps(y, t)
+                if self.show_cumulative.get():
+                    self.integral_data = np.array([
+                        simps(y[:i+1], t[:i+1]) for i in range(len(t))
+                    ])
             else:  # trapz
+                # Trapezoidal integration using real time intervals
                 integral = trapz(y, t)
+                if self.show_cumulative.get():
+                    self.integral_data = np.array([
+                        trapz(y[:i+1], t[:i+1]) for i in range(len(t))
+                    ])
             
-            # Calculate cumulative integral
-            if self.integration_method.get() == "simps":
-                self.integral_data = np.array([simps(y[:i+1], t[:i+1]) 
-                                             for i in range(len(t))])
-            else:
-                self.integral_data = np.array([trapz(y[:i+1], t[:i+1])
-                                             for i in range(len(t))])
-            
-            # Update display
+            # Update results with proper time units
+            duration = t[-1] - t[0]
             self.integral_value.set(
-                f"Integral Value: {integral:.6f}\n"
+                f"Integration Results:\n"
                 f"Method: {self.integration_method.get()}\n"
-                f"Range: {t[0]:.3f} to {t[-1]:.3f} s"
+                f"Integral: {integral:.6e} pA·s\n"
+                f"Duration: {duration:.3f} s\n"
+                f"Mean Rate: {integral/duration:.2e} pA"
             )
             
             self.update_plot()
-            
-            app_logger.debug(f"Integral calculated: {integral:.6f}")
             return integral
             
         except Exception as e:
@@ -159,28 +193,44 @@ class IntegrationWindow(PlotWindowBase):
                 y = self.processed_data
             
             # Plot original signal
-            self.ax.plot(t, y, 'b-', label='Signal')
+            self.ax.plot(t, y, 'b-', label='Signal', linewidth=1.5)
             
             # Show filled area if enabled
-            if self.show_filled.get() and self.integral_data is not None:
-                self.ax.fill_between(t, y, alpha=0.3)
+            if self.show_filled.get():
+                self.ax.fill_between(t, y, alpha=0.3, color='blue')
             
-            # Plot cumulative integral if calculated
-            if self.integral_data is not None:
+            # Plot cumulative integral if calculated and enabled
+            if self.show_cumulative.get() and self.integral_data is not None:
                 ax2 = self.ax.twinx()
-                ax2.plot(t, self.integral_data, 'r-', label='Cumulative Integral')
+                ax2.plot(t, self.integral_data, 'r-', 
+                        label='Cumulative Integral', linewidth=1.5)
                 ax2.set_ylabel('Integral', color='r')
+                ax2.tick_params(axis='y', labelcolor='r')
+                
+                # Add legend for second axis
+                lines2, labels2 = ax2.get_legend_handles_labels()
+                self.ax.legend(loc='upper left')
+                ax2.legend(lines2, labels2, loc='upper right')
+            else:
+                self.ax.legend()
             
+            # Add grid
+            self.ax.grid(True, which='both', linestyle='--', alpha=0.6)
+            
+            # Labels
             self.ax.set_xlabel("Time (s)")
             self.ax.set_ylabel("Signal")
-            self.ax.legend(loc='upper left')
-            if self.integral_data is not None:
-                ax2.legend(loc='upper right')
             
-            self.ax.grid(True)
+            # Show range if enabled
+            if self.use_range.get():
+                self.ax.axvspan(self.range_start.get(), self.range_end.get(),
+                              alpha=0.2, color='gray')
             
             self.fig.tight_layout()
             self.canvas.draw()
+            
+            # Store view state after update
+            self.store_current_view()
             
             app_logger.debug("Integration plot updated")
             
@@ -188,13 +238,19 @@ class IntegrationWindow(PlotWindowBase):
             app_logger.error(f"Error updating integration plot: {str(e)}")
             raise
 
+
     def on_accept(self):
         """Handle accept button click"""
         if self.callback and self.integral_data is not None:
-            self.callback({
-                'integral_value': float(self.integral_value.get().split()[2]),
+            result = {
+                'integral_value': float(self.integral_value.get().split()[-2]),
                 'integral_data': self.integral_data,
                 'time_data': self.time_data,
-                'original_data': self.processed_data
-            })
+                'original_data': self.processed_data,
+                'range': {
+                    'start': self.range_start.get(),
+                    'end': self.range_end.get()
+                } if self.use_range.get() else None
+            }
+            self.callback(result)
         self.destroy()
