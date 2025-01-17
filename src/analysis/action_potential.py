@@ -142,14 +142,18 @@ class ActionPotentialProcessor:
             segment_start = 0
             segments = []
             
-            # Find segments using for loop
+            # Find segments using for loop with stricter slope threshold
             for i in range(1, len(self.processed_data)):
                 slope = abs(self.processed_data[i] - self.processed_data[i-1])
                 if slope > threshold_slope:
-                    # End current segment
-                    if i - segment_start > 50:  # Minimum segment length
-                        segments.append((segment_start, i))
-                    segment_start = i + 1
+                    # Verify it's a real transition, not noise
+                    if i + 1 < len(self.processed_data):
+                        next_slope = abs(self.processed_data[i+1] - self.processed_data[i])
+                        if next_slope > threshold_slope:
+                            # End current segment
+                            if i - segment_start > 50:  # Minimum segment length
+                                segments.append((segment_start, i))
+                            segment_start = i + 1
             
             # Add final segment if exists
             if segment_start < len(self.processed_data) - 50:
@@ -157,12 +161,28 @@ class ActionPotentialProcessor:
             
             # Process each segment
             for start, end in segments:
-                # Calculate baseline from last 50 points of segment
-                baseline_points = self.processed_data[max(start, end-50):end]
+                # Get endpoint region for baseline calculation
+                endpoint_window = 50
+                baseline_start = max(start, end - endpoint_window)
+                
+                # Only use stable points for baseline
+                baseline_points = self.processed_data[baseline_start:end]
                 if len(baseline_points) > 0:
-                    baseline = np.mean(baseline_points)
-                    # Subtract baseline from segment
+                    # Calculate baseline from stable points (using median for robustness)
+                    baseline = np.median(baseline_points)
+                    
+                    # Subtract baseline from entire segment
                     self.processed_data[start:end] -= baseline
+                    
+                    # Ensure smooth transition at segment boundaries
+                    if start > 0:
+                        # Blend transition over 10 points
+                        blend_points = min(10, start)
+                        weights = np.linspace(0, 1, blend_points)
+                        self.processed_data[start-blend_points:start] = (
+                            weights * self.processed_data[start] +
+                            (1 - weights) * self.processed_data[start-blend_points]
+                        )
             
             app_logger.info(f"Advanced normalization completed with {len(segments)} segments")
             
@@ -202,24 +222,70 @@ class ActionPotentialProcessor:
             raise
 
     def find_cycles(self):
-        """Identify negative peaks using find_peaks on -self.processed_data."""
-        sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-        t1_samps = int(self.params['t1'] * sampling_rate / 1000)
-        
-        neg_peaks, _ = signal.find_peaks(-self.processed_data,
-                                       prominence=np.std(self.processed_data),
-                                       distance=t1_samps)
-        
-        for i, peak in enumerate(neg_peaks[:self.params['n_cycles']]):
-            start = max(0, peak - t1_samps//2)
-            end = min(len(self.processed_data), peak + t1_samps*2)
-            cycle = self.processed_data[start:end]
-            cycle_time = self.time_data[start:end] - self.time_data[start]
+        """
+        Identify and extract consistent hyperpolarization cycles.
+        Ensures similar peak timing and curve shapes across cycles.
+        """
+        try:
+            sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
+            t1_samps = int(self.params['t1'] * sampling_rate / 1000)
             
-            self.cycles.append(cycle)
-            self.cycle_times.append(cycle_time)
-            self.cycle_indices.append((start, end))
-            app_logger.debug(f"Cycle {i+1} found at index {peak}")
+            # Find significant negative peaks with more stringent criteria
+            neg_peaks, properties = signal.find_peaks(-self.processed_data,
+                                                    prominence=np.std(self.processed_data) * 1.5,  # Increased prominence
+                                                    distance=t1_samps,
+                                                    width=(t1_samps//4, t1_samps))  # Add width constraints
+            
+            # Filter peaks based on minimum depth
+            min_depth = np.max(np.abs(self.processed_data)) * 0.4  # 40% of max amplitude
+            valid_peaks = []
+            for peak in neg_peaks:
+                if abs(self.processed_data[peak]) > min_depth:
+                    valid_peaks.append(peak)
+            
+            # Extract cycles with consistent window sizes
+            window_before = t1_samps // 2  # Fixed window before peak
+            window_after = int(t1_samps * 1.5)   # Fixed window after peak
+            
+            self.cycles = []
+            self.cycle_times = []
+            self.cycle_indices = []
+            
+            for i, peak in enumerate(valid_peaks[:self.params['n_cycles']]):
+                # Define cycle boundaries
+                start = max(0, peak - window_before)
+                end = min(len(self.processed_data), peak + window_after)
+                
+                # Only include cycles with full windows
+                if end - start == window_before + window_after:
+                    cycle = self.processed_data[start:end]
+                    cycle_time = self.time_data[start:end] - self.time_data[start]
+                    
+                    self.cycles.append(cycle)
+                    self.cycle_times.append(cycle_time)
+                    self.cycle_indices.append((start, end))
+                    app_logger.debug(f"Cycle {i+1} found at index {peak}")
+            
+            if not self.cycles:
+                app_logger.warning("No valid cycles found")
+                return
+                
+            # Verify cycle similarity
+            if len(self.cycles) >= 2:
+                correlations = []
+                reference_cycle = self.cycles[0]
+                for cycle in self.cycles[1:]:
+                    corr = np.corrcoef(reference_cycle, cycle)[0, 1]
+                    correlations.append(corr)
+                    app_logger.debug(f"Cycle correlation: {corr:.3f}")
+                
+                # Warn if cycles are too different
+                if any(corr < 0.8 for corr in correlations):
+                    app_logger.warning("Detected cycles show significant differences")
+            
+        except Exception as e:
+            app_logger.error(f"Error in cycle detection: {str(e)}")
+            raise
 
     def calculate_integral(self):
         """Calculate integral and capacitance from the first cycle."""

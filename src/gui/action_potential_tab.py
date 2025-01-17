@@ -41,6 +41,10 @@ class ActionPotentialTab:
             # Visibility controls
             self.show_processed = tk.BooleanVar(value=True)
             self.show_average = tk.BooleanVar(value=True)
+            
+            # Display mode controls using StringVar for radio buttons
+            self.processed_display_mode = tk.StringVar(value="line")  # "line", "points", "all_points"
+            self.average_display_mode = tk.StringVar(value="line")    # "line", "points", "all_points"
 
             # Display variables
             self.integral_value = tk.StringVar(value="No analysis performed")
@@ -54,6 +58,89 @@ class ActionPotentialTab:
             app_logger.debug("Variables initialized successfully.")
         except Exception as e:
             app_logger.error(f"Error initializing variables: {str(e)}")
+            raise
+
+    def setup_visibility_controls(self):
+        """Create visibility toggle controls with radio buttons for display mode."""
+        try:
+            visibility_frame = ttk.LabelFrame(self.frame, text="Display Controls")
+            visibility_frame.pack(fill='x', padx=5, pady=5)
+            
+            # Processed Signal Controls
+            proc_frame = ttk.LabelFrame(visibility_frame, text="Processed Signal (Green)")
+            proc_frame.pack(fill='x', padx=5, pady=2)
+            
+            ttk.Checkbutton(proc_frame, text="Show Signal",
+                           variable=self.show_processed,
+                           command=self.on_visibility_change).pack(pady=1)
+            
+            # Radio buttons for display mode
+            style_frame = ttk.Frame(proc_frame)
+            style_frame.pack(fill='x', padx=20)
+            
+            ttk.Radiobutton(style_frame, text="Show Line",
+                          variable=self.processed_display_mode,
+                          value="line",
+                          command=self.on_visibility_change).pack(side='left', padx=5)
+            
+            ttk.Radiobutton(style_frame, text="Show Points",
+                          variable=self.processed_display_mode,
+                          value="points",
+                          command=self.on_visibility_change).pack(side='left', padx=5)
+                          
+            ttk.Radiobutton(style_frame, text="Show All Points",
+                          variable=self.processed_display_mode,
+                          value="all_points",
+                          command=self.on_visibility_change).pack(side='left', padx=5)
+            
+            # Average Signal Controls
+            avg_frame = ttk.LabelFrame(visibility_frame, text="50-point Average (Orange)")
+            avg_frame.pack(fill='x', padx=5, pady=2)
+            
+            ttk.Checkbutton(avg_frame, text="Show Signal",
+                           variable=self.show_average,
+                           command=self.on_visibility_change).pack(pady=1)
+            
+            # Radio buttons for average display mode
+            style_frame = ttk.Frame(avg_frame)
+            style_frame.pack(fill='x', padx=20)
+            
+            ttk.Radiobutton(style_frame, text="Show Line",
+                          variable=self.average_display_mode,
+                          value="line",
+                          command=self.on_visibility_change).pack(side='left', padx=5)
+            
+            ttk.Radiobutton(style_frame, text="Show Points",
+                          variable=self.average_display_mode,
+                          value="points",
+                          command=self.on_visibility_change).pack(side='left', padx=5)
+                          
+            ttk.Radiobutton(style_frame, text="Show All Points",
+                          variable=self.average_display_mode,
+                          value="all_points",
+                          command=self.on_visibility_change).pack(side='left', padx=5)
+            
+        except Exception as e:
+            app_logger.error(f"Error setting up visibility controls: {str(e)}")
+            raise
+
+    def on_visibility_change(self):
+        """Handle visibility toggle changes."""
+        try:
+            # Create visibility parameters dictionary
+            params = {
+                'visibility_update': True,  # Flag to indicate this is a visibility update
+                'show_processed': self.show_processed.get(),
+                'processed_display_mode': self.processed_display_mode.get(),
+                'show_average': self.show_average.get(),
+                'average_display_mode': self.average_display_mode.get()
+            }
+            
+            # Call the callback with visibility settings
+            self.update_callback(params)
+            
+        except Exception as e:
+            app_logger.error(f"Error updating visibility: {str(e)}")
             raise
 
     def validate_n_cycles(self, *args):
@@ -81,26 +168,6 @@ class ActionPotentialTab:
             self.t1.set(100.0)
             self.t2.set(100.0)
             self.t3.set(1000.0)
-
-    def setup_visibility_controls(self):
-        """Create visibility toggle controls for curves."""
-        try:
-            visibility_frame = ttk.LabelFrame(self.frame, text="Show/Hide Curves")
-            visibility_frame.pack(fill='x', padx=5, pady=5)
-            
-            ttk.Checkbutton(visibility_frame, 
-                           text="Show Processed Signal (Green)",
-                           variable=self.show_processed,
-                           command=self.on_visibility_change).pack(pady=2)
-            
-            ttk.Checkbutton(visibility_frame, 
-                           text="Show 50-point Average (Orange)",
-                           variable=self.show_average,
-                           command=self.on_visibility_change).pack(pady=2)
-            
-        except Exception as e:
-            app_logger.error(f"Error setting up visibility controls: {str(e)}")
-            raise
 
     def setup_parameter_controls(self):
         """Create UI for the time intervals and voltages."""
@@ -153,20 +220,17 @@ class ActionPotentialTab:
             analysis_frame = ttk.LabelFrame(self.frame, text="Analysis")
             analysis_frame.pack(fill='x', padx=5, pady=5)
             
-            # Analysis button
             self.analyze_button = ttk.Button(analysis_frame, 
                                            text="Analyze Signal", 
                                            command=self.analyze_signal)
             self.analyze_button.pack(pady=5)
             
-            # Progress bar
             self.progress_var = tk.DoubleVar()
             self.progress = ttk.Progressbar(analysis_frame, 
                                           variable=self.progress_var, 
                                           mode='determinate')
             self.progress.pack(fill='x', padx=5, pady=5)
             
-            # Results display
             results_frame = ttk.LabelFrame(analysis_frame, text="Results")
             results_frame.pack(fill='x', padx=5, pady=5)
 
@@ -174,30 +238,12 @@ class ActionPotentialTab:
             ttk.Label(results_frame, textvariable=self.integral_value, 
                      width=30).pack(side='left', padx=5)
 
-            # Status display
             status_frame = ttk.Frame(self.frame)
             status_frame.pack(fill='x', padx=5, pady=5)
             ttk.Label(status_frame, textvariable=self.status_text).pack(side='left')
             
         except Exception as e:
             app_logger.error(f"Error setting up analysis controls: {str(e)}")
-            raise
-
-    def on_visibility_change(self):
-        """Handle visibility toggle changes."""
-        try:
-            # Create visibility parameters dictionary
-            params = {
-                'visibility_update': True,  # Flag to indicate this is a visibility update
-                'show_processed': self.show_processed.get(),
-                'show_average': self.show_average.get()
-            }
-            
-            # Call the callback with visibility settings
-            self.update_callback(params)
-            
-        except Exception as e:
-            app_logger.error(f"Error updating visibility: {str(e)}")
             raise
 
     def analyze_signal(self):
@@ -218,9 +264,11 @@ class ActionPotentialTab:
             if results:
                 self.update_results(results)
                 self.status_text.set("Analysis complete")
-                # Reset visibility controls to show both curves
+                # Reset visibility controls to show both curves with default display modes
                 self.show_processed.set(True)
                 self.show_average.set(True)
+                self.processed_display_mode.set("line")
+                self.average_display_mode.set("line")
             else:
                 self.integral_value.set("No analysis results")
                 self.status_text.set("No results returned")
@@ -281,7 +329,7 @@ class ActionPotentialTab:
         self.integral_value.set("\n".join(lines))
 
     def reset(self):
-        """Reset to defaults."""
+        """Reset all variables and controls to defaults."""
         self.n_cycles.set(2)
         self.t0.set(20.0)
         self.t1.set(100.0)
@@ -290,6 +338,14 @@ class ActionPotentialTab:
         self.V0.set(-80.0)
         self.V1.set(-100.0)
         self.V2.set(10.0)
+        
+        # Reset visibility controls
+        self.show_processed.set(True)
+        self.show_average.set(True)
+        self.processed_display_mode.set("line")
+        self.average_display_mode.set("line")
+        
+        # Reset display variables
         self.integral_value.set("No analysis performed")
         self.status_text.set("Ready")
         self.progress_var.set(0)

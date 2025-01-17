@@ -3,6 +3,7 @@ from tkinter import ttk, filedialog, messagebox
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import numpy as np
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from src.utils.logger import app_logger
@@ -158,7 +159,7 @@ class SignalAnalyzerApp:
         self.notebook.add(self.action_potential_tab.frame, text='Action Potential')
 
     def load_data(self):
-        """Load data from file"""
+        """Load data from file with proper cleanup of old data."""
         try:
             filepath = filedialog.askopenfilename(
                 filetypes=[("ATF files", "*.atf"), ("All files", "*.*")]
@@ -169,17 +170,22 @@ class SignalAnalyzerApp:
                 
             app_logger.info(f"Loading file: {filepath}")
             
+            # Clear existing data first
+            self.data = None
+            self.time_data = None
+            self.filtered_data = None
+            self.processed_data = None
+            self.orange_curve = None
+            self.orange_curve_times = None
+            
             # Load ATF file
             atf_handler = ATFHandler(filepath)
             atf_handler.load_atf()
             
-            # Get data
+            # Get new data
             self.time_data = atf_handler.get_column("Time")
             self.data = atf_handler.get_column("#1")
             self.filtered_data = self.data.copy()
-            
-            # Update window manager
-            self.window_manager.set_data(self.time_data, self.data)
             
             # Update view limits
             self.view_tab.update_limits(
@@ -189,15 +195,16 @@ class SignalAnalyzerApp:
                 v_max=np.max(self.data)
             )
             
-            # Update plot
-            self.update_plot()
-            self.status_var.set(f"Loaded: {filepath.split('/')[-1]}")
-            
-            # Update analysis
+            # Update analysis tab with new data
             self.analysis_tab.update_data(self.data, self.time_data)
             
             # Reset action potential processor
             self.action_potential_processor = None
+            
+            # Update display
+            self.update_plot()
+            filename = os.path.basename(filepath)
+            self.status_var.set(f"Loaded: {filename}")
             
             app_logger.info("Data loaded successfully")
             
@@ -359,18 +366,18 @@ class SignalAnalyzerApp:
             self.ax.xaxis.set_major_locator(plt.MaxNLocator(10))
 
     def update_plot(self, view_params=None):
-        """Update the plot with current data and view settings"""
+        """Update plot with current data ensuring arrays match."""
         if self.data is None:
             return
             
         try:
             self.ax.clear()
             
-            # Get view parameters
+            # Get view parameters if not provided
             if view_params is None:
                 view_params = self.view_tab.get_view_params()
             
-            # Get plot range
+            # Plot time range
             if view_params.get('use_interval', False):
                 start_idx = np.searchsorted(self.time_data, view_params['t_min'])
                 end_idx = np.searchsorted(self.time_data, view_params['t_max'])
@@ -378,42 +385,85 @@ class SignalAnalyzerApp:
                 plot_data = self.data[start_idx:end_idx]
                 if self.filtered_data is not None:
                     plot_filtered = self.filtered_data[start_idx:end_idx]
+                if hasattr(self, 'processed_data') and self.processed_data is not None:
+                    plot_processed = self.processed_data[start_idx:end_idx]
             else:
                 plot_time = self.time_data
                 plot_data = self.data
-                plot_filtered = self.filtered_data
+                plot_filtered = self.filtered_data if self.filtered_data is not None else None
+                plot_processed = self.processed_data if hasattr(self, 'processed_data') else None
             
-            # Plot data with proper transparency and line width
+            # Plot original data with transparency
             if view_params.get('show_original', True):
-                self.ax.plot(plot_time, plot_data, 'b-', 
+                self.ax.plot(plot_time * 1000, plot_data, 'b-', 
                         label='Original Signal', alpha=0.3)
             
+            # Plot filtered data if it exists and matches time data length
             if view_params.get('show_filtered', True) and plot_filtered is not None:
-                self.ax.plot(plot_time, plot_filtered, 'r-', 
-                        label='Filtered Signal', alpha=0.8,
-                        linewidth=1.5)
+                if len(plot_filtered) == len(plot_time):
+                    self.ax.plot(plot_time * 1000, plot_filtered, 'r-', 
+                            label='Filtered Signal', alpha=0.5)
             
-            if hasattr(self, 'processed_data') and self.processed_data is not None:
-                self.ax.plot(plot_time, self.processed_data, 'g-',
-                            label='Processed Signal', linewidth=1.5)
+            # Plot processed data based on display mode
+            if (plot_processed is not None and 
+                hasattr(self.action_potential_tab, 'show_processed') and 
+                self.action_potential_tab.show_processed.get()):
+                
+                display_mode = self.action_potential_tab.processed_display_mode.get()
+                
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(plot_time * 1000, plot_processed, 'g-', 
+                            label='Processed Signal' if display_mode == "line" else "_nolegend_",
+                            linewidth=1.5, alpha=0.7)
+                
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(plot_time * 1000, plot_processed,
+                                color='green', s=15, alpha=0.8, marker='.',
+                                label='Processed Signal' if display_mode == "points" else "_nolegend_")
             
-            # Set proper grid
-            self.ax.grid(True, which='both', linestyle='-', alpha=0.2)
+            # Plot orange curve based on display mode
+            if (hasattr(self, 'orange_curve') and 
+                hasattr(self, 'orange_curve_times') and 
+                self.orange_curve is not None and 
+                self.orange_curve_times is not None and 
+                hasattr(self.action_potential_tab, 'show_average') and 
+                self.action_potential_tab.show_average.get()):
+                
+                # Handle time range for orange curve
+                if view_params.get('use_interval', False):
+                    mask = ((self.orange_curve_times >= view_params['t_min']) & 
+                        (self.orange_curve_times <= view_params['t_max']))
+                    plot_orange = self.orange_curve[mask]
+                    plot_orange_times = self.orange_curve_times[mask]
+                else:
+                    plot_orange = self.orange_curve
+                    plot_orange_times = self.orange_curve_times
+                
+                display_mode = self.action_potential_tab.average_display_mode.get()
+                
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(plot_orange_times * 1000, plot_orange, 'orange', 
+                            label='50-point Average' if display_mode == "line" else "_nolegend_",
+                            linewidth=1.5, alpha=0.7)
+                
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(plot_orange_times * 1000, plot_orange,
+                                color='orange', s=25, alpha=1, marker='o',
+                                label='50-point Average' if display_mode == "points" else "_nolegend_")
             
-            # Set y-axis label
+            # Set labels and grid
+            self.ax.set_xlabel('Time (ms)')
             self.ax.set_ylabel('Current (pA)')
-            
-            # Add legend
+            self.ax.grid(True, alpha=0.3)
             self.ax.legend()
-            
-            # Format time axis
-            self.format_time_axis()
             
             # Update axis limits if specified
             if 'y_min' in view_params and 'y_max' in view_params:
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
+                
+            if 't_min' in view_params and 't_max' in view_params:
+                self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
             
-            # Update layout and draw
             self.fig.tight_layout()
             self.canvas.draw_idle()
             
@@ -474,8 +524,10 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error exporting figure: {str(e)}")
             messagebox.showerror("Error", f"Failed to export figure: {str(e)}")
 
+    # In app.py:
+
     def update_plot_with_processed_data(self, processed_data, orange_curve, orange_times):
-        """Update plot with processed data and orange curve, respecting visibility settings."""
+        """Update plot with processed data and orange curve, respecting display style settings."""
         try:
             self.ax.clear()
             
@@ -492,22 +544,39 @@ class SignalAnalyzerApp:
                 self.ax.plot(self.time_data * 1000, self.filtered_data, 'r-', 
                         label='Filtered Signal', alpha=0.5)
             
-            # Plot processed data if enabled
+            # Plot processed data based on display mode
             if processed_data is not None and self.action_potential_tab.show_processed.get():
-                self.ax.plot(self.time_data * 1000, processed_data, 'g-', 
-                            label='Processed Signal', linewidth=1.5)
+                display_mode = self.action_potential_tab.processed_display_mode.get()
+                
+                if display_mode == "line" or display_mode == "all_points":
+                    self.ax.plot(self.time_data * 1000, processed_data, 'g-', 
+                            label='Processed Signal', linewidth=1.5, alpha=0.7)
+                
+                if display_mode == "points" or display_mode == "all_points":
+                    self.ax.scatter(self.time_data * 1000, processed_data,
+                                color='green', s=15, alpha=0.8, marker='.',
+                                label='Processed Signal' if display_mode == "points" else "_nolegend_")
             
-            # Plot orange curve if enabled
+            # Plot orange curve based on display mode
             if (orange_curve is not None and 
                 orange_times is not None and 
                 self.action_potential_tab.show_average.get()):
-                self.ax.plot(orange_times * 1000, orange_curve, 'orange', 
-                            label='50-point Average', linewidth=1.5)
+                
+                display_mode = self.action_potential_tab.average_display_mode.get()
+                
+                if display_mode == "line" or display_mode == "all_points":
+                    self.ax.plot(orange_times * 1000, orange_curve, 'orange', 
+                            label='50-point Average', linewidth=1.5, alpha=0.7)
+                
+                if display_mode == "points" or display_mode == "all_points":
+                    self.ax.scatter(orange_times * 1000, orange_curve,
+                                color='orange', s=25, alpha=1, marker='o',
+                                label='50-point Average' if display_mode == "points" else "_nolegend_")
             
             # Set labels and grid
             self.ax.set_xlabel('Time (ms)')
             self.ax.set_ylabel('Current (pA)')
-            self.ax.grid(True)
+            self.ax.grid(True, alpha=0.3)
             self.ax.legend()
             
             # Update axis limits if specified
@@ -523,7 +592,7 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error updating plot with processed data: {str(e)}")
             raise
-
+    
 # For standalone testing
 if __name__ == "__main__":
     try:
