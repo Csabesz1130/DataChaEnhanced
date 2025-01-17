@@ -11,7 +11,6 @@ from scipy.fft import fft, ifft, fftfreq
 from pywt import wavedec, waverec, threshold  
 from src.utils.logger import app_logger
 
-
 def apply_savgol_filter(data, window_length=51, polyorder=3):
     """
     Apply Savitzky-Golay filter to the data.
@@ -141,26 +140,16 @@ def butter_lowpass_filter(data, cutoff, fs=1000.0, order=5):
         app_logger.error(f"Error in Butterworth filter: {str(e)}")
         raise
 
+
 def combined_filter(data, savgol_params=None, wavelet_params=None, butter_params=None, 
-                   extract_add_params=None):
+                    extract_add_params=None, spike_params=None):
     """
-    Apply multiple filters in sequence.
-    
-    Args:
-        data (np.array): Input signal data
-        savgol_params (dict): Parameters for Savitzky-Golay filter
-        wavelet_params (dict): Parameters for Wavelet filter
-        butter_params (dict): Parameters for Butterworth filter
-        extract_add_params (dict): Parameters for extract-add filter
-        
-    Returns:
-        np.array: Filtered data
+    Apply multiple filters in sequence, including spike correction.
     """
     app_logger.info("Starting combined filtering process")
     filtered_data = np.array(data, copy=True)
     
     try:
-        # Apply Savitzky-Golay filter
         if savgol_params:
             filtered_data = apply_savgol_filter(
                 filtered_data,
@@ -168,7 +157,6 @@ def combined_filter(data, savgol_params=None, wavelet_params=None, butter_params
                 polyorder=savgol_params['polyorder']
             )
         
-        # Apply Wavelet filter
         if wavelet_params:
             filtered_data = apply_wavelet_filter(
                 filtered_data,
@@ -177,7 +165,6 @@ def combined_filter(data, savgol_params=None, wavelet_params=None, butter_params
                 threshold_mode=wavelet_params['threshold_mode']
             )
         
-        # Apply Butterworth filter
         if butter_params:
             filtered_data = butter_lowpass_filter(
                 filtered_data,
@@ -186,15 +173,20 @@ def combined_filter(data, savgol_params=None, wavelet_params=None, butter_params
                 order=butter_params['order']
             )
         
-        # Apply Extract-Add filter
         if extract_add_params:
             filtered_data = extract_add_filter(
                 filtered_data,
                 **extract_add_params
             )
         
-        return filtered_data
+        if spike_params:
+            filtered_data = correct_spike_transients(
+                filtered_data,
+                spike_threshold=spike_params.get('threshold', 1.5),
+                alignment_method=spike_params.get('alignment', 'zero')
+            )
         
+        return filtered_data
     except Exception as e:
         app_logger.error(f"Error in combined filtering: {str(e)}")
         raise

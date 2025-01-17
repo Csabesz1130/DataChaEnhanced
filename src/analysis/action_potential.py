@@ -38,14 +38,14 @@ class ActionPotentialProcessor:
     def process_signal(self):
         """
         The main pipeline:
-          1. baseline_correction_initial
-          2. multi_segment_normalization
-          3. find_cycles
-          4. calculate_integral
+        1. baseline_correction_initial
+        2. advanced_baseline_normalization
+        3. find_cycles
+        4. calculate_integral
         """
         try:
             self.baseline_correction_initial()
-            self.multi_segment_normalization()
+            self.advanced_baseline_normalization()
             self.find_cycles()
             results = self.calculate_integral()
 
@@ -78,102 +78,47 @@ class ActionPotentialProcessor:
         else:
             self.baseline = np.median(self.data[:baseline_window])
 
+        # Subtract baseline
         self.processed_data = self.data - self.baseline
         app_logger.info(f"Initial baseline correction: subtracted {self.baseline:.2f} pA")
 
-    def multi_segment_normalization(self):
+    def advanced_baseline_normalization(self):
         """
-        Advanced multi-step normalization with auto-detected plateau:
-        - For each segment i>0:
-            1) Identify a stable plateau region by scanning rolling std/derivative.
-            2) Fit a 2-point line from plateau[0:20] -> plateau[-20:] offsets.
-            3) Subtract that line from the entire segment.
-        - If detection fails, fallback to a simpler skip-then-measure median approach.
+        Advanced normalization to align segments to zero based on abrupt slope changes.
         """
         try:
             sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-            t0_samps = int(self.params['t0'] * sampling_rate / 1000)
-            t1_samps = int(self.params['t1'] * sampling_rate / 1000)
-            t2_samps = int(self.params['t2'] * sampling_rate / 1000)
-            t3_samps = int(self.params.get('t3', 0) * sampling_rate / 1000)
+            segment_start = 0
+            threshold_slope = 3 * np.std(np.diff(self.processed_data))
 
-            seg_lengths = [t0_samps, t1_samps, t2_samps, t3_samps]
-            segments = []
-            idx_start = 0
-            
-            # Build segment list
-            for length in seg_lengths:
-                if length <= 0:
-                    continue
-                idx_end = min(idx_start + length, len(self.processed_data))
-                if idx_end <= idx_start:
-                    break
-                segments.append((idx_start, idx_end))
-                idx_start = idx_end
+            while segment_start < len(self.processed_data):
+                segment_end = segment_start
 
-            # Segment0 pinned by baseline_correction_initial()
-            for seg_i in range(1, len(segments)):
-                s_start, s_end = segments[seg_i]
-                seg_len = s_end - s_start
-                if seg_len < 50:
-                    continue
+                # Detect abrupt slope changes
+                while segment_end < len(self.processed_data) - 1:
+                    slope = abs(self.processed_data[segment_end + 1] - self.processed_data[segment_end])
+                    if slope > threshold_slope:
+                        break
+                    segment_end += 1
 
-                # We'll attempt to detect a stable plateau in the segment
-                seg_data = self.processed_data[s_start:s_end].copy()
+                # Calculate average for last 50 points in the segment
+                avg_window_start = max(segment_start, segment_end - 50)
+                avg_window_end = segment_end
+                segment_mean = np.mean(self.processed_data[avg_window_start:avg_window_end])
 
-                # 1) Rolling derivative or std detection
-                #    We'll compute a rolling standard deviation in windows of ~50 points
-                #    and pick the region with the smallest std.
-                window_size = max(30, seg_len // 10)  # e.g. 30 or 1/10th of segment
-                rolling_std = []
-                for i in range(seg_len):
-                    start_i = max(0, i - window_size // 2)
-                    end_i   = min(seg_len, i + window_size // 2)
-                    sub = seg_data[start_i:end_i]
-                    rolling_std.append(np.std(sub))
-                rolling_std = np.array(rolling_std)
+                # Subtract the segment mean to align to zero
+                self.processed_data[segment_start:segment_end] -= segment_mean
 
-                # find the index of minimal std
-                best_idx = np.argmin(rolling_std)
-                # define a plateau region around best_idx
-                plateau_half = window_size // 2
-                plat_start = max(0, best_idx - plateau_half)
-                plat_end   = min(seg_len, best_idx + plateau_half)
-                
-                # Ensure we have at least 40 points or so
-                if (plat_end - plat_start) < 40:
-                    # fallback simpler approach
-                    plateau_offset = np.median(seg_data[10:50])
-                    self.processed_data[s_start:s_end] -= plateau_offset
-                    continue
+                segment_start = segment_end + 1
 
-                # 2) Two‐point linear baseline from the plateau
-                #    We'll measure the first ~20 points and last ~20 points in that plateau region.
-                sub_plat = seg_data[plat_start:plat_end]
-                if (plat_end - plat_start) < 50:
-                    # if short, just do a single median
-                    plateau_offset = np.median(sub_plat)
-                    self.processed_data[s_start:s_end] -= plateau_offset
-                    continue
+            # Final alignment to zero
+            global_mean = np.mean(self.processed_data)
+            self.processed_data -= global_mean
 
-                offset_start = np.median(sub_plat[:20])
-                offset_end   = np.median(sub_plat[-20:])
-                plateau_len  = (plat_end - plat_start)
-
-                slope = (offset_end - offset_start) / max(1, plateau_len - 1)
-
-                # 3) Subtract line from entire segment
-                for i in range(seg_len):
-                    # map i -> local plateau index
-                    # let's define i_plat = i - plat_start, clamped
-                    i_plat = min(max(i - plat_start, 0), plateau_len - 1)
-                    local_offset = offset_start + slope * i_plat
-                    self.processed_data[s_start + i] -= local_offset
-
-            app_logger.info("Advanced multi-segment normalization with auto plateau detection done.")
+            app_logger.info("Advanced baseline normalization applied with segment alignment.")
 
         except Exception as e:
-            app_logger.error(f"Error in multi_segment_normalization: {str(e)}")
+            app_logger.error(f"Error in advanced_baseline_normalization: {str(e)}")
             raise
 
     def find_cycles(self):
