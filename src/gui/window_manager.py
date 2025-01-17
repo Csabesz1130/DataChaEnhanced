@@ -97,33 +97,26 @@ class SignalWindowManager:
             app_logger.error(f"Error opening normalization window: {str(e)}")
             raise
 
-    def open_integration_window(self, preserve_main=False):
-        """Open integration window"""
+    # In window_manager.py, update the open_integration_window method
+
+    def open_integration_window(self, preserve_main=True):
+        """Open integration window with consistent plot style"""
         if self.data is None:
-            app_logger.warning("No data loaded")
-            messagebox.showwarning("Warning", "Please load data first")
+            messagebox.showwarning("Warning", "No data loaded")
             return
             
         try:
-            # Create window with appropriate callback
-            callback = None if preserve_main else self.on_integration_update
-            window = IntegrationWindow(self.parent, callback)
+            # Get current y-axis limits from main plot if possible
+            ylim = None
+            if hasattr(self.parent, 'ax'):
+                ylim = self.parent.ax.get_ylim()
             
-            # Set data based on what's available
-            if preserve_main:
-                window.set_data(self.time_data, self.data)
-            else:
-                window.set_data(self.time_data, self.processed_data or self.data)
+            # Create and setup integration window
+            window = IntegrationWindow(self.parent, self.handle_integration_result)
+            window.set_data(self.time_data, self.data, ylim=ylim)
             
             # Store window reference
-            window_key = self.get_window_key('integration', preserve_main)
-            self.windows[window_key] = window
-            
-            # Set window title to include instance number if preserved
-            if preserve_main:
-                window.title(f"Integration #{self.window_counters['integration']}")
-            
-            app_logger.info(f"Integration window opened (preserve_main={preserve_main})")
+            self.windows['integration'] = window
             
         except Exception as e:
             app_logger.error(f"Error opening integration window: {str(e)}")

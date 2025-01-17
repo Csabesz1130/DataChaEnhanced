@@ -173,6 +173,8 @@ class IntegrationWindow(PlotWindowBase):
             app_logger.error(f"Error calculating integral: {str(e)}")
             raise
 
+    # In integration_window.py, update the plotting methods
+
     def update_plot(self):
         """Update plot with integration visualization"""
         if self.processed_data is None:
@@ -192,17 +194,17 @@ class IntegrationWindow(PlotWindowBase):
                 t = self.time_data
                 y = self.processed_data
             
-            # Plot original signal
+            # Plot signal with consistent styling
             self.ax.plot(t, y, 'b-', label='Signal', linewidth=1.5)
             
-            # Show filled area if enabled
+            # Show filled area if enabled (make it match the main plot style)
             if self.show_filled.get():
                 self.ax.fill_between(t, y, alpha=0.3, color='blue')
             
             # Plot cumulative integral if calculated and enabled
             if self.show_cumulative.get() and self.integral_data is not None:
                 ax2 = self.ax.twinx()
-                ax2.plot(t, self.integral_data, 'r-', 
+                ax2.plot(t, self.integral_data, 'r-',
                         label='Cumulative Integral', linewidth=1.5)
                 ax2.set_ylabel('Integral', color='r')
                 ax2.tick_params(axis='y', labelcolor='r')
@@ -214,29 +216,50 @@ class IntegrationWindow(PlotWindowBase):
             else:
                 self.ax.legend()
             
-            # Add grid
-            self.ax.grid(True, which='both', linestyle='--', alpha=0.6)
+            # Set consistent grid style
+            self.ax.grid(True, which='both', color='gray', linestyle='-', alpha=0.2)
             
-            # Labels
-            self.ax.set_xlabel("Time (s)")
-            self.ax.set_ylabel("Signal")
+            # Set axis labels with proper units
+            self.ax.set_xlabel('Time (s)')
+            self.ax.set_ylabel('Current (pA)')
             
-            # Show range if enabled
-            if self.use_range.get():
-                self.ax.axvspan(self.range_start.get(), self.range_end.get(),
-                              alpha=0.2, color='gray')
+            # Ensure axis limits match main plot style
+            if hasattr(self, 'ylim'):
+                self.ax.set_ylim(self.ylim)
             
+            # Match main plot time formatting
+            self.format_time_axis()
+            
+            # Update layout and draw
             self.fig.tight_layout()
             self.canvas.draw()
-            
-            # Store view state after update
-            self.store_current_view()
             
             app_logger.debug("Integration plot updated")
             
         except Exception as e:
             app_logger.error(f"Error updating integration plot: {str(e)}")
             raise
+
+    def format_time_axis(self):
+        """Format time axis to match main plot"""
+        xlim = self.ax.get_xlim()
+        time_range = xlim[1] - xlim[0]
+        
+        if time_range < 0.1:  # Less than 100ms
+            self.ax.xaxis.set_major_formatter(lambda x, p: f"{x*1000:.1f} ms")
+        elif time_range < 1:  # Less than 1s
+            self.ax.xaxis.set_major_formatter(lambda x, p: f"{x*1000:.0f} ms")
+        elif time_range < 60:  # Less than 1min
+            self.ax.xaxis.set_major_formatter(lambda x, p: f"{x:.1f} s")
+        else:  # More than 1min
+            self.ax.xaxis.set_major_formatter(lambda x, p: f"{x/60:.1f} min")
+
+    def set_data(self, time_data, data, ylim=None):
+        """Set data with optional y-axis limits"""
+        super().set_data(time_data, data)
+        if ylim is not None:
+            self.ylim = ylim
+            self.ax.set_ylim(ylim)
 
 
     def on_accept(self):

@@ -4,6 +4,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from src.utils.logger import app_logger
 from src.gui.filter_tab import FilterTab
 from src.gui.analysis_tab import AnalysisTab
@@ -278,18 +279,27 @@ class SignalAnalyzerApp:
             # Plot original signal with transparency
             self.ax.plot(self.time_data, self.data, 'b-', alpha=0.3, label='Original')
             
-            # Plot filtered signal
+            # Plot filtered signal if available
             if self.filtered_data is not None:
-                self.ax.plot(self.time_data, self.filtered_data, 'r-', alpha=0.5, label='Filtered')
+                self.ax.plot(self.time_data, self.filtered_data, 'r-', 
+                            alpha=0.8, label='Filtered',
+                            linewidth=1.5)
             
             # Plot processed data
-            self.ax.plot(time_data, processed_data, 'g-', linewidth=2, label='Processed')
+            self.ax.plot(time_data, processed_data, 'g-', 
+                        linewidth=1.5, label='Processed')
             
-            # Set labels and grid
-            self.ax.set_xlabel('Time (s)')
+            # Set grid style
+            self.ax.grid(True, which='both', linestyle='-', alpha=0.2)
+            
+            # Set axis labels
             self.ax.set_ylabel('Current (pA)')
-            self.ax.grid(True)
+            
+            # Add legend
             self.ax.legend()
+            
+            # Format time axis
+            self.format_time_axis()
             
             # Update display
             self.fig.tight_layout()
@@ -308,6 +318,19 @@ class SignalAnalyzerApp:
             self.update_plot(view_params)
         except Exception as e:
             app_logger.error(f"Error updating view: {str(e)}")
+
+    def format_time_axis(self):
+        """Format time axis to always show milliseconds"""
+        xlim = self.ax.get_xlim()
+        
+        # Convert seconds to milliseconds and format
+        self.ax.xaxis.set_major_formatter(lambda x, p: f"{x*1000:.0f}")
+        self.ax.set_xlabel('Time (ms)')
+        
+        # Optionally adjust tick frequency based on range
+        time_range = xlim[1] - xlim[0]
+        if time_range > 10:  # If range is large, reduce number of ticks
+            self.ax.xaxis.set_major_locator(plt.MaxNLocator(10))
 
     def update_plot(self, view_params=None):
         """Update the plot with current data and view settings"""
@@ -334,25 +357,37 @@ class SignalAnalyzerApp:
                 plot_data = self.data
                 plot_filtered = self.filtered_data
             
-            # Plot data
+            # Plot data with proper transparency and line width
             if view_params.get('show_original', True):
                 self.ax.plot(plot_time, plot_data, 'b-', 
-                           label='Original Signal', alpha=0.5)
+                        label='Original Signal', alpha=0.3)
             
             if view_params.get('show_filtered', True) and plot_filtered is not None:
                 self.ax.plot(plot_time, plot_filtered, 'r-', 
-                           label='Filtered Signal')
+                        label='Filtered Signal', alpha=0.8,
+                        linewidth=1.5)
             
-            # Set labels and grid
-            self.ax.set_xlabel('Time (s)')
+            if hasattr(self, 'processed_data') and self.processed_data is not None:
+                self.ax.plot(plot_time, self.processed_data, 'g-',
+                            label='Processed Signal', linewidth=1.5)
+            
+            # Set proper grid
+            self.ax.grid(True, which='both', linestyle='-', alpha=0.2)
+            
+            # Set y-axis label
             self.ax.set_ylabel('Current (pA)')
-            self.ax.grid(True)
+            
+            # Add legend
             self.ax.legend()
+            
+            # Format time axis
+            self.format_time_axis()
             
             # Update axis limits if specified
             if 'y_min' in view_params and 'y_max' in view_params:
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
             
+            # Update layout and draw
             self.fig.tight_layout()
             self.canvas.draw_idle()
             
@@ -424,22 +459,24 @@ class SignalAnalyzerApp:
             # Plot original data with transparency
             if view_params.get('show_original', True):
                 self.ax.plot(self.time_data, self.data, 'b-', 
-                           label='Original Signal', alpha=0.3)
+                        label='Original Signal', alpha=0.3)
             
             # Plot filtered data
             if view_params.get('show_filtered', True):
                 self.ax.plot(self.time_data, self.filtered_data, 'r-', 
-                           label='Filtered Signal', alpha=0.5)
+                        label='Filtered Signal', alpha=0.5)
             
             # Plot processed data
             self.ax.plot(processed_time, processed_data, 'g-', 
                         label='Processed Signal', linewidth=2)
             
             # Set labels and grid
-            self.ax.set_xlabel('Time (s)')
             self.ax.set_ylabel('Current (pA)')
             self.ax.grid(True)
             self.ax.legend()
+            
+            # Format time axis to milliseconds
+            self.format_time_axis()
             
             # Update axis limits if specified
             if 'y_min' in view_params and 'y_max' in view_params:
