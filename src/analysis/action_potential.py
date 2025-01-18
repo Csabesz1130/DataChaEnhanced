@@ -131,8 +131,8 @@ class ActionPotentialProcessor:
 
     def advanced_baseline_normalization(self):
         """
-        Advanced normalization to align segments based on slope changes.
-        Uses old-style for loops for better control and visualization.
+        Advanced normalization to align segments and ensure both hyperpolarization 
+        and depolarization events are consistently normalized.
         """
         try:
             sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
@@ -142,15 +142,15 @@ class ActionPotentialProcessor:
             segment_start = 0
             segments = []
             
-            # Find segments using for loop with stricter slope threshold
+            # Find segments using slope changes in both directions
             for i in range(1, len(self.processed_data)):
                 slope = abs(self.processed_data[i] - self.processed_data[i-1])
                 if slope > threshold_slope:
-                    # Verify it's a real transition, not noise
+                    # Verify it's a real transition by checking surrounding points
                     if i + 1 < len(self.processed_data):
                         next_slope = abs(self.processed_data[i+1] - self.processed_data[i])
                         if next_slope > threshold_slope:
-                            # End current segment
+                            # End current segment if long enough
                             if i - segment_start > 50:  # Minimum segment length
                                 segments.append((segment_start, i))
                             segment_start = i + 1
@@ -160,23 +160,29 @@ class ActionPotentialProcessor:
                 segments.append((segment_start, len(self.processed_data)))
             
             # Process each segment
+            baseline_window = 50  # Points to use for baseline calculation
             for start, end in segments:
-                # Get endpoint region for baseline calculation
-                endpoint_window = 50
-                baseline_start = max(start, end - endpoint_window)
+                # Find stable regions before and after rapid changes
+                pre_region = self.processed_data[max(start, start):min(start + baseline_window, end)]
+                post_region = self.processed_data[max(start, end - baseline_window):end]
                 
-                # Only use stable points for baseline
-                baseline_points = self.processed_data[baseline_start:end]
-                if len(baseline_points) > 0:
-                    # Calculate baseline from stable points (using median for robustness)
-                    baseline = np.median(baseline_points)
+                if len(pre_region) > 0 and len(post_region) > 0:
+                    # Calculate baseline from both pre and post regions
+                    pre_baseline = np.median(pre_region)
+                    post_baseline = np.median(post_region)
                     
-                    # Subtract baseline from entire segment
+                    # Use the more stable baseline (smaller std)
+                    if np.std(pre_region) < np.std(post_region):
+                        baseline = pre_baseline
+                    else:
+                        baseline = post_baseline
+                    
+                    # Subtract baseline from segment
                     self.processed_data[start:end] -= baseline
                     
-                    # Ensure smooth transition at segment boundaries
+                    # Ensure smooth transitions between segments
                     if start > 0:
-                        # Blend transition over 10 points
+                        # Blend over 10 points
                         blend_points = min(10, start)
                         weights = np.linspace(0, 1, blend_points)
                         self.processed_data[start-blend_points:start] = (
