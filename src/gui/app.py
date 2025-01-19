@@ -126,7 +126,7 @@ class SignalAnalyzerApp:
         self.plot_menu.post(x, y)
 
     def setup_plot(self):
-        """Setup the matplotlib plot area"""
+        """Setup the matplotlib plot area with cursor tracking."""
         # Create figure and canvas
         self.fig = Figure(figsize=(10, 6), dpi=100)
         self.ax = self.fig.add_subplot(111)
@@ -139,6 +139,49 @@ class SignalAnalyzerApp:
         # Add navigation toolbar
         self.toolbar = NavigationToolbar2Tk(self.canvas, self.plot_frame)
         self.toolbar.update()
+        
+        # Add cursor position display
+        self.cursor_label = ttk.Label(self.plot_frame, text="")
+        self.cursor_label.pack(side='bottom', fill='x')
+        
+        # Connect mouse motion event
+        self.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+
+    def on_mouse_move(self, event):
+        """Handle mouse movement over the plot."""
+        if event.inaxes != self.ax:
+            self.cursor_label.config(text="")
+            return
+
+        # Convert x from ms back to index (since we plot in ms)
+        x_idx = int((event.xdata / 1000) * (len(self.time_data) / self.time_data[-1]))
+        
+        cursor_text = f"Time: {event.xdata:.1f} ms, Current: {event.ydata:.1f} pA"
+        
+        # Add point number info if we're showing points
+        if hasattr(self, 'orange_curve') and self.orange_curve is not None:
+            # Find the closest point using both time and value proximity
+            closest_idx = None
+            min_distance = float('inf')
+            
+            for i in range(len(self.orange_curve_times)):
+                time_diff = abs(self.orange_curve_times[i] * 1000 - event.xdata)
+                if time_diff < 5:  # Within 5ms time window
+                    value_diff = abs(self.orange_curve[i] - event.ydata)
+                    distance = (time_diff ** 2 + value_diff ** 2) ** 0.5
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_idx = i
+
+            if closest_idx is not None and min_distance < 50:  # Threshold for considering a point "close"
+                cursor_text += f", Orange Point: {closest_idx + 1}"
+
+        if 0 <= x_idx < len(self.time_data):
+            # Only show data point if we're not too close to an orange point
+            if not cursor_text.endswith("}"): # If no orange point was found
+                cursor_text += f", Data Point: {x_idx + 1}"
+        
+        self.cursor_label.config(text=cursor_text)
 
     def setup_tabs(self):
         """Setup the control tabs"""
@@ -256,13 +299,14 @@ class SignalAnalyzerApp:
     def on_action_potential_analysis(self, params):
         """Handle action potential analysis or visibility changes."""
         # Check if this is a visibility update
-        if isinstance(params, dict) and params.get('visibility_update'):
-            # If we have data to show, update the plot with current visibility settings
+        if isinstance(params, dict) and params.get('visibility_update', False):
             if hasattr(self, 'processed_data') and self.processed_data is not None:
                 self.update_plot_with_processed_data(
                     self.processed_data, 
                     self.orange_curve, 
-                    self.orange_times
+                    self.orange_curve_times,
+                    self.normalized_curve,
+                    self.normalized_curve_times
                 )
             return
 
@@ -279,21 +323,27 @@ class SignalAnalyzerApp:
                 params
             )
             
-            # Process signal
-            processed_data, orange_curve, orange_times, results = self.action_potential_processor.process_signal()
+            # Process signal and unpack all return values
+            (processed_data, orange_curve, orange_times, 
+            normalized_curve, normalized_times, results) = self.action_potential_processor.process_signal()
             
             if processed_data is None:
                 messagebox.showwarning("Analysis", 
                                     "Analysis failed: " + str(results.get('integral_value', 'Unknown error')))
                 return
             
-            # Store the data
+            # Store all data
             self.processed_data = processed_data
             self.orange_curve = orange_curve
-            self.orange_times = orange_times
+            self.orange_curve_times = orange_times
+            self.normalized_curve = normalized_curve
+            self.normalized_curve_times = normalized_times
             
             # Update plot
-            self.update_plot_with_processed_data(processed_data, orange_curve, orange_times)
+            self.update_plot_with_processed_data(
+                processed_data, orange_curve, orange_times, 
+                normalized_curve, normalized_times
+            )
             
             # Update results display
             self.action_potential_tab.update_results(results)
@@ -526,52 +576,106 @@ class SignalAnalyzerApp:
 
     # In app.py:
 
-    def update_plot_with_processed_data(self, processed_data, orange_curve, orange_times):
-        """Update plot with processed data and orange curve, respecting display style settings."""
+    def update_plot_with_processed_data(self, processed_data, orange_curve, orange_times, normalized_curve, normalized_times):
+        """Update plot with processed data, orange curve, and normalized curve."""
         try:
             self.ax.clear()
             
             # Get view parameters
             view_params = self.view_tab.get_view_params()
             
+            # Plot time range
+            if view_params.get('use_interval', False):
+                start_idx = np.searchsorted(self.time_data, view_params['t_min'])
+                end_idx = np.searchsorted(self.time_data, view_params['t_max'])
+                plot_time = self.time_data[start_idx:end_idx]
+                plot_data = self.data[start_idx:end_idx]
+                if self.filtered_data is not None:
+                    plot_filtered = self.filtered_data[start_idx:end_idx]
+                if processed_data is not None:
+                    plot_processed = processed_data[start_idx:end_idx]
+            else:
+                plot_time = self.time_data
+                plot_data = self.data
+                plot_filtered = self.filtered_data if self.filtered_data is not None else None
+                plot_processed = processed_data
+            
             # Plot original data with transparency
             if view_params.get('show_original', True):
-                self.ax.plot(self.time_data * 1000, self.data, 'b-', 
+                self.ax.plot(plot_time * 1000, plot_data, 'b-', 
                         label='Original Signal', alpha=0.3)
             
-            # Plot filtered data
-            if view_params.get('show_filtered', True):
-                self.ax.plot(self.time_data * 1000, self.filtered_data, 'r-', 
-                        label='Filtered Signal', alpha=0.5)
+            # Plot filtered data if it exists and matches time data length
+            if view_params.get('show_filtered', True) and plot_filtered is not None:
+                if len(plot_filtered) == len(plot_time):
+                    self.ax.plot(plot_time * 1000, plot_filtered, 'r-', 
+                            label='Filtered Signal', alpha=0.5)
             
             # Plot processed data based on display mode
-            if processed_data is not None and self.action_potential_tab.show_processed.get():
+            if plot_processed is not None and self.action_potential_tab.show_processed.get():
                 display_mode = self.action_potential_tab.processed_display_mode.get()
                 
-                if display_mode == "line" or display_mode == "all_points":
-                    self.ax.plot(self.time_data * 1000, processed_data, 'g-', 
-                            label='Processed Signal', linewidth=1.5, alpha=0.7)
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(plot_time * 1000, plot_processed, 'g-', 
+                            label='Processed Signal' if display_mode == "line" else "_nolegend_",
+                            linewidth=1.5, alpha=0.7)
                 
-                if display_mode == "points" or display_mode == "all_points":
-                    self.ax.scatter(self.time_data * 1000, processed_data,
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(plot_time * 1000, plot_processed,
                                 color='green', s=15, alpha=0.8, marker='.',
                                 label='Processed Signal' if display_mode == "points" else "_nolegend_")
             
             # Plot orange curve based on display mode
-            if (orange_curve is not None and 
-                orange_times is not None and 
+            if (orange_curve is not None and orange_times is not None and 
                 self.action_potential_tab.show_average.get()):
+                
+                # Handle time range for orange curve
+                if view_params.get('use_interval', False):
+                    mask = ((orange_times >= view_params['t_min']) & 
+                        (orange_times <= view_params['t_max']))
+                    plot_orange = orange_curve[mask]
+                    plot_orange_times = orange_times[mask]
+                else:
+                    plot_orange = orange_curve
+                    plot_orange_times = orange_times
                 
                 display_mode = self.action_potential_tab.average_display_mode.get()
                 
-                if display_mode == "line" or display_mode == "all_points":
-                    self.ax.plot(orange_times * 1000, orange_curve, 'orange', 
-                            label='50-point Average', linewidth=1.5, alpha=0.7)
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(plot_orange_times * 1000, plot_orange, 'orange', 
+                            label='50-point Average' if display_mode == "line" else "_nolegend_",
+                            linewidth=1.5, alpha=0.7)
                 
-                if display_mode == "points" or display_mode == "all_points":
-                    self.ax.scatter(orange_times * 1000, orange_curve,
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(plot_orange_times * 1000, plot_orange,
                                 color='orange', s=25, alpha=1, marker='o',
                                 label='50-point Average' if display_mode == "points" else "_nolegend_")
+            
+            # Plot normalized curve based on display mode
+            if (normalized_curve is not None and normalized_times is not None and 
+                self.action_potential_tab.show_normalized.get()):
+                
+                # Handle time range for normalized curve
+                if view_params.get('use_interval', False):
+                    mask = ((normalized_times >= view_params['t_min']) & 
+                        (normalized_times <= view_params['t_max']))
+                    plot_norm = normalized_curve[mask]
+                    plot_norm_times = normalized_times[mask]
+                else:
+                    plot_norm = normalized_curve
+                    plot_norm_times = normalized_times
+                
+                display_mode = self.action_potential_tab.normalized_display_mode.get()
+                
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(plot_norm_times * 1000, plot_norm, color='darkblue', 
+                            label='Voltage-Normalized' if display_mode == "line" else "_nolegend_",
+                            linewidth=1.5, alpha=0.7)
+                
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(plot_norm_times * 1000, plot_norm,
+                                color='darkblue', s=25, alpha=1, marker='o',
+                                label='Voltage-Normalized' if display_mode == "points" else "_nolegend_")
             
             # Set labels and grid
             self.ax.set_xlabel('Time (ms)')

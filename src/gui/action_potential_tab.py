@@ -41,10 +41,12 @@ class ActionPotentialTab:
             # Visibility controls
             self.show_processed = tk.BooleanVar(value=True)
             self.show_average = tk.BooleanVar(value=True)
+            self.show_normalized = tk.BooleanVar(value=True)
             
             # Display mode controls using StringVar for radio buttons
             self.processed_display_mode = tk.StringVar(value="line")  # "line", "points", "all_points"
             self.average_display_mode = tk.StringVar(value="line")    # "line", "points", "all_points"
+            self.normalized_display_mode = tk.StringVar(value="line") # "line", "points", "all_points"
 
             # Display variables
             self.integral_value = tk.StringVar(value="No analysis performed")
@@ -71,54 +73,81 @@ class ActionPotentialTab:
             proc_frame.pack(fill='x', padx=5, pady=2)
             
             ttk.Checkbutton(proc_frame, text="Show Signal",
-                           variable=self.show_processed,
-                           command=self.on_visibility_change).pack(pady=1)
+                        variable=self.show_processed,
+                        command=self.on_visibility_change).pack(pady=1)
             
-            # Radio buttons for display mode
+            # Radio buttons for processed signal display mode
             style_frame = ttk.Frame(proc_frame)
             style_frame.pack(fill='x', padx=20)
             
             ttk.Radiobutton(style_frame, text="Show Line",
-                          variable=self.processed_display_mode,
-                          value="line",
-                          command=self.on_visibility_change).pack(side='left', padx=5)
+                        variable=self.processed_display_mode,
+                        value="line",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
             
             ttk.Radiobutton(style_frame, text="Show Points",
-                          variable=self.processed_display_mode,
-                          value="points",
-                          command=self.on_visibility_change).pack(side='left', padx=5)
-                          
+                        variable=self.processed_display_mode,
+                        value="points",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
+                        
             ttk.Radiobutton(style_frame, text="Show All Points",
-                          variable=self.processed_display_mode,
-                          value="all_points",
-                          command=self.on_visibility_change).pack(side='left', padx=5)
+                        variable=self.processed_display_mode,
+                        value="all_points",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
             
             # Average Signal Controls
             avg_frame = ttk.LabelFrame(visibility_frame, text="50-point Average (Orange)")
             avg_frame.pack(fill='x', padx=5, pady=2)
             
             ttk.Checkbutton(avg_frame, text="Show Signal",
-                           variable=self.show_average,
-                           command=self.on_visibility_change).pack(pady=1)
+                        variable=self.show_average,
+                        command=self.on_visibility_change).pack(pady=1)
             
             # Radio buttons for average display mode
             style_frame = ttk.Frame(avg_frame)
             style_frame.pack(fill='x', padx=20)
             
             ttk.Radiobutton(style_frame, text="Show Line",
-                          variable=self.average_display_mode,
-                          value="line",
-                          command=self.on_visibility_change).pack(side='left', padx=5)
+                        variable=self.average_display_mode,
+                        value="line",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
             
             ttk.Radiobutton(style_frame, text="Show Points",
-                          variable=self.average_display_mode,
-                          value="points",
-                          command=self.on_visibility_change).pack(side='left', padx=5)
-                          
+                        variable=self.average_display_mode,
+                        value="points",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
+                        
             ttk.Radiobutton(style_frame, text="Show All Points",
-                          variable=self.average_display_mode,
-                          value="all_points",
-                          command=self.on_visibility_change).pack(side='left', padx=5)
+                        variable=self.average_display_mode,
+                        value="all_points",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
+                
+            # Normalized Curve Controls
+            norm_frame = ttk.LabelFrame(visibility_frame, text="Voltage-Normalized Curve (Dark Blue)")
+            norm_frame.pack(fill='x', padx=5, pady=2)
+            
+            ttk.Checkbutton(norm_frame, text="Show Signal",
+                        variable=self.show_normalized,
+                        command=self.on_visibility_change).pack(pady=1)
+            
+            # Radio buttons for normalized display mode
+            style_frame = ttk.Frame(norm_frame)
+            style_frame.pack(fill='x', padx=20)
+            
+            ttk.Radiobutton(style_frame, text="Show Line",
+                        variable=self.normalized_display_mode,
+                        value="line",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
+            
+            ttk.Radiobutton(style_frame, text="Show Points",
+                        variable=self.normalized_display_mode,
+                        value="points",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
+                        
+            ttk.Radiobutton(style_frame, text="Show All Points",
+                        variable=self.normalized_display_mode,
+                        value="all_points",
+                        command=self.on_visibility_change).pack(side='left', padx=5)
             
         except Exception as e:
             app_logger.error(f"Error setting up visibility controls: {str(e)}")
@@ -133,7 +162,9 @@ class ActionPotentialTab:
                 'show_processed': self.show_processed.get(),
                 'processed_display_mode': self.processed_display_mode.get(),
                 'show_average': self.show_average.get(),
-                'average_display_mode': self.average_display_mode.get()
+                'average_display_mode': self.average_display_mode.get(),
+                'show_normalized': self.show_normalized.get(),
+                'normalized_display_mode': self.normalized_display_mode.get()
             }
             
             # Call the callback with visibility settings
@@ -264,11 +295,13 @@ class ActionPotentialTab:
             if results:
                 self.update_results(results)
                 self.status_text.set("Analysis complete")
-                # Reset visibility controls to show both curves with default display modes
+                # Reset visibility controls to show all curves with default display modes
                 self.show_processed.set(True)
                 self.show_average.set(True)
+                self.show_normalized.set(True)
                 self.processed_display_mode.set("line")
                 self.average_display_mode.set("line")
+                self.normalized_display_mode.set("line")
             else:
                 self.integral_value.set("No analysis results")
                 self.status_text.set("No results returned")
@@ -342,8 +375,10 @@ class ActionPotentialTab:
         # Reset visibility controls
         self.show_processed.set(True)
         self.show_average.set(True)
+        self.show_normalized.set(True)
         self.processed_display_mode.set("line")
         self.average_display_mode.set("line")
+        self.normalized_display_mode.set("line")
         
         # Reset display variables
         self.integral_value.set("No analysis performed")

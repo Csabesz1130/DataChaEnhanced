@@ -37,40 +37,79 @@ class ActionPotentialProcessor:
         
         app_logger.debug(f"Parameters validated: {self.params}")
 
+    def calculate_normalized_curve(self):
+        """
+        Calculate normalized curve showing conductance changes.
+        Takes points 35-234 of the orange curve, inverts them, and scales by voltage.
+        """
+        try:
+            if self.orange_curve is None:
+                return None, None
+
+            # Get points 35-234 from orange curve
+            start_idx = 34  # Point 35 (0-based indexing)
+            end_idx = 234   # Point 234 (inclusive)
+            
+            if end_idx >= len(self.orange_curve):
+                app_logger.warning(f"Not enough points in orange curve. Length: {len(self.orange_curve)}")
+                return None, None
+
+            # Extract the exact points we want to normalize
+            selected_points = self.orange_curve[start_idx:end_idx]
+            selected_times = self.orange_curve_times[start_idx:end_idx]
+            
+            # For hyperpolarizing current (negative), use V0-V1
+            # The current is negative (hyperpolarizing), so we want positive conductance
+            voltage_diff = self.params['V0'] - self.params['V1']
+            
+            # Calculate conductance: I/(V0-V1)
+            # Since current is negative and V0-V1 is negative, this gives positive conductance
+            normalized_points = -1*(selected_points / voltage_diff)
+            
+            self.normalized_curve = normalized_points
+            self.normalized_curve_times = selected_times
+            
+            app_logger.info(f"Normalized points {start_idx+1} to {end_idx}")
+            app_logger.debug(f"Voltage difference: {voltage_diff} mV")
+            app_logger.debug(f"Original current range: [{np.min(selected_points):.2f}, {np.max(selected_points):.2f}] pA")
+            app_logger.debug(f"Conductance range: [{np.min(normalized_points):.2f}, {np.max(normalized_points):.2f}] nS")
+            
+            return normalized_points, selected_times
+            
+        except Exception as e:
+            app_logger.error(f"Error calculating normalized curve: {str(e)}")
+            return None, None
+
     def process_signal(self):
         """
         The main pipeline:
         1. baseline_correction_initial
         2. advanced_baseline_normalization
-        3. apply 50-point averaging
-        4. generate_orange_curve
+        3. generate_orange_curve
+        4. calculate_normalized_curve
         5. find_cycles
         6. calculate_integral
         """
         try:
             self.baseline_correction_initial()
             self.advanced_baseline_normalization()
-            
-            # Apply 50-point averaging to processed data
-            self.processed_data = self.apply_50point_average(self.processed_data)
-            
-            # Generate orange curve (decimated view)
             self.generate_orange_curve()
-            
+            self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
             self.find_cycles()
             results = self.calculate_integral()
             
             if not results:
-                return None, None, None, {
+                return None, None, None, None, None, {
                     'integral_value': 'No analysis performed',
                     'capacitance_uF_cm2': 'No analysis performed',
                     'cycle_indices': []
                 }
-            return self.processed_data, self.orange_curve, self.orange_curve_times, results
+            return (self.processed_data, self.orange_curve, self.orange_curve_times, 
+                    self.normalized_curve, self.normalized_curve_times, results)
             
         except Exception as e:
             app_logger.error(f"Error in process_signal: {str(e)}")
-            return None, None, None, {
+            return None, None, None, None, None, {
                 'integral_value': f"Error: {str(e)}",
                 'capacitance_uF_cm2': 'Error',
                 'cycle_indices': []
