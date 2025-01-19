@@ -39,12 +39,8 @@ class ActionPotentialProcessor:
 
     def calculate_normalized_curve(self):
         """
-        Calculate normalized curve showing conductance changes for four segments.
-        Segments:
-        1. 35-234 (hyperpolarization)
-        2. 235-434 (depolarization)
-        3. 435-633 (hyperpolarization)
-        4. 634-834 (depolarization)
+        Calculate normalized curve showing conductance changes.
+        G = |I/ΔV| where ΔV is the voltage step (±20mV)
         """
         try:
             if self.orange_curve is None:
@@ -74,15 +70,12 @@ class ActionPotentialProcessor:
                 selected_points = self.orange_curve[start_idx:end_idx]
                 selected_times = self.orange_curve_times[start_idx:end_idx]
                 
-                # Calculate voltage difference based on segment type
-                if is_hyperpol:
-                    voltage_diff = self.params['V0'] - self.params['V1']  # For hyperpolarization
-                else:
-                    voltage_diff = self.params['V1'] - self.params['V0']  # For depolarization
+                # Calculate voltage step (always 20mV magnitude)
+                voltage_step = -20.0 if is_hyperpol else 20.0  # mV
                 
-                # Calculate conductance
-                # For hyperpol: I/(V0-V1), for depol: I/(V1-V0)
-                segment_normalized = -1 * (selected_points / voltage_diff)
+                # Calculate conductance: |I/ΔV|
+                # The absolute value ensures conductance is always positive
+                segment_normalized = np.abs(selected_points / voltage_step)
                 
                 # Add to total arrays
                 normalized_points.extend(segment_normalized)
@@ -90,16 +83,16 @@ class ActionPotentialProcessor:
                 
                 app_logger.debug(f"Processed segment {start_idx+1}-{end_idx}: "
                             f"{'hyperpolarization' if is_hyperpol else 'depolarization'}")
-                app_logger.debug(f"Voltage difference: {voltage_diff} mV")
-                app_logger.debug(f"Original range: [{np.min(selected_points):.2f}, "
+                app_logger.debug(f"Voltage step: {voltage_step} mV")
+                app_logger.debug(f"Current range: [{np.min(selected_points):.2f}, "
                             f"{np.max(selected_points):.2f}] pA")
-                app_logger.debug(f"Normalized range: [{np.min(segment_normalized):.2f}, "
+                app_logger.debug(f"Conductance range: [{np.min(segment_normalized):.2f}, "
                             f"{np.max(segment_normalized):.2f}] nS")
             
             self.normalized_curve = np.array(normalized_points)
             self.normalized_curve_times = np.array(normalized_times)
             
-            app_logger.info("Normalized curve calculated for all segments")
+            app_logger.info("Conductance values calculated for all segments")
             return np.array(normalized_points), np.array(normalized_times)
             
         except Exception as e:
