@@ -39,42 +39,68 @@ class ActionPotentialProcessor:
 
     def calculate_normalized_curve(self):
         """
-        Calculate normalized curve showing conductance changes.
-        Takes points 35-234 of the orange curve, inverts them, and scales by voltage.
+        Calculate normalized curve showing conductance changes for four segments.
+        Segments:
+        1. 35-234 (hyperpolarization)
+        2. 235-434 (depolarization)
+        3. 435-633 (hyperpolarization)
+        4. 634-834 (depolarization)
         """
         try:
             if self.orange_curve is None:
                 return None, None
 
-            # Get points 35-234 from orange curve
-            start_idx = 34  # Point 35 (0-based indexing)
-            end_idx = 234   # Point 234 (inclusive)
+            # Define segments and their types
+            segments = [
+                {"start": 34, "end": 234, "is_hyperpol": True},   # 35-234
+                {"start": 234, "end": 434, "is_hyperpol": False}, # 235-434
+                {"start": 434, "end": 633, "is_hyperpol": True},  # 435-633
+                {"start": 633, "end": 834, "is_hyperpol": False}  # 634-834
+            ]
             
-            if end_idx >= len(self.orange_curve):
-                app_logger.warning(f"Not enough points in orange curve. Length: {len(self.orange_curve)}")
-                return None, None
+            normalized_points = []
+            normalized_times = []
+            
+            for segment in segments:
+                start_idx = segment["start"]
+                end_idx = segment["end"]
+                is_hyperpol = segment["is_hyperpol"]
+                
+                if end_idx >= len(self.orange_curve):
+                    app_logger.warning(f"Not enough points in orange curve. Length: {len(self.orange_curve)}")
+                    continue
 
-            # Extract the exact points we want to normalize
-            selected_points = self.orange_curve[start_idx:end_idx]
-            selected_times = self.orange_curve_times[start_idx:end_idx]
+                # Extract points for this segment
+                selected_points = self.orange_curve[start_idx:end_idx]
+                selected_times = self.orange_curve_times[start_idx:end_idx]
+                
+                # Calculate voltage difference based on segment type
+                if is_hyperpol:
+                    voltage_diff = self.params['V0'] - self.params['V1']  # For hyperpolarization
+                else:
+                    voltage_diff = self.params['V1'] - self.params['V0']  # For depolarization
+                
+                # Calculate conductance
+                # For hyperpol: I/(V0-V1), for depol: I/(V1-V0)
+                segment_normalized = -1 * (selected_points / voltage_diff)
+                
+                # Add to total arrays
+                normalized_points.extend(segment_normalized)
+                normalized_times.extend(selected_times)
+                
+                app_logger.debug(f"Processed segment {start_idx+1}-{end_idx}: "
+                            f"{'hyperpolarization' if is_hyperpol else 'depolarization'}")
+                app_logger.debug(f"Voltage difference: {voltage_diff} mV")
+                app_logger.debug(f"Original range: [{np.min(selected_points):.2f}, "
+                            f"{np.max(selected_points):.2f}] pA")
+                app_logger.debug(f"Normalized range: [{np.min(segment_normalized):.2f}, "
+                            f"{np.max(segment_normalized):.2f}] nS")
             
-            # For hyperpolarizing current (negative), use V0-V1
-            # The current is negative (hyperpolarizing), so we want positive conductance
-            voltage_diff = self.params['V0'] - self.params['V1']
+            self.normalized_curve = np.array(normalized_points)
+            self.normalized_curve_times = np.array(normalized_times)
             
-            # Calculate conductance: I/(V0-V1)
-            # Since current is negative and V0-V1 is negative, this gives positive conductance
-            normalized_points = -1*(selected_points / voltage_diff)
-            
-            self.normalized_curve = normalized_points
-            self.normalized_curve_times = selected_times
-            
-            app_logger.info(f"Normalized points {start_idx+1} to {end_idx}")
-            app_logger.debug(f"Voltage difference: {voltage_diff} mV")
-            app_logger.debug(f"Original current range: [{np.min(selected_points):.2f}, {np.max(selected_points):.2f}] pA")
-            app_logger.debug(f"Conductance range: [{np.min(normalized_points):.2f}, {np.max(normalized_points):.2f}] nS")
-            
-            return normalized_points, selected_times
+            app_logger.info("Normalized curve calculated for all segments")
+            return np.array(normalized_points), np.array(normalized_times)
             
         except Exception as e:
             app_logger.error(f"Error calculating normalized curve: {str(e)}")
