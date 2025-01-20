@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from src.utils.logger import app_logger
+import numpy as np
 
 class ActionPotentialTab:
     def __init__(self, parent, callback):
@@ -14,26 +15,64 @@ class ActionPotentialTab:
         self.parent = parent
         self.update_callback = callback
         
-        # Create main frame
+        # Create main frame with fixed width
         self.frame = ttk.LabelFrame(parent, text="Action Potential Analysis")
         self.frame.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        # Create canvas and scrollbar for scrolling
+        self.canvas = tk.Canvas(self.frame, width=260)  # Set fixed width
+        self.scrollbar = ttk.Scrollbar(self.frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+        
+        # Configure canvas
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        
+        # Create window in canvas
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        # Pack scrollbar components
+        self.scrollbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
         
         # Initialize variables
         self.init_variables()
         
-        # Create controls
+        # Create controls within scrollable_frame
         self.setup_parameter_controls()
         self.setup_normalization_points()
         self.setup_analysis_controls()
         
+        # Configure mouse wheel scrolling
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        
+        # Configure canvas resize
+        self.frame.bind('<Configure>', self._on_frame_configure)
+        
         app_logger.debug("Action potential analysis tab initialized")
+
+    def _on_frame_configure(self, event=None):
+        """Handle frame resizing"""
+        # Update the canvas size while maintaining minimum width
+        width = max(260, self.frame.winfo_width() - 25)  # -25 for scrollbar and padding
+        self.canvas.configure(width=width)
+        
+        # Update the scrollable frame width
+        self.canvas.itemconfig('window', width=width)
+
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling"""
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def init_variables(self):
         """Initialize control variables with validation"""
         try:
             # Analysis parameters with validation
             self.n_cycles = tk.IntVar(value=2)
-            self.t0 = tk.DoubleVar(value=20.0)  # Add t0
+            self.t0 = tk.DoubleVar(value=20.0)
             self.t1 = tk.DoubleVar(value=100.0)
             self.t2 = tk.DoubleVar(value=100.0)
             self.V0 = tk.DoubleVar(value=-80.0)
@@ -43,18 +82,22 @@ class ActionPotentialTab:
             # Results display
             self.integral_value = tk.StringVar(value="No analysis performed")
             self.status_text = tk.StringVar(value="Ready")
+            self.progress_var = tk.DoubleVar()
             
             # Display mode variables
             self.show_processed = tk.BooleanVar(value=True)
             self.show_average = tk.BooleanVar(value=True)
             self.show_normalized = tk.BooleanVar(value=True)
+            self.show_modified = tk.BooleanVar(value=True)
+            
             self.processed_display_mode = tk.StringVar(value="line")
             self.average_display_mode = tk.StringVar(value="line")
             self.normalized_display_mode = tk.StringVar(value="line")
+            self.modified_display_mode = tk.StringVar(value="line")
             
             # Add validation traces
             self.n_cycles.trace_add("write", self.validate_n_cycles)
-            self.t0.trace_add("write", self.validate_time_constant)  # Add t0 validation
+            self.t0.trace_add("write", self.validate_time_constant)
             self.t1.trace_add("write", self.validate_time_constant)
             self.t2.trace_add("write", self.validate_time_constant)
             
@@ -122,46 +165,56 @@ class ActionPotentialTab:
     def setup_parameter_controls(self):
         """Setup parameter input controls"""
         try:
-            param_frame = ttk.LabelFrame(self.frame, text="Parameters")
-            param_frame.pack(fill='x', padx=5, pady=5)
+            param_frame = ttk.LabelFrame(self.scrollable_frame, text="Parameters")
+            param_frame.pack(fill='x', padx=5, pady=2)  # Reduced pady
             
-            # Number of cycles
-            cycle_frame = ttk.Frame(param_frame)
-            cycle_frame.pack(fill='x', padx=5, pady=2)
-            ttk.Label(cycle_frame, text="Number of Cycles:").pack(side='left')
-            ttk.Entry(cycle_frame, textvariable=self.n_cycles,
+            # Number of cycles - Compact layout
+            cycles_frame = ttk.Frame(param_frame)
+            cycles_frame.pack(fill='x', padx=5, pady=1)  # Reduced pady
+            ttk.Label(cycles_frame, text="Number of Cycles:").pack(side='left')
+            ttk.Entry(cycles_frame, textvariable=self.n_cycles,
                     width=10).pack(side='right')
             
-            # Time constants
+            # Time constants - Grid layout for compactness
             time_frame = ttk.Frame(param_frame)
-            time_frame.pack(fill='x', padx=5, pady=2)
-            ttk.Label(time_frame, text="t0 (ms):").pack(side='left')  # Add t0
-            ttk.Entry(time_frame, textvariable=self.t0,
-                    width=10).pack(side='left', padx=5)
-            ttk.Label(time_frame, text="t1 (ms):").pack(side='left')
-            ttk.Entry(time_frame, textvariable=self.t1,
-                    width=10).pack(side='left', padx=5)
-            ttk.Label(time_frame, text="t2 (ms):").pack(side='left')
-            ttk.Entry(time_frame, textvariable=self.t2,
-                    width=10).pack(side='right')
+            time_frame.pack(fill='x', padx=5, pady=1)  # Reduced pady
             
-            # Voltage levels
+            # Create a grid layout
+            time_frame.grid_columnconfigure(1, weight=1)
+            time_frame.grid_columnconfigure(3, weight=1)
+            time_frame.grid_columnconfigure(5, weight=1)
+            
+            # t0 controls
+            ttk.Label(time_frame, text="t0 (ms):").grid(row=0, column=0, padx=2)
+            ttk.Entry(time_frame, textvariable=self.t0, width=8).grid(row=0, column=1, padx=2)
+            
+            # t1 controls
+            ttk.Label(time_frame, text="t1 (ms):").grid(row=0, column=2, padx=2)
+            ttk.Entry(time_frame, textvariable=self.t1, width=8).grid(row=0, column=3, padx=2)
+            
+            # t2 controls
+            ttk.Label(time_frame, text="t2 (ms):").grid(row=0, column=4, padx=2)
+            ttk.Entry(time_frame, textvariable=self.t2, width=8).grid(row=0, column=5, padx=2)
+            
+            # Voltage levels - Grid layout
             volt_frame = ttk.Frame(param_frame)
-            volt_frame.pack(fill='x', padx=5, pady=2)
-            ttk.Label(volt_frame, text="V0 (mV):").pack(side='left')
-            ttk.Entry(volt_frame, textvariable=self.V0,
-                    width=10).pack(side='left', padx=5)
-            ttk.Label(volt_frame, text="V1 (mV):").pack(side='left')
-            ttk.Entry(volt_frame, textvariable=self.V1,
-                    width=10).pack(side='left', padx=5)
-            ttk.Label(volt_frame, text="V2 (mV):").pack(side='left')
-            ttk.Entry(volt_frame, textvariable=self.V2,
-                    width=10).pack(side='right')
+            volt_frame.pack(fill='x', padx=5, pady=1)  # Reduced pady
             
-            # Add tooltips
-            self.create_tooltip(cycle_frame, "Number of action potential cycles to analyze")
-            self.create_tooltip(time_frame, "Time constants for baseline (t0), repolarization (t1) and depolarization (t2)")
-            self.create_tooltip(volt_frame, "Voltage levels for baseline (V0), repolarization (V1), and depolarization (V2)")
+            volt_frame.grid_columnconfigure(1, weight=1)
+            volt_frame.grid_columnconfigure(3, weight=1)
+            volt_frame.grid_columnconfigure(5, weight=1)
+            
+            # V0 controls
+            ttk.Label(volt_frame, text="V0 (mV):").grid(row=0, column=0, padx=2)
+            ttk.Entry(volt_frame, textvariable=self.V0, width=8).grid(row=0, column=1, padx=2)
+            
+            # V1 controls
+            ttk.Label(volt_frame, text="V1 (mV):").grid(row=0, column=2, padx=2)
+            ttk.Entry(volt_frame, textvariable=self.V1, width=8).grid(row=0, column=3, padx=2)
+            
+            # V2 controls
+            ttk.Label(volt_frame, text="V2 (mV):").grid(row=0, column=4, padx=2)
+            ttk.Entry(volt_frame, textvariable=self.V2, width=8).grid(row=0, column=5, padx=2)
             
         except Exception as e:
             app_logger.error(f"Error setting up parameter controls: {str(e)}")
@@ -170,14 +223,14 @@ class ActionPotentialTab:
     def setup_analysis_controls(self):
         """Setup analysis controls and results display"""
         try:
-            analysis_frame = ttk.LabelFrame(self.frame, text="Analysis")
+            analysis_frame = ttk.LabelFrame(self.scrollable_frame, text="Analysis")
             analysis_frame.pack(fill='x', padx=5, pady=5)
             
             # Display options frame
             display_frame = ttk.LabelFrame(analysis_frame, text="Display Options")
             display_frame.pack(fill='x', padx=5, pady=5)
             
-            # Show/hide signals with update callbacks
+            # Show/hide signals
             ttk.Checkbutton(display_frame, text="Show Processed Signal",
                         variable=self.show_processed,
                         command=self.on_display_change).pack(anchor='w', padx=5)
@@ -187,14 +240,21 @@ class ActionPotentialTab:
             ttk.Checkbutton(display_frame, text="Show Voltage-Normalized",
                         variable=self.show_normalized,
                         command=self.on_display_change).pack(anchor='w', padx=5)
+            ttk.Checkbutton(display_frame, text="Show Modified Peaks",
+                        variable=self.show_modified,
+                        command=self.on_display_change).pack(anchor='w', padx=5)
             
             # Display modes frame
             modes_frame = ttk.Frame(display_frame)
             modes_frame.pack(fill='x', padx=5, pady=5)
             
+            # Create a 2x2 grid of mode controls
+            control_frames = ttk.Frame(modes_frame)
+            control_frames.pack(fill='x', expand=True)
+            
             # Processed signal display mode
-            proc_frame = ttk.LabelFrame(modes_frame, text="Processed")
-            proc_frame.pack(side='left', fill='x', expand=True, padx=2)
+            proc_frame = ttk.LabelFrame(control_frames, text="Processed")
+            proc_frame.grid(row=0, column=0, padx=2, pady=2, sticky='nsew')
             for mode in ["line", "points", "all_points"]:
                 ttk.Radiobutton(proc_frame, text=mode.replace('_', ' ').title(),
                             variable=self.processed_display_mode,
@@ -202,8 +262,8 @@ class ActionPotentialTab:
                             command=self.on_display_change).pack(anchor='w')
             
             # Average signal display mode
-            avg_frame = ttk.LabelFrame(modes_frame, text="Average")
-            avg_frame.pack(side='left', fill='x', expand=True, padx=2)
+            avg_frame = ttk.LabelFrame(control_frames, text="Average")
+            avg_frame.grid(row=0, column=1, padx=2, pady=2, sticky='nsew')
             for mode in ["line", "points", "all_points"]:
                 ttk.Radiobutton(avg_frame, text=mode.replace('_', ' ').title(),
                             variable=self.average_display_mode,
@@ -211,22 +271,33 @@ class ActionPotentialTab:
                             command=self.on_display_change).pack(anchor='w')
             
             # Normalized signal display mode
-            norm_frame = ttk.LabelFrame(modes_frame, text="Normalized")
-            norm_frame.pack(side='left', fill='x', expand=True, padx=2)
+            norm_frame = ttk.LabelFrame(control_frames, text="Normalized")
+            norm_frame.grid(row=1, column=0, padx=2, pady=2, sticky='nsew')
             for mode in ["line", "points", "all_points"]:
                 ttk.Radiobutton(norm_frame, text=mode.replace('_', ' ').title(),
                             variable=self.normalized_display_mode,
                             value=mode,
                             command=self.on_display_change).pack(anchor='w')
             
-            # Analysis controls
+            # Modified peaks display mode
+            mod_frame = ttk.LabelFrame(control_frames, text="Modified")
+            mod_frame.grid(row=1, column=1, padx=2, pady=2, sticky='nsew')
+            for mode in ["line", "points", "all_points"]:
+                ttk.Radiobutton(mod_frame, text=mode.replace('_', ' ').title(),
+                            variable=self.modified_display_mode,
+                            value=mode,
+                            command=self.on_display_change).pack(anchor='w')
+            
+            # Configure grid weights for even spacing
+            control_frames.grid_columnconfigure(0, weight=1)
+            control_frames.grid_columnconfigure(1, weight=1)
+            
+            # Analysis button and progress bar
             self.analyze_button = ttk.Button(analysis_frame, 
                                         text="Analyze Signal",
                                         command=self.analyze_signal)
             self.analyze_button.pack(pady=5)
             
-            # Progress bar
-            self.progress_var = tk.DoubleVar()
             self.progress = ttk.Progressbar(analysis_frame, 
                                         variable=self.progress_var,
                                         mode='determinate')
@@ -241,7 +312,7 @@ class ActionPotentialTab:
                     width=20).pack(side='left', padx=5)
             
             # Status display
-            status_frame = ttk.Frame(self.frame)
+            status_frame = ttk.Frame(self.scrollable_frame)
             status_frame.pack(fill='x', padx=5, pady=5)
             ttk.Label(status_frame, textvariable=self.status_text).pack(side='left')
             
@@ -249,12 +320,25 @@ class ActionPotentialTab:
             app_logger.error(f"Error setting up analysis controls: {str(e)}")
             raise
 
+    def debug_curve_data(self):
+        """Debug method to log curve data"""
+        if hasattr(self, 'modified_hyperpol') and self.modified_hyperpol is not None:
+            app_logger.debug(f"Modified hyperpol curve: {len(self.modified_hyperpol)} points")
+            app_logger.debug(f"Range: [{np.min(self.modified_hyperpol):.2f}, {np.max(self.modified_hyperpol):.2f}]")
+        else:
+            app_logger.debug("No modified hyperpol curve")
+
+        if hasattr(self, 'modified_depol') and self.modified_depol is not None:
+            app_logger.debug(f"Modified depol curve: {len(self.modified_depol)} points")
+            app_logger.debug(f"Range: [{np.min(self.modified_depol):.2f}, {np.max(self.modified_depol):.2f}]")
+        else:
+            app_logger.debug("No modified depol curve")
+
     def on_display_change(self):
         """Handle changes in display options"""
         try:
-            # Get current display settings
+            self.debug_curve_data()  # Add this line for debugging
             params = self.get_parameters()
-            # Call callback to update display
             self.update_callback(params)
         except Exception as e:
             app_logger.error(f"Error handling display change: {str(e)}")
@@ -386,7 +470,7 @@ class ActionPotentialTab:
         try:
             params = {
                 'n_cycles': self.n_cycles.get(),
-                't0': self.t0.get(),  # Add t0
+                't0': self.t0.get(),
                 't1': self.t1.get(),
                 't2': self.t2.get(),
                 'V0': self.V0.get(),
@@ -396,16 +480,18 @@ class ActionPotentialTab:
                     'show_processed': self.show_processed.get(),
                     'show_average': self.show_average.get(),
                     'show_normalized': self.show_normalized.get(),
+                    'show_modified': self.show_modified.get(),  # Add this
                     'processed_mode': self.processed_display_mode.get(),
                     'average_mode': self.average_display_mode.get(),
-                    'normalized_mode': self.normalized_display_mode.get()
+                    'normalized_mode': self.normalized_display_mode.get(),
+                    'modified_mode': self.modified_display_mode.get()  # Add this
                 }
             }
             
             # Validate parameters
             if params['n_cycles'] < 1:
                 raise ValueError("Number of cycles must be positive")
-            if params['t0'] <= 0 or params['t1'] <= 0 or params['t2'] <= 0:  # Add t0 validation
+            if params['t0'] <= 0 or params['t1'] <= 0 or params['t2'] <= 0:
                 raise ValueError("Time constants must be positive")
             
             app_logger.debug(f"Parameters validated: {params}")

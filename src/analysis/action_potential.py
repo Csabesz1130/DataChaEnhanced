@@ -101,19 +101,20 @@ class ActionPotentialProcessor:
 
     def process_signal(self):
         """
-        The main pipeline:
-        1. baseline_correction_initial
-        2. advanced_baseline_normalization
-        3. generate_orange_curve
-        4. calculate_normalized_curve
-        5. find_cycles
-        6. calculate_integral
+        Process the signal and store all results.
         """
         try:
             self.baseline_correction_initial()
             self.advanced_baseline_normalization()
             self.generate_orange_curve()
             self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
+            self.average_curve, self.average_curve_times = self.calculate_segment_average()
+            
+            # Apply average to peaks and store results
+            if self.average_curve is not None:
+                (self.modified_hyperpol, self.modified_hyperpol_times,
+                self.modified_depol, self.modified_depol_times) = self.apply_average_to_peaks()
+                
             self.find_cycles()
             results = self.calculate_integral()
             
@@ -123,9 +124,10 @@ class ActionPotentialProcessor:
                     'capacitance_uF_cm2': 'No analysis performed',
                     'cycle_indices': []
                 }
-            return (self.processed_data, self.orange_curve, self.orange_curve_times, 
+                
+            return (self.processed_data, self.orange_curve, self.orange_curve_times,
                     self.normalized_curve, self.normalized_curve_times, results)
-            
+                    
         except Exception as e:
             app_logger.error(f"Error in process_signal: {str(e)}")
             return None, None, None, None, None, {
@@ -350,6 +352,113 @@ class ActionPotentialProcessor:
         except Exception as e:
             app_logger.error(f"Error in cycle detection: {str(e)}")
             raise
+
+    def calculate_segment_average(self):
+        """
+        Calculate average curve from the 4 normalized segments.
+        Each segment is resized to 200 points before averaging.
+        """
+        try:
+            if self.orange_curve is None:
+                return None, None
+
+            # Define segments
+            segments = [
+                {"start": 34, "end": 234},    # First hyperpol
+                {"start": 234, "end": 434},   # First depol
+                {"start": 434, "end": 633},   # Second hyperpol
+                {"start": 633, "end": 834}    # Second depol
+            ]
+            
+            # Initialize arrays for resampled segments
+            resampled_segments = []
+            target_length = 200
+            
+            # Resample each segment to 200 points
+            for segment in segments:
+                start_idx = segment["start"]
+                end_idx = segment["end"]
+                
+                # Extract segment
+                segment_data = self.orange_curve[start_idx:end_idx]
+                segment_times = self.orange_curve_times[start_idx:end_idx]
+                
+                # Resample to 200 points using interpolation
+                original_points = np.linspace(0, 1, len(segment_data))
+                new_points = np.linspace(0, 1, target_length)
+                resampled_data = np.interp(new_points, original_points, segment_data)
+                resampled_segments.append(resampled_data)
+            
+            # Convert to numpy array for easier operations
+            segments_array = np.array(resampled_segments)
+            
+            # Calculate average curve
+            average_curve = np.mean(segments_array, axis=0)
+            
+            # Generate corresponding time points (using time range of first segment)
+            avg_times = np.linspace(
+                self.orange_curve_times[segments[0]["start"]],
+                self.orange_curve_times[segments[0]["end"]],
+                target_length
+            )
+            
+            self.average_curve = average_curve
+            self.average_curve_times = avg_times
+            
+            app_logger.info("Calculated average curve from 4 segments")
+            app_logger.debug(f"Average curve range: [{np.min(average_curve):.2f}, {np.max(average_curve):.2f}]")
+            
+            return average_curve, avg_times
+            
+        except Exception as e:
+            app_logger.error(f"Error calculating segment average: {str(e)}")
+            return None, None
+
+    def apply_average_to_peaks(self):
+        """
+        Simply add averaged normalized curve to high hyperpolarization
+        and subtract it from high depolarization.
+        """
+        try:
+            if self.average_curve is None:
+                self.average_curve, _ = self.calculate_segment_average()
+                if self.average_curve is None:
+                    return None, None, None, None
+            
+            # Define peak segments
+            hyperpol_start = 834   # Start of high hyperpolarization
+            hyperpol_end = 1034   # End point (200 points)
+            depol_start = 1034    # Start of high depolarization
+            depol_end = 1234      # End point (200 points)
+            
+            # Extract peak segments
+            target_length = 200
+            
+            # High hyperpolarization
+            hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_end]
+            hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_end]
+            
+            # High depolarization
+            depol_data = self.orange_curve[depol_start:depol_end]
+            depol_times = self.orange_curve_times[depol_start:depol_end]
+            
+            # Simply add and subtract the average curve
+            hyperpol_modified = hyperpol_data + self.average_curve
+            depol_modified = depol_data - self.average_curve
+            
+            self.modified_hyperpol = hyperpol_modified
+            self.modified_hyperpol_times = hyperpol_times
+            self.modified_depol = depol_modified
+            self.modified_depol_times = depol_times
+            
+            app_logger.info("Applied average curve to peak segments")
+            
+            return (hyperpol_modified, hyperpol_times,
+                    depol_modified, depol_times)
+                    
+        except Exception as e:
+            app_logger.error(f"Error applying average to peaks: {str(e)}")
+            return None, None, None, None
 
     def calculate_integral(self):
         """Calculate integral and capacitance from the first cycle."""

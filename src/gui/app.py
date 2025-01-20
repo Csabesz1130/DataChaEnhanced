@@ -42,22 +42,39 @@ class SignalAnalyzerApp:
         app_logger.info("Application initialized successfully")
 
     def setup_main_layout(self):
-        """Setup the main application layout"""
-        # Create main frames
+        """Setup the main application layout with resizable panes"""
+        # Create toolbar frame
         self.toolbar_frame = ttk.Frame(self.master)
         self.toolbar_frame.pack(fill='x', padx=5, pady=5)
         
-        # Create main container for plot and controls
+        # Create main container with PanedWindow
         self.main_container = ttk.PanedWindow(self.master, orient='horizontal')
         self.main_container.pack(fill='both', expand=True, padx=5, pady=5)
         
-        # Create frames for plot and controls
-        self.plot_frame = ttk.Frame(self.main_container)
-        self.control_frame = ttk.Frame(self.main_container)
+        # Calculate initial widths
+        total_width = self.master.winfo_screenwidth()
+        plot_width = int(total_width * 0.7)  # 70% of screen width
+        control_width = int(total_width * 0.3)  # 30% of screen width
+        
+        # Create frames for plot and controls with specific widths
+        self.plot_frame = ttk.Frame(self.main_container, width=plot_width)
+        self.control_frame = ttk.Frame(self.main_container, width=control_width)
         
         # Add frames to PanedWindow
-        self.main_container.add(self.plot_frame, weight=3)
-        self.main_container.add(self.control_frame, weight=1)
+        self.main_container.add(self.plot_frame, weight=70)
+        self.main_container.add(self.control_frame, weight=30)
+        
+        # Configure minimum widths using pack
+        self.plot_frame.pack_propagate(False)
+        self.control_frame.pack_propagate(False)
+        
+        # Set minimum widths
+        self.plot_frame.configure(width=400)
+        self.control_frame.configure(width=300)
+        
+        # Create notebook for tabs in control frame
+        self.notebook = ttk.Notebook(self.control_frame)
+        self.notebook.pack(fill='both', expand=True)
 
     def setup_toolbar(self):
         """Setup the toolbar with file operations"""
@@ -111,6 +128,24 @@ class SignalAnalyzerApp:
         self.status_label = ttk.Label(self.toolbar_frame, 
                                     textvariable=self.status_var)
         self.status_label.pack(side='right', padx=5)
+
+    def setup_controls(self):
+        """Setup all control components"""
+        # Create and add tabs
+        self.filter_tab = FilterTab(self.notebook, self.on_filter_change)
+        self.analysis_tab = AnalysisTab(self.notebook, self.on_analysis_update)
+        self.view_tab = ViewTab(self.notebook, self.on_view_change)
+        self.action_potential_tab = ActionPotentialTab(self.notebook, self.on_action_potential_analysis)
+        
+        # Add tabs to notebook with specific widths
+        self.notebook.add(self.filter_tab.frame, text='Filters')
+        self.notebook.add(self.analysis_tab.frame, text='Analysis')
+        self.notebook.add(self.view_tab.frame, text='View')
+        self.notebook.add(self.action_potential_tab.frame, text='Action Potential')
+        
+        # Configure tab sizes
+        for tab in (self.filter_tab, self.analysis_tab, self.view_tab, self.action_potential_tab):
+            tab.frame.configure(width=280)  # Set fixed width for tab contents
 
     def show_plot_menu(self, event=None):
         """Show the plot selection menu below the Separate Plots button"""
@@ -655,7 +690,6 @@ class SignalAnalyzerApp:
                 hasattr(self.action_potential_tab, 'show_normalized') and
                 self.action_potential_tab.show_normalized.get()):
                 
-                # Ensure normalized curve is properly bounded
                 if view_params.get('use_interval', False):
                     mask = ((normalized_times >= view_params['t_min']) & 
                         (normalized_times <= view_params['t_max']))
@@ -674,6 +708,40 @@ class SignalAnalyzerApp:
                     self.ax.scatter(plot_norm_times * 1000, plot_norm, color='darkblue',
                                 s=25, alpha=1, marker='o',
                                 label='Voltage-Normalized' if display_mode == "points" else "_nolegend_")
+
+            # Modified peaks curves
+            if (hasattr(self, 'action_potential_processor') and 
+                hasattr(self.action_potential_processor, 'modified_hyperpol') and 
+                hasattr(self.action_potential_tab, 'show_modified') and 
+                self.action_potential_tab.show_modified.get()):
+                
+                display_mode = self.action_potential_tab.modified_display_mode.get()
+                
+                # Plot modified hyperpolarization
+                if self.action_potential_processor.modified_hyperpol is not None:
+                    if display_mode in ["line", "all_points"]:
+                        self.ax.plot(self.action_potential_processor.modified_hyperpol_times * 1000, 
+                                self.action_potential_processor.modified_hyperpol,
+                                color='purple', label='Modified Peaks' if display_mode == "line" else "_nolegend_",
+                                linewidth=1.5, alpha=0.7)
+                    if display_mode in ["points", "all_points"]:
+                        self.ax.scatter(self.action_potential_processor.modified_hyperpol_times * 1000,
+                                    self.action_potential_processor.modified_hyperpol,
+                                    color='purple', s=25, alpha=1, marker='o',
+                                    label='Modified Peaks' if display_mode == "points" else "_nolegend_")
+                
+                # Plot modified depolarization
+                if self.action_potential_processor.modified_depol is not None:
+                    if display_mode in ["line", "all_points"]:
+                        self.ax.plot(self.action_potential_processor.modified_depol_times * 1000,
+                                self.action_potential_processor.modified_depol,
+                                color='purple', label='_nolegend_',
+                                linewidth=1.5, alpha=0.7)
+                    if display_mode in ["points", "all_points"]:
+                        self.ax.scatter(self.action_potential_processor.modified_depol_times * 1000,
+                                    self.action_potential_processor.modified_depol,
+                                    color='purple', s=25, alpha=1, marker='o',
+                                    label='_nolegend_')
 
             # Set labels and grid
             self.ax.set_xlabel('Time (ms)')
