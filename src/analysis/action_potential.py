@@ -48,10 +48,10 @@ class ActionPotentialProcessor:
 
             # Define segments and their types
             segments = [
-                {"start": 34, "end": 234, "is_hyperpol": True},   # 35-234
-                {"start": 234, "end": 434, "is_hyperpol": False}, # 235-434
-                {"start": 434, "end": 633, "is_hyperpol": True},  # 435-633
-                {"start": 633, "end": 834, "is_hyperpol": False}  # 634-834
+                {"start": 35, "end": 234, "is_hyperpol": True},   # 35-234
+                {"start": 235, "end": 434, "is_hyperpol": False}, # 235-434
+                {"start": 435, "end": 633, "is_hyperpol": True},  # 435-633
+                {"start": 635, "end": 834, "is_hyperpol": False}  # 634-834
             ]
             
             normalized_points = []
@@ -75,7 +75,8 @@ class ActionPotentialProcessor:
                 
                 # Calculate conductance: |I/ΔV|
                 # The absolute value ensures conductance is always positive
-                segment_normalized = np.abs(selected_points / voltage_step)
+                #nincs abs()
+                segment_normalized = selected_points / voltage_step
                 
                 # Add to total arrays
                 normalized_points.extend(segment_normalized)
@@ -364,10 +365,10 @@ class ActionPotentialProcessor:
 
             # Define segments
             segments = [
-                {"start": 34, "end": 234},    # First hyperpol
-                {"start": 234, "end": 434},   # First depol
-                {"start": 434, "end": 633},   # Second hyperpol
-                {"start": 633, "end": 834}    # Second depol
+                {"start": 35, "end": 234},    # First hyperpol
+                {"start": 235, "end": 434},   # First depol
+                {"start": 435, "end": 634},   # Second hyperpol
+                {"start": 635, "end": 834}    # Second depol
             ]
             
             # Initialize arrays for resampled segments
@@ -393,6 +394,7 @@ class ActionPotentialProcessor:
             segments_array = np.array(resampled_segments)
             
             # Calculate average curve
+            #kibontani mi történik, akár for-ral leprogramozni
             average_curve = np.mean(segments_array, axis=0)
             
             # Generate corresponding time points (using time range of first segment)
@@ -426,9 +428,9 @@ class ActionPotentialProcessor:
                     return None, None, None, None
             
             # Define peak segments
-            hyperpol_start = 834   # Start of high hyperpolarization
+            hyperpol_start = 835   # Start of high hyperpolarization
             hyperpol_end = 1034   # End point (200 points)
-            depol_start = 1034    # Start of high depolarization
+            depol_start = 1035    # Start of high depolarization
             depol_end = 1234      # End point (200 points)
             
             # Extract peak segments
@@ -476,7 +478,7 @@ class ActionPotentialProcessor:
             # Convert units
             current_in_A = cycle * 1e-12  # pA to A
             time_in_s = cycle_time  # already in seconds
-            voltage_diff_in_V = (self.params['V1'] - self.params['V0']) * 1e-3  # mV to V
+            voltage_diff_in_V = (self.params['V1'] - self.params['V0'])  # mV to V, FELESLEGES - kiejtik egymást a mV és ms, ygx nem kellenek ezek az átváltások
             
             # Find threshold for integration
             peak_curr = np.max(np.abs(current_in_A))
