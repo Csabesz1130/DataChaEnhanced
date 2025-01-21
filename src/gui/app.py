@@ -614,8 +614,17 @@ class SignalAnalyzerApp:
     # Update this method in SignalAnalyzerApp class
 
     def update_plot_with_processed_data(self, processed_data, orange_curve, orange_times, 
-                                    normalized_curve, normalized_times):
-        """Update plot with all processed data including averaged curves and final peaks."""
+                                  normalized_curve, normalized_times):
+        """
+        Update plot with all processed data curves and corresponding display options.
+        
+        Args:
+            processed_data: Initial processed signal data
+            orange_curve: 50-point averaged curve
+            orange_times: Time points for orange curve
+            normalized_curve: Voltage-normalized curve
+            normalized_times: Time points for normalized curve
+        """
         try:
             if not hasattr(self, 'action_potential_tab'):
                 return
@@ -623,29 +632,45 @@ class SignalAnalyzerApp:
             self.ax.clear()
             view_params = self.view_tab.get_view_params()
 
-            # Original signal
-            self.ax.plot(self.time_data * 1000, self.data, 'b-', 
-                        label='Original Signal', alpha=0.3)
+            # Plot original signal with transparency
+            if view_params.get('show_original', True):
+                self.ax.plot(self.time_data * 1000, self.data, 'b-', 
+                            label='Original Signal', alpha=0.3)
             
-            # Filtered signal
-            if self.filtered_data is not None:
+            # Plot filtered signal
+            if self.filtered_data is not None and view_params.get('show_filtered', True):
                 self.ax.plot(self.time_data * 1000, self.filtered_data, 'r-',
                             label='Filtered Signal', alpha=0.5)
             
-            # Orange curve (50-point average)
+            # Plot processed signal if enabled
+            if (processed_data is not None and 
+                hasattr(self.action_potential_tab, 'show_processed') and
+                self.action_potential_tab.show_processed.get()):
+                
+                display_mode = self.action_potential_tab.processed_display_mode.get()
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(self.time_data * 1000, processed_data, 'g-',
+                            label='Processed Signal', linewidth=1.5, alpha=0.7)
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(self.time_data * 1000, processed_data,
+                                color='green', s=15, alpha=0.8, marker='.',
+                                label='Processed Points')
+
+            # Plot 50-point average (orange curve)
             if (orange_curve is not None and orange_times is not None and
                 hasattr(self.action_potential_tab, 'show_average') and
                 self.action_potential_tab.show_average.get()):
                 
                 display_mode = self.action_potential_tab.average_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(orange_times * 1000, orange_curve, 'orange',
+                    self.ax.plot(orange_times * 1000, orange_curve, color='orange',
                             label='50-point Average', linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(orange_times * 1000, orange_curve, color='orange',
-                                s=25, alpha=1, marker='o')
+                    self.ax.scatter(orange_times * 1000, orange_curve,
+                                color='orange', s=25, alpha=1, marker='o',
+                                label='Average Points')
 
-            # Voltage-Normalized curves
+            # Plot voltage-normalized curves
             if (normalized_curve is not None and normalized_times is not None and
                 hasattr(self.action_potential_tab, 'show_normalized') and
                 self.action_potential_tab.show_normalized.get()):
@@ -655,10 +680,11 @@ class SignalAnalyzerApp:
                     self.ax.plot(normalized_times * 1000, normalized_curve, color='darkblue',
                             label='Voltage-Normalized', linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(normalized_times * 1000, normalized_curve, color='darkblue',
-                                s=25, alpha=1, marker='o')
+                    self.ax.scatter(normalized_times * 1000, normalized_curve,
+                                color='darkblue', s=25, alpha=1, marker='o',
+                                label='Normalized Points')
 
-            # Averaged normalized curve (from all 4 segments)
+            # Plot averaged normalized curve
             if (hasattr(self.action_potential_processor, 'average_curve') and 
                 self.action_potential_processor.average_curve is not None and
                 hasattr(self.action_potential_tab, 'show_averaged_normalized') and
@@ -669,13 +695,14 @@ class SignalAnalyzerApp:
                 
                 display_mode = self.action_potential_tab.averaged_normalized_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(avg_times * 1000, avg_curve, color='green',
-                            label='Averaged Normalized', linewidth=1.5, alpha=0.7)
+                    self.ax.plot(avg_times * 1000, avg_curve, color='magenta',  # Changed to magenta
+                            label='Averaged Normalized', linewidth=2, alpha=0.8)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(avg_times * 1000, avg_curve, color='green',
-                                s=25, alpha=1, marker='o')
+                    self.ax.scatter(avg_times * 1000, avg_curve,
+                                color='magenta', s=30, alpha=1, marker='o',
+                                label='Avg Normalized Points')
 
-            # Final modified peaks (after adding/subtracting)
+            # Plot modified peaks
             if (hasattr(self.action_potential_tab, 'show_modified') and 
                 self.action_potential_tab.show_modified.get()):
                 
@@ -702,7 +729,7 @@ class SignalAnalyzerApp:
                     if display_mode in ["line", "all_points"]:
                         self.ax.plot(self.action_potential_processor.modified_depol_times * 1000,
                                 self.action_potential_processor.modified_depol,
-                                color='purple', label='_nolegend_',
+                                color='purple', label='_nolegend_',  # Don't repeat in legend
                                 linewidth=2, alpha=0.8)
                     if display_mode in ["points", "all_points"]:
                         self.ax.scatter(self.action_potential_processor.modified_depol_times * 1000,
@@ -718,9 +745,14 @@ class SignalAnalyzerApp:
             # Update axis limits if specified
             if view_params.get('use_custom_ylim', False):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
+            if view_params.get('use_interval', False):
+                self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
 
+            # Update layout and draw
             self.fig.tight_layout()
             self.canvas.draw_idle()
+            
+            app_logger.debug("Plot updated with all processed data")
 
         except Exception as e:
             app_logger.error(f"Error updating plot with processed data: {str(e)}")

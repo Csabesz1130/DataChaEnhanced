@@ -92,14 +92,14 @@ class ActionPotentialTab:
             self.show_average = tk.BooleanVar(value=True)
             self.show_normalized = tk.BooleanVar(value=True)
             self.show_modified = tk.BooleanVar(value=True)
-            self.show_averaged_normalized = tk.BooleanVar(value=True)
+            self.show_averaged_normalized = tk.BooleanVar(value=True)  # New variable
             
             # Display modes for each curve type
             self.processed_display_mode = tk.StringVar(value="line")
             self.average_display_mode = tk.StringVar(value="line")
             self.normalized_display_mode = tk.StringVar(value="line")
             self.modified_display_mode = tk.StringVar(value="line")
-            self.averaged_normalized_display_mode = tk.StringVar(value="line")
+            self.averaged_normalized_display_mode = tk.StringVar(value="line")  # New variable
             
             # Add validation traces
             self.n_cycles.trace_add("write", self.validate_n_cycles)
@@ -107,6 +107,18 @@ class ActionPotentialTab:
             self.t1.trace_add("write", self.validate_time_constant)
             self.t2.trace_add("write", self.validate_time_constant)
             self.integration_method.trace_add("write", self.on_method_change)
+            
+            # Initialize variables for normalization points
+            self.norm_points = {
+                'seg1_start': tk.StringVar(),
+                'seg1_end': tk.StringVar(),
+                'seg2_start': tk.StringVar(),
+                'seg2_end': tk.StringVar(),
+                'seg3_start': tk.StringVar(),
+                'seg3_end': tk.StringVar(),
+                'seg4_start': tk.StringVar(),
+                'seg4_end': tk.StringVar()
+            }
             
             app_logger.debug("Variables initialized successfully")
             
@@ -275,6 +287,9 @@ class ActionPotentialTab:
             ttk.Checkbutton(display_frame, text="Show Voltage-Normalized",
                         variable=self.show_normalized,
                         command=self.on_display_change).pack(anchor='w', padx=5)
+            ttk.Checkbutton(display_frame, text="Show Averaged Normalized",  # New option
+                        variable=self.show_averaged_normalized,
+                        command=self.on_display_change).pack(anchor='w', padx=5)
             ttk.Checkbutton(display_frame, text="Show Modified Peaks",
                         variable=self.show_modified,
                         command=self.on_display_change).pack(anchor='w', padx=5)
@@ -283,9 +298,13 @@ class ActionPotentialTab:
             modes_frame = ttk.Frame(display_frame)
             modes_frame.pack(fill='x', padx=5, pady=5)
             
-            # Create a 2x2 grid of mode controls
+            # Create a grid of mode controls
             control_frames = ttk.Frame(modes_frame)
             control_frames.pack(fill='x', expand=True)
+            
+            # Configure grid weights for even spacing
+            control_frames.grid_columnconfigure(0, weight=1)
+            control_frames.grid_columnconfigure(1, weight=1)
             
             # Processed signal display mode
             proc_frame = ttk.LabelFrame(control_frames, text="Processed")
@@ -323,9 +342,14 @@ class ActionPotentialTab:
                             value=mode,
                             command=self.on_display_change).pack(anchor='w')
             
-            # Configure grid weights for even spacing
-            control_frames.grid_columnconfigure(0, weight=1)
-            control_frames.grid_columnconfigure(1, weight=1)
+            # Averaged normalized display mode (new)
+            avg_norm_frame = ttk.LabelFrame(control_frames, text="Avg Normalized")
+            avg_norm_frame.grid(row=2, column=0, padx=2, pady=2, sticky='nsew')
+            for mode in ["line", "points", "all_points"]:
+                ttk.Radiobutton(avg_norm_frame, text=mode.replace('_', ' ').title(),
+                            variable=self.averaged_normalized_display_mode,
+                            value=mode,
+                            command=self.on_display_change).pack(anchor='w')
             
             # Analysis button and progress bar
             self.analyze_button = ttk.Button(analysis_frame, 
@@ -527,10 +551,12 @@ class ActionPotentialTab:
                     'show_average': self.show_average.get(),
                     'show_normalized': self.show_normalized.get(),
                     'show_modified': self.show_modified.get(),
+                    'show_averaged_normalized': self.show_averaged_normalized.get(),  # New option
                     'processed_mode': self.processed_display_mode.get(),
                     'average_mode': self.average_display_mode.get(),
                     'normalized_mode': self.normalized_display_mode.get(),
-                    'modified_mode': self.modified_display_mode.get()
+                    'modified_mode': self.modified_display_mode.get(),
+                    'averaged_normalized_mode': self.averaged_normalized_display_mode.get()  # New option
                 }
             }
             

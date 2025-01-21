@@ -485,6 +485,61 @@ class ActionPotentialProcessor:
 
     # Replace apply_average_to_peaks method in ActionPotentialProcessor class
 
+    def calculate_normalized_average(self):
+        """
+        Calculate the average of all normalized segments.
+        Returns the average curve and corresponding times.
+        """
+        try:
+            if self.normalized_curve is None:
+                return None, None
+                
+            # Define the four segments (200 points each)
+            segments = [
+                (35, 234),    # First segment
+                (235, 434),   # Second segment
+                (435, 634),   # Third segment
+                (635, 834)    # Fourth segment
+            ]
+            
+            # Extract and store segments
+            all_segments = []
+            reference_times = None
+            
+            for start, end in segments:
+                if end > len(self.normalized_curve):
+                    app_logger.warning(f"Segment {start}-{end} exceeds curve length")
+                    continue
+                    
+                segment = self.normalized_curve[start:end]
+                times = self.normalized_curve_times[start:end]
+                
+                # Store times from first segment as reference
+                if reference_times is None:
+                    reference_times = times
+                
+                # Ensure all segments are the same length
+                if len(segment) == end - start:
+                    all_segments.append(segment)
+            
+            if not all_segments:
+                return None, None
+                
+            # Calculate average of all segments
+            avg_curve = np.mean(all_segments, axis=0)
+            
+            # Apply light smoothing to average
+            avg_curve = self.apply_moving_average(avg_curve, window_size=5)
+            
+            app_logger.info(f"Calculated average of {len(all_segments)} normalized segments")
+            app_logger.debug(f"Average curve range: [{np.min(avg_curve):.2f}, {np.max(avg_curve):.2f}]")
+            
+            return avg_curve, reference_times
+            
+        except Exception as e:
+            app_logger.error(f"Error calculating normalized average: {str(e)}")
+            return None, None
+
     def apply_moving_average(self, data, window_size=5):
         """Apply centered moving average smoothing."""
         if len(data) < window_size:
@@ -511,9 +566,9 @@ class ActionPotentialProcessor:
                     return None, None, None, None
             
             # Define exact indices for segments
-            depol_start = 834    # High depolarization
+            depol_start = 834    # High depolarization vagy 834
             depol_end = 1034
-            hyperpol_start = 1034  # High hyperpolarization (adjusted to match)
+            hyperpol_start = 1035  # High hyperpolarization (adjusted to match), 1035, mert n+1.
             hyperpol_end = 1234
             
             # Check if we have enough points
