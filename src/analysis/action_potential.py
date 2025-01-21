@@ -485,11 +485,24 @@ class ActionPotentialProcessor:
 
     # Replace apply_average_to_peaks method in ActionPotentialProcessor class
 
+    def apply_moving_average(self, data, window_size=5):
+        """Apply centered moving average smoothing."""
+        if len(data) < window_size:
+            return data
+            
+        weights = np.ones(window_size) / window_size
+        smoothed = np.convolve(data, weights, mode='valid')
+        
+        # Pad ends to maintain array length
+        pad_size = (len(data) - len(smoothed)) // 2
+        smoothed = np.pad(smoothed, (pad_size, pad_size), mode='edge')
+        
+        return smoothed
+
     def apply_average_to_peaks(self):
         """
         Add averaged normalized curve to high hyperpolarization
-        and subtract it from high depolarization.
-        Uses exact indices for the high voltage segments.
+        and subtract it from high depolarization with smoothing.
         """
         try:
             if self.average_curve is None:
@@ -516,6 +529,10 @@ class ActionPotentialProcessor:
             hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_start + segment_length]
             hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_start + segment_length]
             
+            # Pre-smooth the extracted segments
+            depol_data = self.apply_moving_average(depol_data, window_size=5)
+            hyperpol_data = self.apply_moving_average(hyperpol_data, window_size=5)
+            
             # Ensure average curve matches segment length
             if len(self.average_curve) != segment_length:
                 original_points = np.linspace(0, 1, len(self.average_curve))
@@ -523,6 +540,9 @@ class ActionPotentialProcessor:
                 average_curve = np.interp(new_points, original_points, self.average_curve)
             else:
                 average_curve = self.average_curve
+            
+            # Smooth the average curve
+            average_curve = self.apply_moving_average(average_curve, window_size=5)
             
             # Calculate voltage step for scaling
             voltage_diff = abs(self.params['V2'] - self.params['V0'])  # Should be around 90mV
@@ -532,7 +552,21 @@ class ActionPotentialProcessor:
             hyperpol_modified = hyperpol_data + scaled_average
             depol_modified = depol_data - scaled_average
             
-            app_logger.info(f"Applied average curve to peak segments")
+            # Apply final smoothing
+            hyperpol_modified = self.apply_moving_average(hyperpol_modified, window_size=3)
+            depol_modified = self.apply_moving_average(depol_modified, window_size=3)
+            
+            # Smooth transitions at edges
+            blend_points = 10
+            for curve in [hyperpol_modified, depol_modified]:
+                # Start transition
+                weights = np.linspace(0, 1, blend_points)
+                curve[:blend_points] = weights * curve[:blend_points] + (1 - weights) * curve[0]
+                # End transition
+                weights = np.linspace(1, 0, blend_points)
+                curve[-blend_points:] = weights * curve[-blend_points:] + (1 - weights) * curve[-1]
+            
+            app_logger.info(f"Applied average curve to peak segments with smoothing")
             app_logger.debug(f"Peak locations - hyperpol: {hyperpol_start}, depol: {depol_start}")
             app_logger.debug(f"Modified hyperpol range: [{np.min(hyperpol_modified):.2f}, {np.max(hyperpol_modified):.2f}]")
             app_logger.debug(f"Modified depol range: [{np.min(depol_modified):.2f}, {np.max(depol_modified):.2f}]")
