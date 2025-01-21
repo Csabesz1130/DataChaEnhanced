@@ -611,137 +611,103 @@ class SignalAnalyzerApp:
 
     # In app.py:
 
+    # Update this method in SignalAnalyzerApp class
+
     def update_plot_with_processed_data(self, processed_data, orange_curve, orange_times, 
-                                normalized_curve, normalized_times):
-        """Update plot with processed data ensuring proper visibility control."""
+                                    normalized_curve, normalized_times):
+        """Update plot with all processed data including averaged curves and final peaks."""
         try:
             if not hasattr(self, 'action_potential_tab'):
                 return
 
             self.ax.clear()
             view_params = self.view_tab.get_view_params()
-            
-            # Get plot range
-            if view_params.get('use_interval', False):
-                start_idx = np.searchsorted(self.time_data, view_params['t_min'])
-                end_idx = np.searchsorted(self.time_data, view_params['t_max'])
-                plot_time = self.time_data[start_idx:end_idx]
-                plot_data = self.data[start_idx:end_idx]
-                if self.filtered_data is not None:
-                    plot_filtered = self.filtered_data[start_idx:end_idx]
-                if processed_data is not None:
-                    plot_processed = processed_data[start_idx:end_idx]
-            else:
-                plot_time = self.time_data
-                plot_data = self.data
-                plot_filtered = self.filtered_data
-                plot_processed = processed_data
 
             # Original signal
-            self.ax.plot(plot_time * 1000, plot_data, 'b-', 
+            self.ax.plot(self.time_data * 1000, self.data, 'b-', 
                         label='Original Signal', alpha=0.3)
             
             # Filtered signal
-            if plot_filtered is not None:
-                self.ax.plot(plot_time * 1000, plot_filtered, 'r-',
+            if self.filtered_data is not None:
+                self.ax.plot(self.time_data * 1000, self.filtered_data, 'r-',
                             label='Filtered Signal', alpha=0.5)
             
-            # Processed signal
-            if (processed_data is not None and 
-                hasattr(self.action_potential_tab, 'show_processed') and 
-                self.action_potential_tab.show_processed.get()):
-                
-                display_mode = self.action_potential_tab.processed_display_mode.get()
-                if display_mode in ["line", "all_points"]:
-                    self.ax.plot(plot_time * 1000, plot_processed, 'g-',
-                            label='Processed Signal' if display_mode == "line" else "_nolegend_",
-                            linewidth=1.5, alpha=0.7)
-                if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(plot_time * 1000, plot_processed, color='green',
-                                s=15, alpha=0.8, marker='.',
-                                label='Processed Signal' if display_mode == "points" else "_nolegend_")
-
             # Orange curve (50-point average)
             if (orange_curve is not None and orange_times is not None and
                 hasattr(self.action_potential_tab, 'show_average') and
                 self.action_potential_tab.show_average.get()):
                 
-                if view_params.get('use_interval', False):
-                    mask = ((orange_times >= view_params['t_min']) & 
-                        (orange_times <= view_params['t_max']))
-                    plot_orange = orange_curve[mask]
-                    plot_orange_times = orange_times[mask]
-                else:
-                    plot_orange = orange_curve
-                    plot_orange_times = orange_times
-
                 display_mode = self.action_potential_tab.average_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(plot_orange_times * 1000, plot_orange, 'orange',
-                            label='50-point Average' if display_mode == "line" else "_nolegend_",
-                            linewidth=1.5, alpha=0.7)
+                    self.ax.plot(orange_times * 1000, orange_curve, 'orange',
+                            label='50-point Average', linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(plot_orange_times * 1000, plot_orange, color='orange',
-                                s=25, alpha=1, marker='o',
-                                label='50-point Average' if display_mode == "points" else "_nolegend_")
+                    self.ax.scatter(orange_times * 1000, orange_curve, color='orange',
+                                s=25, alpha=1, marker='o')
 
-            # Normalized curve
+            # Voltage-Normalized curves
             if (normalized_curve is not None and normalized_times is not None and
                 hasattr(self.action_potential_tab, 'show_normalized') and
                 self.action_potential_tab.show_normalized.get()):
                 
-                if view_params.get('use_interval', False):
-                    mask = ((normalized_times >= view_params['t_min']) & 
-                        (normalized_times <= view_params['t_max']))
-                    plot_norm = normalized_curve[mask]
-                    plot_norm_times = normalized_times[mask]
-                else:
-                    plot_norm = normalized_curve
-                    plot_norm_times = normalized_times
-
                 display_mode = self.action_potential_tab.normalized_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(plot_norm_times * 1000, plot_norm, color='darkblue',
-                            label='Voltage-Normalized' if display_mode == "line" else "_nolegend_",
-                            linewidth=1.5, alpha=0.7)
+                    self.ax.plot(normalized_times * 1000, normalized_curve, color='darkblue',
+                            label='Voltage-Normalized', linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(plot_norm_times * 1000, plot_norm, color='darkblue',
-                                s=25, alpha=1, marker='o',
-                                label='Voltage-Normalized' if display_mode == "points" else "_nolegend_")
+                    self.ax.scatter(normalized_times * 1000, normalized_curve, color='darkblue',
+                                s=25, alpha=1, marker='o')
 
-            # Modified peaks curves
-            if (hasattr(self, 'action_potential_processor') and 
-                hasattr(self.action_potential_processor, 'modified_hyperpol') and 
-                hasattr(self.action_potential_tab, 'show_modified') and 
+            # Averaged normalized curve (from all 4 segments)
+            if (hasattr(self.action_potential_processor, 'average_curve') and 
+                self.action_potential_processor.average_curve is not None and
+                hasattr(self.action_potential_tab, 'show_averaged_normalized') and
+                self.action_potential_tab.show_averaged_normalized.get()):
+                
+                avg_curve = self.action_potential_processor.average_curve
+                avg_times = self.action_potential_processor.average_curve_times
+                
+                display_mode = self.action_potential_tab.averaged_normalized_display_mode.get()
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(avg_times * 1000, avg_curve, color='green',
+                            label='Averaged Normalized', linewidth=1.5, alpha=0.7)
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(avg_times * 1000, avg_curve, color='green',
+                                s=25, alpha=1, marker='o')
+
+            # Final modified peaks (after adding/subtracting)
+            if (hasattr(self.action_potential_tab, 'show_modified') and 
                 self.action_potential_tab.show_modified.get()):
                 
                 display_mode = self.action_potential_tab.modified_display_mode.get()
                 
                 # Plot modified hyperpolarization
-                if self.action_potential_processor.modified_hyperpol is not None:
+                if (hasattr(self.action_potential_processor, 'modified_hyperpol') and 
+                    self.action_potential_processor.modified_hyperpol is not None):
+                    
                     if display_mode in ["line", "all_points"]:
-                        self.ax.plot(self.action_potential_processor.modified_hyperpol_times * 1000, 
+                        self.ax.plot(self.action_potential_processor.modified_hyperpol_times * 1000,
                                 self.action_potential_processor.modified_hyperpol,
-                                color='purple', label='Modified Peaks' if display_mode == "line" else "_nolegend_",
-                                linewidth=1.5, alpha=0.7)
+                                color='purple', label='Modified Peaks',
+                                linewidth=2, alpha=0.8)
                     if display_mode in ["points", "all_points"]:
                         self.ax.scatter(self.action_potential_processor.modified_hyperpol_times * 1000,
                                     self.action_potential_processor.modified_hyperpol,
-                                    color='purple', s=25, alpha=1, marker='o',
-                                    label='Modified Peaks' if display_mode == "points" else "_nolegend_")
+                                    color='purple', s=30, alpha=0.8)
                 
                 # Plot modified depolarization
-                if self.action_potential_processor.modified_depol is not None:
+                if (hasattr(self.action_potential_processor, 'modified_depol') and 
+                    self.action_potential_processor.modified_depol is not None):
+                    
                     if display_mode in ["line", "all_points"]:
                         self.ax.plot(self.action_potential_processor.modified_depol_times * 1000,
                                 self.action_potential_processor.modified_depol,
                                 color='purple', label='_nolegend_',
-                                linewidth=1.5, alpha=0.7)
+                                linewidth=2, alpha=0.8)
                     if display_mode in ["points", "all_points"]:
                         self.ax.scatter(self.action_potential_processor.modified_depol_times * 1000,
                                     self.action_potential_processor.modified_depol,
-                                    color='purple', s=25, alpha=1, marker='o',
-                                    label='_nolegend_')
+                                    color='purple', s=30, alpha=0.8)
 
             # Set labels and grid
             self.ax.set_xlabel('Time (ms)')

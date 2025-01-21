@@ -100,9 +100,71 @@ class ActionPotentialProcessor:
             app_logger.error(f"Error calculating normalized curve: {str(e)}")
             return None, None
 
-    def process_signal(self):
+    # Add these methods to src/analysis/action_potential.py in the ActionPotentialProcessor class
+
+    def calculate_alternative_integral(self):
+        """
+        Calculate integral using averaged normalized curve method.
+        """
+        try:
+            # First ensure we have the normalized curves
+            if self.normalized_curve is None:
+                self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
+                
+            if self.normalized_curve is None:
+                return {
+                    'integral_value': 'No normalized curve available',
+                    'capacitance_uF_cm2': '0.0000 µF/cm²'
+                }
+
+            # Calculate the average of the normalized curves
+            avg_norm = np.mean(self.normalized_curve)
+            
+            # Calculate time step
+            dt = np.mean(np.diff(self.normalized_curve_times))
+            
+            # Calculate integral of averaged normalized curve
+            integral = np.trapz(self.normalized_curve, dx=dt)
+            
+            # Multiply by voltage difference
+            voltage_diff = abs(self.params['V2'] - self.params['V0'])  # mV
+            total_integral = integral * voltage_diff
+            
+            # Calculate capacitance (similar to original method)
+            total_cap_F = abs(total_integral * 1e-12)  # Convert to Farads
+            total_cap_uF = total_cap_F * 1e6  # Convert to µF
+            
+            area = self.params.get('cell_area_cm2', 1e-4)
+            cap_uF_cm2 = total_cap_uF / area
+            
+            results = {
+                'integral_value': f"{abs(total_integral):.6e} C",
+                'capacitance_uF_cm2': f"{cap_uF_cm2:.4f} µF/cm²",
+                'cycle_indices': self.cycle_indices,
+                'raw_values': {
+                    'normalized_integral': integral,
+                    'voltage_diff': voltage_diff,
+                    'capacitance_F': total_cap_F,
+                    'area_cm2': area
+                }
+            }
+            
+            app_logger.info(f"Alternative integration method - "
+                        f"Capacitance: {cap_uF_cm2:.4f} µF/cm²")
+            return results
+            
+        except Exception as e:
+            app_logger.error(f"Error in alternative integration: {str(e)}")
+            return {
+                'integral_value': f"Error: {str(e)}",
+                'capacitance_uF_cm2': 'Error',
+                'cycle_indices': []
+            }
+
+    def process_signal(self, use_alternative_method=False):
         """
         Process the signal and store all results.
+        Added parameter use_alternative_method to choose integration method.
         """
         try:
             self.baseline_correction_initial()
@@ -117,7 +179,12 @@ class ActionPotentialProcessor:
                 self.modified_depol, self.modified_depol_times) = self.apply_average_to_peaks()
                 
             self.find_cycles()
-            results = self.calculate_integral()
+            
+            # Choose integration method
+            if use_alternative_method:
+                results = self.calculate_alternative_integral()
+            else:
+                results = self.calculate_integral()
             
             if not results:
                 return None, None, None, None, None, {
@@ -416,10 +483,13 @@ class ActionPotentialProcessor:
             app_logger.error(f"Error calculating segment average: {str(e)}")
             return None, None
 
+    # Replace apply_average_to_peaks method in ActionPotentialProcessor class
+
     def apply_average_to_peaks(self):
         """
-        Simply add averaged normalized curve to high hyperpolarization
+        Add averaged normalized curve to high hyperpolarization
         and subtract it from high depolarization.
+        Uses exact indices for the high voltage segments.
         """
         try:
             if self.average_curve is None:
@@ -427,33 +497,45 @@ class ActionPotentialProcessor:
                 if self.average_curve is None:
                     return None, None, None, None
             
-            # Define peak segments
-            hyperpol_start = 835   # Start of high hyperpolarization
-            hyperpol_end = 1034   # End point (200 points)
-            depol_start = 1035    # Start of high depolarization
-            depol_end = 1234      # End point (200 points)
+            # Define exact indices for segments
+            depol_start = 834    # High depolarization
+            depol_end = 1034
+            hyperpol_start = 1034  # High hyperpolarization (adjusted to match)
+            hyperpol_end = 1234
             
-            # Extract peak segments
-            target_length = 200
+            # Check if we have enough points
+            if len(self.orange_curve) <= hyperpol_end:
+                app_logger.error(f"Orange curve too short ({len(self.orange_curve)} points) for peak segments")
+                return None, None, None, None
             
-            # High hyperpolarization
-            hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_end]
-            hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_end]
+            # Extract segments (ensure same length)
+            segment_length = depol_end - depol_start  # Should be 200
             
-            # High depolarization
             depol_data = self.orange_curve[depol_start:depol_end]
             depol_times = self.orange_curve_times[depol_start:depol_end]
+            hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_start + segment_length]
+            hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_start + segment_length]
             
-            # Simply add and subtract the average curve
-            hyperpol_modified = hyperpol_data + self.average_curve
-            depol_modified = depol_data - self.average_curve
+            # Ensure average curve matches segment length
+            if len(self.average_curve) != segment_length:
+                original_points = np.linspace(0, 1, len(self.average_curve))
+                new_points = np.linspace(0, 1, segment_length)
+                average_curve = np.interp(new_points, original_points, self.average_curve)
+            else:
+                average_curve = self.average_curve
             
-            self.modified_hyperpol = hyperpol_modified
-            self.modified_hyperpol_times = hyperpol_times
-            self.modified_depol = depol_modified
-            self.modified_depol_times = depol_times
+            # Calculate voltage step for scaling
+            voltage_diff = abs(self.params['V2'] - self.params['V0'])  # Should be around 90mV
+            scaled_average = average_curve * voltage_diff * 0.2  # Scale factor to match original peaks
             
-            app_logger.info("Applied average curve to peak segments")
+            # Add/subtract scaled average curve
+            hyperpol_modified = hyperpol_data + scaled_average
+            depol_modified = depol_data - scaled_average
+            
+            app_logger.info(f"Applied average curve to peak segments")
+            app_logger.debug(f"Peak locations - hyperpol: {hyperpol_start}, depol: {depol_start}")
+            app_logger.debug(f"Modified hyperpol range: [{np.min(hyperpol_modified):.2f}, {np.max(hyperpol_modified):.2f}]")
+            app_logger.debug(f"Modified depol range: [{np.min(depol_modified):.2f}, {np.max(depol_modified):.2f}]")
             
             return (hyperpol_modified, hyperpol_times,
                     depol_modified, depol_times)

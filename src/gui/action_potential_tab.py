@@ -76,8 +76,11 @@ class ActionPotentialTab:
             self.t1 = tk.DoubleVar(value=100.0)
             self.t2 = tk.DoubleVar(value=100.0)
             self.V0 = tk.DoubleVar(value=-80.0)
-            self.V1 = tk.DoubleVar(value=100.0)
+            self.V1 = tk.DoubleVar(value=-100.0)
             self.V2 = tk.DoubleVar(value=10.0)
+            
+            # Integration method selection
+            self.integration_method = tk.StringVar(value="traditional")
             
             # Results display
             self.integral_value = tk.StringVar(value="No analysis performed")
@@ -89,17 +92,21 @@ class ActionPotentialTab:
             self.show_average = tk.BooleanVar(value=True)
             self.show_normalized = tk.BooleanVar(value=True)
             self.show_modified = tk.BooleanVar(value=True)
+            self.show_averaged_normalized = tk.BooleanVar(value=True)
             
+            # Display modes for each curve type
             self.processed_display_mode = tk.StringVar(value="line")
             self.average_display_mode = tk.StringVar(value="line")
             self.normalized_display_mode = tk.StringVar(value="line")
             self.modified_display_mode = tk.StringVar(value="line")
+            self.averaged_normalized_display_mode = tk.StringVar(value="line")
             
             # Add validation traces
             self.n_cycles.trace_add("write", self.validate_n_cycles)
             self.t0.trace_add("write", self.validate_time_constant)
             self.t1.trace_add("write", self.validate_time_constant)
             self.t2.trace_add("write", self.validate_time_constant)
+            self.integration_method.trace_add("write", self.on_method_change)
             
             app_logger.debug("Variables initialized successfully")
             
@@ -166,20 +173,36 @@ class ActionPotentialTab:
         """Setup parameter input controls"""
         try:
             param_frame = ttk.LabelFrame(self.scrollable_frame, text="Parameters")
-            param_frame.pack(fill='x', padx=5, pady=2)  # Reduced pady
+            param_frame.pack(fill='x', padx=5, pady=2)
             
-            # Number of cycles - Compact layout
+            # Integration method selection at the top
+            method_frame = ttk.LabelFrame(param_frame, text="Integration Method")
+            method_frame.pack(fill='x', padx=5, pady=(2, 5))
+            
+            ttk.Radiobutton(method_frame, text="Traditional Method",
+                        variable=self.integration_method,
+                        value="traditional").pack(anchor='w', padx=5, pady=2)
+            
+            ttk.Radiobutton(method_frame, text="Averaged Normalized Method",
+                        variable=self.integration_method,
+                        value="alternative").pack(anchor='w', padx=5, pady=2)
+            
+            # Method description label
+            method_desc = ttk.Label(method_frame, text="Note: Alternative method uses averaged normalized curves",
+                                font=('TkDefaultFont', 8, 'italic'))
+            method_desc.pack(anchor='w', padx=5, pady=(0, 2))
+            
+            # Number of cycles
             cycles_frame = ttk.Frame(param_frame)
-            cycles_frame.pack(fill='x', padx=5, pady=1)  # Reduced pady
+            cycles_frame.pack(fill='x', padx=5, pady=1)
             ttk.Label(cycles_frame, text="Number of Cycles:").pack(side='left')
             ttk.Entry(cycles_frame, textvariable=self.n_cycles,
                     width=10).pack(side='right')
             
             # Time constants - Grid layout for compactness
             time_frame = ttk.Frame(param_frame)
-            time_frame.pack(fill='x', padx=5, pady=1)  # Reduced pady
+            time_frame.pack(fill='x', padx=5, pady=1)
             
-            # Create a grid layout
             time_frame.grid_columnconfigure(1, weight=1)
             time_frame.grid_columnconfigure(3, weight=1)
             time_frame.grid_columnconfigure(5, weight=1)
@@ -196,9 +219,15 @@ class ActionPotentialTab:
             ttk.Label(time_frame, text="t2 (ms):").grid(row=0, column=4, padx=2)
             ttk.Entry(time_frame, textvariable=self.t2, width=8).grid(row=0, column=5, padx=2)
             
+            # Add time constants description
+            time_desc = ttk.Label(time_frame, 
+                                text="t0: baseline, t1: hyperpolarization, t2: depolarization",
+                                font=('TkDefaultFont', 8, 'italic'))
+            time_desc.grid(row=1, column=0, columnspan=6, pady=(0, 2), sticky='w')
+            
             # Voltage levels - Grid layout
             volt_frame = ttk.Frame(param_frame)
-            volt_frame.pack(fill='x', padx=5, pady=1)  # Reduced pady
+            volt_frame.pack(fill='x', padx=5, pady=1)
             
             volt_frame.grid_columnconfigure(1, weight=1)
             volt_frame.grid_columnconfigure(3, weight=1)
@@ -215,6 +244,12 @@ class ActionPotentialTab:
             # V2 controls
             ttk.Label(volt_frame, text="V2 (mV):").grid(row=0, column=4, padx=2)
             ttk.Entry(volt_frame, textvariable=self.V2, width=8).grid(row=0, column=5, padx=2)
+            
+            # Add voltage description
+            volt_desc = ttk.Label(volt_frame, 
+                                text="V0: baseline, V1: hyperpolarization, V2: depolarization",
+                                font=('TkDefaultFont', 8, 'italic'))
+            volt_desc.grid(row=1, column=0, columnspan=6, pady=(0, 2), sticky='w')
             
         except Exception as e:
             app_logger.error(f"Error setting up parameter controls: {str(e)}")
@@ -465,6 +500,16 @@ class ActionPotentialTab:
             self.analyze_button.state(['!disabled'])
             messagebox.showerror("Analysis Error", str(e))
 
+    def on_method_change(self, *args):
+        """Handle changes in integration method"""
+        try:
+            # Trigger re-analysis with new method if we have already analyzed
+            if self.integral_value.get() != "No analysis performed":
+                self.analyze_signal()
+        except Exception as e:
+            app_logger.error(f"Error handling method change: {str(e)}")
+
+    # Modify get_parameters() to include integration method
     def get_parameters(self):
         """Get current analysis parameters with validation"""
         try:
@@ -476,15 +521,16 @@ class ActionPotentialTab:
                 'V0': self.V0.get(),
                 'V1': self.V1.get(),
                 'V2': self.V2.get(),
+                'use_alternative_method': self.integration_method.get() == "alternative",
                 'display_options': {
                     'show_processed': self.show_processed.get(),
                     'show_average': self.show_average.get(),
                     'show_normalized': self.show_normalized.get(),
-                    'show_modified': self.show_modified.get(),  # Add this
+                    'show_modified': self.show_modified.get(),
                     'processed_mode': self.processed_display_mode.get(),
                     'average_mode': self.average_display_mode.get(),
                     'normalized_mode': self.normalized_display_mode.get(),
-                    'modified_mode': self.modified_display_mode.get()  # Add this
+                    'modified_mode': self.modified_display_mode.get()
                 }
             }
             
