@@ -617,13 +617,7 @@ class SignalAnalyzerApp:
                                   normalized_curve, normalized_times):
         """
         Update plot with all processed data curves and corresponding display options.
-        
-        Args:
-            processed_data: Initial processed signal data
-            orange_curve: 50-point averaged curve
-            orange_times: Time points for orange curve
-            normalized_curve: Voltage-normalized curve
-            normalized_times: Time points for normalized curve
+        Time values are corrected by dividing by 10 to match actual time scale.
         """
         try:
             if not hasattr(self, 'action_potential_tab'):
@@ -634,12 +628,12 @@ class SignalAnalyzerApp:
 
             # Plot original signal with transparency
             if view_params.get('show_original', True):
-                self.ax.plot(self.time_data * 1000, self.data, 'b-', 
+                self.ax.plot(self.time_data * 100, self.data, 'b-',  # Changed from 1000 to 100
                             label='Original Signal', alpha=0.3)
             
             # Plot filtered signal
             if self.filtered_data is not None and view_params.get('show_filtered', True):
-                self.ax.plot(self.time_data * 1000, self.filtered_data, 'r-',
+                self.ax.plot(self.time_data * 100, self.filtered_data, 'r-',  # Changed from 1000 to 100
                             label='Filtered Signal', alpha=0.5)
             
             # Plot processed signal if enabled
@@ -649,10 +643,10 @@ class SignalAnalyzerApp:
                 
                 display_mode = self.action_potential_tab.processed_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(self.time_data * 1000, processed_data, 'g-',
+                    self.ax.plot(self.time_data * 100, processed_data, 'g-',  # Changed from 1000 to 100
                             label='Processed Signal', linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(self.time_data * 1000, processed_data,
+                    self.ax.scatter(self.time_data * 100, processed_data,  # Changed from 1000 to 100
                                 color='green', s=15, alpha=0.8, marker='.',
                                 label='Processed Points')
 
@@ -663,10 +657,10 @@ class SignalAnalyzerApp:
                 
                 display_mode = self.action_potential_tab.average_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(orange_times * 1000, orange_curve, color='orange',
+                    self.ax.plot(orange_times * 100, orange_curve, color='orange',  # Changed from 1000 to 100
                             label='50-point Average', linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(orange_times * 1000, orange_curve,
+                    self.ax.scatter(orange_times * 100, orange_curve,  # Changed from 1000 to 100
                                 color='orange', s=25, alpha=1, marker='o',
                                 label='Average Points')
 
@@ -677,10 +671,10 @@ class SignalAnalyzerApp:
                 
                 display_mode = self.action_potential_tab.normalized_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(normalized_times * 1000, normalized_curve, color='darkblue',
+                    self.ax.plot(normalized_times * 100, normalized_curve, color='darkblue',  # Changed from 1000 to 100
                             label='Voltage-Normalized', linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(normalized_times * 1000, normalized_curve,
+                    self.ax.scatter(normalized_times * 100, normalized_curve,  # Changed from 1000 to 100
                                 color='darkblue', s=25, alpha=1, marker='o',
                                 label='Normalized Points')
 
@@ -695,10 +689,10 @@ class SignalAnalyzerApp:
                 
                 display_mode = self.action_potential_tab.averaged_normalized_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(avg_times * 1000, avg_curve, color='magenta',  # Changed to magenta
+                    self.ax.plot(avg_times * 100, avg_curve, color='magenta',  # Changed from 1000 to 100
                             label='Averaged Normalized', linewidth=2, alpha=0.8)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(avg_times * 1000, avg_curve,
+                    self.ax.scatter(avg_times * 100, avg_curve,  # Changed from 1000 to 100
                                 color='magenta', s=30, alpha=1, marker='o',
                                 label='Avg Normalized Points')
 
@@ -713,12 +707,12 @@ class SignalAnalyzerApp:
                     self.action_potential_processor.modified_hyperpol is not None):
                     
                     if display_mode in ["line", "all_points"]:
-                        self.ax.plot(self.action_potential_processor.modified_hyperpol_times * 1000,
+                        self.ax.plot(self.action_potential_processor.modified_hyperpol_times * 100,  # Changed from 1000 to 100
                                 self.action_potential_processor.modified_hyperpol,
                                 color='purple', label='Modified Peaks',
                                 linewidth=2, alpha=0.8)
                     if display_mode in ["points", "all_points"]:
-                        self.ax.scatter(self.action_potential_processor.modified_hyperpol_times * 1000,
+                        self.ax.scatter(self.action_potential_processor.modified_hyperpol_times * 100,  # Changed from 1000 to 100
                                     self.action_potential_processor.modified_hyperpol,
                                     color='purple', s=30, alpha=0.8)
                 
@@ -727,12 +721,12 @@ class SignalAnalyzerApp:
                     self.action_potential_processor.modified_depol is not None):
                     
                     if display_mode in ["line", "all_points"]:
-                        self.ax.plot(self.action_potential_processor.modified_depol_times * 1000,
+                        self.ax.plot(self.action_potential_processor.modified_depol_times * 100,  # Changed from 1000 to 100
                                 self.action_potential_processor.modified_depol,
-                                color='purple', label='_nolegend_',  # Don't repeat in legend
+                                color='purple', label='_nolegend_',
                                 linewidth=2, alpha=0.8)
                     if display_mode in ["points", "all_points"]:
-                        self.ax.scatter(self.action_potential_processor.modified_depol_times * 1000,
+                        self.ax.scatter(self.action_potential_processor.modified_depol_times * 100,  # Changed from 1000 to 100
                                     self.action_potential_processor.modified_depol,
                                     color='purple', s=30, alpha=0.8)
 
@@ -746,13 +740,13 @@ class SignalAnalyzerApp:
             if view_params.get('use_custom_ylim', False):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
             if view_params.get('use_interval', False):
-                self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
+                self.ax.set_xlim(view_params['t_min'] * 100, view_params['t_max'] * 100)  # Changed from 1000 to 100
 
             # Update layout and draw
             self.fig.tight_layout()
             self.canvas.draw_idle()
             
-            app_logger.debug("Plot updated with all processed data")
+            app_logger.debug("Plot updated with all processed data (time axis corrected)")
 
         except Exception as e:
             app_logger.error(f"Error updating plot with processed data: {str(e)}")
