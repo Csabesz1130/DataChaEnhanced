@@ -6,7 +6,7 @@ class ActionPotentialProcessor:
     def __init__(self, data, time_data, params=None):
         """
         Multi-step patch clamp data processor.
-        
+
         data in pA, time_data in seconds.
         Typical params keys:
           'n_cycles', 't0', 't1', 't2', 't3',
@@ -18,7 +18,7 @@ class ActionPotentialProcessor:
         self.params = params or {
             'n_cycles': 2,
             't0': 20,
-            't1': 100, 
+            't1': 100,
             't2': 100,
             't3': 1000,
             'V0': -80,
@@ -26,7 +26,7 @@ class ActionPotentialProcessor:
             'V2': 10,
             'cell_area_cm2': 1e-4
         }
-        
+
         self.processed_data = None
         self.baseline = None
         self.cycles = []
@@ -34,106 +34,336 @@ class ActionPotentialProcessor:
         self.cycle_indices = []
         self.orange_curve = None
         self.orange_curve_times = None
-        
+
         app_logger.debug(f"Parameters validated: {self.params}")
 
+    def process_signal(self, use_alternative_method=False):
+        """
+        Process the signal and store all results.
+        Added parameter use_alternative_method to choose integration method.
+
+        Returns:
+            A tuple of 8 items:
+            0) self.processed_data
+            1) self.orange_curve
+            2) self.orange_curve_times
+            3) self.normalized_curve
+            4) self.normalized_curve_times
+            5) self.average_curve
+            6) self.average_curve_times
+            7) results (dict)
+        """
+        try:
+            # 1. Baseline correction
+            self.baseline_correction_initial()
+
+            # 2. Advanced baseline normalization
+            self.advanced_baseline_normalization()
+
+            # 3. Generate orange curve (50-point average)
+            self.generate_orange_curve()
+
+            # 4. Calculate normalized curve
+            self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
+
+            # 5. Calculate average of the four segments in the normalized curve (flexible approach)
+            self.average_curve, self.average_curve_times = self.calculate_segment_average()
+
+            # 6. Identify cycles
+            self.find_cycles()
+
+            # 7. Perform integration (standard or alternative)
+            if use_alternative_method:
+                results = self.calculate_alternative_integral()
+            else:
+                results = self.calculate_integral()
+
+            # 8. Return all relevant data
+            return (
+                self.processed_data,          # 0
+                self.orange_curve,            # 1
+                self.orange_curve_times,      # 2
+                self.normalized_curve,        # 3
+                self.normalized_curve_times,  # 4
+                self.average_curve,           # 5
+                self.average_curve_times,     # 6
+                results                       # 7
+            )
+
+        except Exception as e:
+            app_logger.error(f"Error in process_signal: {str(e)}")
+            return (
+                None, None, None, None,
+                None, None, None,
+                {
+                    'integral_value': f"Error: {str(e)}",
+                    'capacitance_uF_cm2': 'Error',
+                    'cycle_indices': []
+                }
+            )
+
+    def calculate_segment_average(self):
+        """
+        Calculate an average curve from the normalized curve by splitting it into
+        four roughly equal slices. Each slice might be shorter than 200 points if
+        total length isn't a multiple of 800. We then truncate slices to the same
+        minimal length and do a point-by-point average.
+        """
+        try:
+            if self.normalized_curve is None:
+                return None, None
+
+            total_len = len(self.normalized_curve)
+            if total_len < 4 * 50:
+                # e.g. if we want at least ~50+ points per slice
+                app_logger.error(
+                    f"Normalized curve only has {total_len} points; need >=200 total for 4 slices."
+                )
+                return None, None
+
+            # Split into 4 slices
+            slice_len = total_len // 4
+            seg1 = self.normalized_curve[0 : slice_len]
+            seg2 = self.normalized_curve[slice_len : 2*slice_len]
+            seg3 = self.normalized_curve[2*slice_len : 3*slice_len]
+            seg4 = self.normalized_curve[3*slice_len : 4*slice_len]
+
+            # Corresponding times
+            times1 = self.normalized_curve_times[0 : slice_len]
+            times2 = self.normalized_curve_times[slice_len : 2*slice_len]
+            times3 = self.normalized_curve_times[2*slice_len : 3*slice_len]
+            times4 = self.normalized_curve_times[3*slice_len : 4*slice_len]
+
+            # Make them all the same minimal length
+            min_len = min(len(seg1), len(seg2), len(seg3), len(seg4))
+            seg1 = seg1[:min_len]
+            seg2 = seg2[:min_len]
+            seg3 = seg3[:min_len]
+            seg4 = seg4[:min_len]
+
+            times1 = times1[:min_len]  # we'll use times1 as reference for final average
+
+            all_segments = np.vstack([seg1, seg2, seg3, seg4])
+            average_curve = np.mean(all_segments, axis=0)
+
+            self.average_curve = average_curve
+            self.average_curve_times = times1
+
+            app_logger.info("Calculated flexible average curve from 4 slices")
+            app_logger.debug(
+                f"Average curve range: [{np.min(average_curve):.2f}, {np.max(average_curve):.2f}], "
+                f"length={len(average_curve)}"
+            )
+            return average_curve, times1
+
+        except Exception as e:
+            app_logger.error(f"Error calculating segment average: {str(e)}")
+            return None, None
+
+    def baseline_correction_initial(self):
+        """Initial baseline correction excluding outlier points."""
+        sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
+        t0_samps = int(self.params['t0'] * sampling_rate / 1000)
+        baseline_window = min(t0_samps, 1000, len(self.data))
+        
+        if baseline_window < 1:
+            self.baseline = np.median(self.data)
+        else:
+            initial_data = self.data[:baseline_window]
+            med = np.median(initial_data)
+            std = np.std(initial_data)
+            mask = np.abs(initial_data - med) < 3 * std
+            if np.any(mask):
+                self.baseline = np.median(initial_data[mask])
+            else:
+                self.baseline = med
+        
+        self.processed_data = self.data - self.baseline
+        app_logger.info(f"Initial baseline correction: subtracted {self.baseline:.2f} pA")
+
+    def advanced_baseline_normalization(self):
+        """Align segments, remove offsets for hyper/depolarization."""
+        try:
+            sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
+            threshold_slope = 3 * np.std(np.diff(self.processed_data))
+            segment_start = 0
+            segments = []
+            
+            for i in range(1, len(self.processed_data)):
+                slope = abs(self.processed_data[i] - self.processed_data[i-1])
+                if slope > threshold_slope:
+                    if i + 1 < len(self.processed_data):
+                        next_slope = abs(self.processed_data[i+1] - self.processed_data[i])
+                        if next_slope > threshold_slope and (i - segment_start > 50):
+                            segments.append((segment_start, i))
+                            segment_start = i + 1
+            
+            if segment_start < len(self.processed_data) - 50:
+                segments.append((segment_start, len(self.processed_data)))
+            
+            baseline_window = 50
+            for start, end in segments:
+                pre_region = self.processed_data[start : min(start + baseline_window, end)]
+                post_region = self.processed_data[max(start, end - baseline_window) : end]
+                if len(pre_region) > 0 and len(post_region) > 0:
+                    pre_baseline = np.median(pre_region)
+                    post_baseline = np.median(post_region)
+                    if np.std(pre_region) < np.std(post_region):
+                        baseline = pre_baseline
+                    else:
+                        baseline = post_baseline
+                    self.processed_data[start:end] -= baseline
+                    if start > 0:
+                        blend_points = min(10, start)
+                        weights = np.linspace(0, 1, blend_points)
+                        self.processed_data[start-blend_points:start] = (
+                            weights * self.processed_data[start]
+                            + (1 - weights) * self.processed_data[start - blend_points]
+                        )
+            
+            app_logger.info(f"Advanced normalization completed with {len(segments)} segments")
+            
+        except Exception as e:
+            app_logger.error(f"Error in advanced_baseline_normalization: {str(e)}")
+            raise
+
+    def generate_orange_curve(self):
+        """Generate decimated curve by taking one average point per 50 points."""
+        try:
+            orange_points = []
+            orange_times = []
+            window_size = 50
+            for i in range(0, len(self.processed_data), window_size):
+                window = self.processed_data[i : i + window_size]
+                time_window = self.time_data[i : i + window_size]
+                if len(window) > 0:
+                    avg_point = np.mean(window)
+                    avg_time = np.mean(time_window)
+                    orange_points.append(avg_point)
+                    orange_times.append(avg_time)
+            
+            self.orange_curve = np.array(orange_points)
+            self.orange_curve_times = np.array(orange_times)
+            app_logger.info(f"Orange curve generated with {len(orange_points)} points")
+            
+        except Exception as e:
+            app_logger.error(f"Error generating orange curve: {str(e)}")
+            raise
+
     def calculate_normalized_curve(self):
-        """
-        Calculate normalized curve showing conductance changes.
-        G = |I/ΔV| where ΔV is the voltage step (±20mV)
-        """
+        """Build normalized curves for hyper/depolarization segments."""
         try:
             if self.orange_curve is None:
                 return None, None
 
-            # Define segments and their types
             segments = [
-                {"start": 35, "end": 234, "is_hyperpol": True},   # 35-234
-                {"start": 235, "end": 434, "is_hyperpol": False}, # 235-434
-                {"start": 435, "end": 633, "is_hyperpol": True},  # 435-633
-                {"start": 635, "end": 834, "is_hyperpol": False}  # 634-834
+                {"start": 35, "end": 234, "is_hyperpol": True},
+                {"start": 235, "end": 434, "is_hyperpol": False},
+                {"start": 435, "end": 634, "is_hyperpol": True},
+                {"start": 635, "end": 834, "is_hyperpol": False}
             ]
             
             normalized_points = []
             normalized_times = []
             
-            for segment in segments:
-                start_idx = segment["start"]
-                end_idx = segment["end"]
-                is_hyperpol = segment["is_hyperpol"]
-                
+            for seg in segments:
+                start_idx = seg["start"]
+                end_idx = seg["end"]
                 if end_idx >= len(self.orange_curve):
-                    app_logger.warning(f"Not enough points in orange curve. Length: {len(self.orange_curve)}")
+                    app_logger.warning(f"Segment {start_idx}-{end_idx} out of range.")
                     continue
-
-                # Extract points for this segment
                 selected_points = self.orange_curve[start_idx:end_idx]
                 selected_times = self.orange_curve_times[start_idx:end_idx]
-                
-                # Calculate voltage step (always 20mV magnitude)
-                voltage_step = -20.0 if is_hyperpol else 20.0  # mV
-                
-                # Calculate conductance: |I/ΔV|
-                # The absolute value ensures conductance is always positive
-                #nincs abs()
-                segment_normalized = selected_points / voltage_step
-                
-                # Add to total arrays
-                normalized_points.extend(segment_normalized)
+                voltage_step = -20.0 if seg["is_hyperpol"] else 20.0
+                segment_norm = selected_points / voltage_step
+                normalized_points.extend(segment_norm)
                 normalized_times.extend(selected_times)
-                
                 app_logger.debug(f"Processed segment {start_idx+1}-{end_idx}: "
-                            f"{'hyperpolarization' if is_hyperpol else 'depolarization'}")
+                                 f"{'hyperpolarization' if seg['is_hyperpol'] else 'depolarization'}")
                 app_logger.debug(f"Voltage step: {voltage_step} mV")
-                app_logger.debug(f"Current range: [{np.min(selected_points):.2f}, "
-                            f"{np.max(selected_points):.2f}] pA")
-                app_logger.debug(f"Conductance range: [{np.min(segment_normalized):.2f}, "
-                            f"{np.max(segment_normalized):.2f}] nS")
+                app_logger.debug(f"Current range: [{np.min(selected_points):.2f}, {np.max(selected_points):.2f}] pA")
+                app_logger.debug(f"Conductance range: [{np.min(segment_norm):.2f}, {np.max(segment_norm):.2f}] nS")
             
             self.normalized_curve = np.array(normalized_points)
             self.normalized_curve_times = np.array(normalized_times)
-            
             app_logger.info("Conductance values calculated for all segments")
-            return np.array(normalized_points), np.array(normalized_times)
-            
+            return self.normalized_curve, self.normalized_curve_times
+        
         except Exception as e:
             app_logger.error(f"Error calculating normalized curve: {str(e)}")
             return None, None
 
-    # Add these methods to src/analysis/action_potential.py in the ActionPotentialProcessor class
+    def find_cycles(self):
+        """Identify consistent hyperpolarization cycles."""
+        try:
+            sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
+            t1_samps = int(self.params['t1'] * sampling_rate / 1000)
+            neg_peaks, _ = signal.find_peaks(
+                -self.processed_data,
+                prominence=np.std(self.processed_data)*1.5,
+                distance=t1_samps,
+                width=(t1_samps//4, t1_samps)
+            )
+            
+            min_depth = np.max(np.abs(self.processed_data)) * 0.4
+            valid_peaks = []
+            for peak in neg_peaks:
+                if abs(self.processed_data[peak]) > min_depth:
+                    valid_peaks.append(peak)
+            
+            window_before = t1_samps // 2
+            window_after = int(t1_samps * 1.5)
+            
+            self.cycles = []
+            self.cycle_times = []
+            self.cycle_indices = []
+            
+            for i, peak in enumerate(valid_peaks[:self.params['n_cycles']]):
+                start = max(0, peak - window_before)
+                end = min(len(self.processed_data), peak + window_after)
+                if end - start == window_before + window_after:
+                    cycle = self.processed_data[start:end]
+                    cycle_time = self.time_data[start:end] - self.time_data[start]
+                    self.cycles.append(cycle)
+                    self.cycle_times.append(cycle_time)
+                    self.cycle_indices.append((start, end))
+                    app_logger.debug(f"Cycle {i+1} found at index {peak}")
+
+            if not self.cycles:
+                app_logger.warning("No valid cycles found")
+                return
+            if len(self.cycles) >= 2:
+                correlations = []
+                reference_cycle = self.cycles[0]
+                for cyc in self.cycles[1:]:
+                    corr = np.corrcoef(reference_cycle, cyc)[0, 1]
+                    correlations.append(corr)
+                    app_logger.debug(f"Cycle correlation: {corr:.3f}")
+                if any(c < 0.8 for c in correlations):
+                    app_logger.warning("Detected cycles show significant differences")
+        except Exception as e:
+            app_logger.error(f"Error in cycle detection: {str(e)}")
+            raise
 
     def calculate_alternative_integral(self):
-        """
-        Calculate integral using averaged normalized curve method.
-        """
+        """Calculate integral using the entire normalized_curve average approach."""
         try:
-            # First ensure we have the normalized curves
             if self.normalized_curve is None:
                 self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
-                
             if self.normalized_curve is None:
                 return {
                     'integral_value': 'No normalized curve available',
                     'capacitance_uF_cm2': '0.0000 µF/cm²'
                 }
 
-            # Calculate the average of the normalized curves
             avg_norm = np.mean(self.normalized_curve)
-            
-            # Calculate time step
             dt = np.mean(np.diff(self.normalized_curve_times))
-            
-            # Calculate integral of averaged normalized curve
             integral = np.trapz(self.normalized_curve, dx=dt)
-            
-            # Multiply by voltage difference
-            voltage_diff = abs(self.params['V2'] - self.params['V0'])  # mV
+            voltage_diff = abs(self.params['V2'] - self.params['V0'])
             total_integral = integral * voltage_diff
-            
-            # Calculate capacitance (similar to original method)
-            total_cap_F = abs(total_integral * 1e-12)  # Convert to Farads
-            total_cap_uF = total_cap_F * 1e6  # Convert to µF
-            
+
+            total_cap_F = abs(total_integral * 1e-12)
+            total_cap_uF = total_cap_F * 1e6
             area = self.params.get('cell_area_cm2', 1e-4)
             cap_uF_cm2 = total_cap_uF / area
             
@@ -148,11 +378,9 @@ class ActionPotentialProcessor:
                     'area_cm2': area
                 }
             }
-            
             app_logger.info(f"Alternative integration method - "
-                        f"Capacitance: {cap_uF_cm2:.4f} µF/cm²")
+                            f"Capacitance: {cap_uF_cm2:.4f} µF/cm²")
             return results
-            
         except Exception as e:
             app_logger.error(f"Error in alternative integration: {str(e)}")
             return {
@@ -161,502 +389,8 @@ class ActionPotentialProcessor:
                 'cycle_indices': []
             }
 
-    def process_signal(self, use_alternative_method=False):
-        """
-        Process the signal and store all results.
-        Added parameter use_alternative_method to choose integration method.
-        """
-        try:
-            self.baseline_correction_initial()
-            self.advanced_baseline_normalization()
-            self.generate_orange_curve()
-            self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
-            self.average_curve, self.average_curve_times = self.calculate_segment_average()
-            
-            # Apply average to peaks and store results
-            if self.average_curve is not None:
-                (self.modified_hyperpol, self.modified_hyperpol_times,
-                self.modified_depol, self.modified_depol_times) = self.apply_average_to_peaks()
-                
-            self.find_cycles()
-            
-            # Choose integration method
-            if use_alternative_method:
-                results = self.calculate_alternative_integral()
-            else:
-                results = self.calculate_integral()
-            
-            if not results:
-                return None, None, None, None, None, {
-                    'integral_value': 'No analysis performed',
-                    'capacitance_uF_cm2': 'No analysis performed',
-                    'cycle_indices': []
-                }
-                
-            return (self.processed_data, self.orange_curve, self.orange_curve_times,
-                    self.normalized_curve, self.normalized_curve_times, results)
-                    
-        except Exception as e:
-            app_logger.error(f"Error in process_signal: {str(e)}")
-            return None, None, None, None, None, {
-                'integral_value': f"Error: {str(e)}",
-                'capacitance_uF_cm2': 'Error',
-                'cycle_indices': []
-            }
-
-    def apply_50point_average(self, data):
-        """Apply stronger 50-point averaging similar to orange curve."""
-        try:
-            window_size = 50
-            averaged_data = np.zeros_like(data)
-            
-            # Process data in non-overlapping windows
-            for i in range(0, len(data) - window_size + 1, window_size):
-                # Calculate average for current window
-                window_avg = np.mean(data[i:i + window_size])
-                # Apply this average to all points in the window
-                averaged_data[i:i + window_size] = window_avg
-            
-            # Handle remaining points at the end
-            if len(data) % window_size != 0:
-                remaining_start = len(data) - (len(data) % window_size)
-                remaining_avg = np.mean(data[remaining_start:])
-                averaged_data[remaining_start:] = remaining_avg
-            
-            return averaged_data
-            
-        except Exception as e:
-            app_logger.error(f"Error applying 50-point average: {str(e)}")
-            raise
-
-    def baseline_correction_initial(self):
-        """Step 1: Initial baseline correction excluding outlier points."""
-        sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-        t0_samps = int(self.params['t0'] * sampling_rate / 1000)
-        baseline_window = min(t0_samps, 1000, len(self.data))
-        
-        if baseline_window < 1:
-            self.baseline = np.median(self.data)
-        else:
-            # Get initial window of data
-            initial_data = self.data[:baseline_window]
-            
-            # Calculate median and std excluding outliers
-            med = np.median(initial_data)
-            std = np.std(initial_data)
-            
-            # Create mask for non-outlier points (within 3 std)
-            mask = np.abs(initial_data - med) < 3 * std
-            
-            if np.any(mask):
-                self.baseline = np.median(initial_data[mask])
-            else:
-                self.baseline = med
-        
-        # Subtract baseline
-        self.processed_data = self.data - self.baseline
-        app_logger.info(f"Initial baseline correction: subtracted {self.baseline:.2f} pA")
-
-    def advanced_baseline_normalization(self):
-        """
-        Advanced normalization to align segments and ensure both hyperpolarization 
-        and depolarization events are consistently normalized.
-        """
-        try:
-            sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-            threshold_slope = 3 * np.std(np.diff(self.processed_data))
-            
-            # Start segment analysis
-            segment_start = 0
-            segments = []
-            
-            # Find segments using slope changes in both directions
-            for i in range(1, len(self.processed_data)):
-                slope = abs(self.processed_data[i] - self.processed_data[i-1])
-                if slope > threshold_slope:
-                    # Verify it's a real transition by checking surrounding points
-                    if i + 1 < len(self.processed_data):
-                        next_slope = abs(self.processed_data[i+1] - self.processed_data[i])
-                        if next_slope > threshold_slope:
-                            # End current segment if long enough
-                            if i - segment_start > 50:  # Minimum segment length
-                                segments.append((segment_start, i))
-                            segment_start = i + 1
-            
-            # Add final segment if exists
-            if segment_start < len(self.processed_data) - 50:
-                segments.append((segment_start, len(self.processed_data)))
-            
-            # Process each segment
-            baseline_window = 50  # Points to use for baseline calculation
-            for start, end in segments:
-                # Find stable regions before and after rapid changes
-                pre_region = self.processed_data[max(start, start):min(start + baseline_window, end)]
-                post_region = self.processed_data[max(start, end - baseline_window):end]
-                
-                if len(pre_region) > 0 and len(post_region) > 0:
-                    # Calculate baseline from both pre and post regions
-                    pre_baseline = np.median(pre_region)
-                    post_baseline = np.median(post_region)
-                    
-                    # Use the more stable baseline (smaller std)
-                    if np.std(pre_region) < np.std(post_region):
-                        baseline = pre_baseline
-                    else:
-                        baseline = post_baseline
-                    
-                    # Subtract baseline from segment
-                    self.processed_data[start:end] -= baseline
-                    
-                    # Ensure smooth transitions between segments
-                    if start > 0:
-                        # Blend over 10 points
-                        blend_points = min(10, start)
-                        weights = np.linspace(0, 1, blend_points)
-                        self.processed_data[start-blend_points:start] = (
-                            weights * self.processed_data[start] +
-                            (1 - weights) * self.processed_data[start-blend_points]
-                        )
-            
-            app_logger.info(f"Advanced normalization completed with {len(segments)} segments")
-            
-        except Exception as e:
-            app_logger.error(f"Error in advanced_baseline_normalization: {str(e)}")
-            raise
-
-    def generate_orange_curve(self):
-        """
-        Generate decimated orange curve by taking one average point per 50 points.
-        """
-        try:
-            orange_points = []
-            orange_times = []
-            window_size = 50
-            
-            for i in range(0, len(self.processed_data), window_size):
-                # Get current window
-                window = self.processed_data[i:min(i + window_size, len(self.processed_data))]
-                time_window = self.time_data[i:min(i + window_size, len(self.time_data))]
-                
-                if len(window) > 0:
-                    # Calculate average for window
-                    avg_point = np.mean(window)
-                    avg_time = np.mean(time_window)
-                    
-                    orange_points.append(avg_point)
-                    orange_times.append(avg_time)
-            
-            self.orange_curve = np.array(orange_points)
-            self.orange_curve_times = np.array(orange_times)
-            
-            app_logger.info(f"Orange curve generated with {len(orange_points)} points")
-            
-        except Exception as e:
-            app_logger.error(f"Error generating orange curve: {str(e)}")
-            raise
-
-    def find_cycles(self):
-        """
-        Identify and extract consistent hyperpolarization cycles.
-        Ensures similar peak timing and curve shapes across cycles.
-        """
-        try:
-            sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-            t1_samps = int(self.params['t1'] * sampling_rate / 1000)
-            
-            # Find significant negative peaks with more stringent criteria
-            neg_peaks, properties = signal.find_peaks(-self.processed_data,
-                                                    prominence=np.std(self.processed_data) * 1.5,  # Increased prominence
-                                                    distance=t1_samps,
-                                                    width=(t1_samps//4, t1_samps))  # Add width constraints
-            
-            # Filter peaks based on minimum depth
-            min_depth = np.max(np.abs(self.processed_data)) * 0.4  # 40% of max amplitude
-            valid_peaks = []
-            for peak in neg_peaks:
-                if abs(self.processed_data[peak]) > min_depth:
-                    valid_peaks.append(peak)
-            
-            # Extract cycles with consistent window sizes
-            window_before = t1_samps // 2  # Fixed window before peak
-            window_after = int(t1_samps * 1.5)   # Fixed window after peak
-            
-            self.cycles = []
-            self.cycle_times = []
-            self.cycle_indices = []
-            
-            for i, peak in enumerate(valid_peaks[:self.params['n_cycles']]):
-                # Define cycle boundaries
-                start = max(0, peak - window_before)
-                end = min(len(self.processed_data), peak + window_after)
-                
-                # Only include cycles with full windows
-                if end - start == window_before + window_after:
-                    cycle = self.processed_data[start:end]
-                    cycle_time = self.time_data[start:end] - self.time_data[start]
-                    
-                    self.cycles.append(cycle)
-                    self.cycle_times.append(cycle_time)
-                    self.cycle_indices.append((start, end))
-                    app_logger.debug(f"Cycle {i+1} found at index {peak}")
-            
-            if not self.cycles:
-                app_logger.warning("No valid cycles found")
-                return
-                
-            # Verify cycle similarity
-            if len(self.cycles) >= 2:
-                correlations = []
-                reference_cycle = self.cycles[0]
-                for cycle in self.cycles[1:]:
-                    corr = np.corrcoef(reference_cycle, cycle)[0, 1]
-                    correlations.append(corr)
-                    app_logger.debug(f"Cycle correlation: {corr:.3f}")
-                
-                # Warn if cycles are too different
-                if any(corr < 0.8 for corr in correlations):
-                    app_logger.warning("Detected cycles show significant differences")
-            
-        except Exception as e:
-            app_logger.error(f"Error in cycle detection: {str(e)}")
-            raise
-
-    def calculate_segment_average(self):
-        """
-        Calculate average curve from the 4 normalized segments.
-        Each segment is resized to 200 points before averaging.
-        """
-        try:
-            if self.orange_curve is None:
-                return None, None
-
-            # Define segments
-            segments = [
-                {"start": 35, "end": 234},    # First hyperpol
-                {"start": 235, "end": 434},   # First depol
-                {"start": 435, "end": 634},   # Second hyperpol
-                {"start": 635, "end": 834}    # Second depol
-            ]
-            
-            # Initialize arrays for resampled segments
-            resampled_segments = []
-            target_length = 200
-            
-            # Resample each segment to 200 points
-            for segment in segments:
-                start_idx = segment["start"]
-                end_idx = segment["end"]
-                
-                # Extract segment
-                segment_data = self.orange_curve[start_idx:end_idx]
-                segment_times = self.orange_curve_times[start_idx:end_idx]
-                
-                # Resample to 200 points using interpolation
-                original_points = np.linspace(0, 1, len(segment_data))
-                new_points = np.linspace(0, 1, target_length)
-                resampled_data = np.interp(new_points, original_points, segment_data)
-                resampled_segments.append(resampled_data)
-            
-            # Convert to numpy array for easier operations
-            segments_array = np.array(resampled_segments)
-            
-            # Calculate average curve
-            #kibontani mi történik, akár for-ral leprogramozni
-            average_curve = np.mean(segments_array, axis=0)
-            
-            # Generate corresponding time points (using time range of first segment)
-            avg_times = np.linspace(
-                self.orange_curve_times[segments[0]["start"]],
-                self.orange_curve_times[segments[0]["end"]],
-                target_length
-            )
-            
-            self.average_curve = average_curve
-            self.average_curve_times = avg_times
-            
-            app_logger.info("Calculated average curve from 4 segments")
-            app_logger.debug(f"Average curve range: [{np.min(average_curve):.2f}, {np.max(average_curve):.2f}]")
-            
-            return average_curve, avg_times
-            
-        except Exception as e:
-            app_logger.error(f"Error calculating segment average: {str(e)}")
-            return None, None
-
-    # Replace apply_average_to_peaks method in ActionPotentialProcessor class
-
-    def calculate_normalized_average(self):
-        """
-        Calculate the average of all normalized segments.
-        Returns the average curve and corresponding times.
-        """
-        try:
-            if self.normalized_curve is None:
-                return None, None
-                
-            # Define the four segments (200 points each)
-            segments = [
-                (35, 234),    # First segment
-                (235, 434),   # Second segment
-                (435, 634),   # Third segment
-                (635, 834)    # Fourth segment
-            ]
-            
-            # Extract and store segments
-            all_segments = []
-            reference_times = None
-            
-            for start, end in segments:
-                if end > len(self.normalized_curve):
-                    app_logger.warning(f"Segment {start}-{end} exceeds curve length")
-                    continue
-                    
-                segment = self.normalized_curve[start:end]
-                times = self.normalized_curve_times[start:end]
-                
-                # Store times from first segment as reference
-                if reference_times is None:
-                    reference_times = times
-                
-                # Ensure all segments are the same length
-                if len(segment) == end - start:
-                    all_segments.append(segment)
-            
-            if not all_segments:
-                return None, None
-                
-            # Calculate average of all segments
-            avg_curve = np.mean(all_segments, axis=0)
-            
-            # Apply light smoothing to average
-            avg_curve = self.apply_moving_average(avg_curve, window_size=5)
-            
-            app_logger.info(f"Calculated average of {len(all_segments)} normalized segments")
-            app_logger.debug(f"Average curve range: [{np.min(avg_curve):.2f}, {np.max(avg_curve):.2f}]")
-            
-            return avg_curve, reference_times
-            
-        except Exception as e:
-            app_logger.error(f"Error calculating normalized average: {str(e)}")
-            return None, None
-
-    def apply_moving_average(self, data, window_size=5):
-        """Apply centered moving average smoothing."""
-        if len(data) < window_size:
-            return data
-            
-        weights = np.ones(window_size) / window_size
-        smoothed = np.convolve(data, weights, mode='valid')
-        
-        # Pad ends to maintain array length
-        pad_size = (len(data) - len(smoothed)) // 2
-        smoothed = np.pad(smoothed, (pad_size, pad_size), mode='edge')
-        
-        return smoothed
-
-    def apply_enhanced_smoothing(self, data, window_size=7, passes=2):
-        """
-        Apply multiple passes of moving average smoothing with edge preservation.
-        
-        Args:
-            data: Array of data to smooth
-            window_size: Size of the smoothing window
-            passes: Number of smoothing passes
-        """
-        smoothed = data.copy()
-        
-        for _ in range(passes):
-            # Pad edges to prevent boundary effects
-            pad_width = window_size // 2
-            padded = np.pad(smoothed, (pad_width, pad_width), mode='edge')
-            
-            # Apply moving average
-            weights = np.ones(window_size) / window_size
-            smoothed = np.convolve(padded, weights, mode='valid')
-        
-        return smoothed
-
-    def apply_average_to_peaks(self):
-        """
-        Add averaged normalized curve to high hyperpolarization
-        and subtract it from high depolarization with enhanced smoothing.
-        """
-        try:
-            if self.average_curve is None:
-                self.average_curve, _ = self.calculate_segment_average()
-                if self.average_curve is None:
-                    return None, None, None, None
-            
-            # Define exact indices for segments
-            depol_start = 834    # High depolarization
-            depol_end = 1034
-            hyperpol_start = 1034  # High hyperpolarization (adjusted to match)
-            hyperpol_end = 1234
-            
-            # Check if we have enough points
-            if len(self.orange_curve) <= hyperpol_end:
-                app_logger.error(f"Orange curve too short ({len(self.orange_curve)} points) for peak segments")
-                return None, None, None, None
-            
-            # Extract segments (ensure same length)
-            segment_length = depol_end - depol_start  # Should be 200
-            
-            # Get the segments
-            depol_data = self.orange_curve[depol_start:depol_end]
-            depol_times = self.orange_curve_times[depol_start:depol_end]
-            hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_start + segment_length]
-            hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_start + segment_length]
-            
-            # Pre-smooth the segments
-            depol_data = self.apply_enhanced_smoothing(depol_data, window_size=7, passes=2)
-            hyperpol_data = self.apply_enhanced_smoothing(hyperpol_data, window_size=7, passes=2)
-            
-            # Ensure average curve matches segment length
-            if len(self.average_curve) != segment_length:
-                original_points = np.linspace(0, 1, len(self.average_curve))
-                new_points = np.linspace(0, 1, segment_length)
-                average_curve = np.interp(new_points, original_points, self.average_curve)
-            else:
-                average_curve = self.average_curve
-            
-            # Smooth the average curve
-            average_curve = self.apply_enhanced_smoothing(average_curve, window_size=7, passes=2)
-            
-            # Calculate voltage step for scaling
-            voltage_diff = abs(self.params['V2'] - self.params['V0'])  # Should be around 90mV
-            scaled_average = average_curve * voltage_diff * 0.2  # Scale factor to match original peaks
-            
-            # Add/subtract scaled average curve
-            hyperpol_modified = hyperpol_data + scaled_average
-            depol_modified = depol_data - scaled_average
-            
-            # Apply final smoothing
-            hyperpol_modified = self.apply_enhanced_smoothing(hyperpol_modified, window_size=7, passes=2)
-            depol_modified = self.apply_enhanced_smoothing(depol_modified, window_size=7, passes=2)
-            
-            # Smooth transitions at edges
-            blend_points = 15  # Increased blend points
-            for curve in [hyperpol_modified, depol_modified]:
-                # Start transition
-                weights = np.linspace(0, 1, blend_points)
-                curve[:blend_points] = weights * curve[:blend_points] + (1 - weights) * curve[0]
-                # End transition
-                weights = np.linspace(1, 0, blend_points)
-                curve[-blend_points:] = weights * curve[-blend_points:] + (1 - weights) * curve[-1]
-            
-            app_logger.info(f"Applied average curve to peak segments with enhanced smoothing")
-            app_logger.debug(f"Modified hyperpol range: [{np.min(hyperpol_modified):.2f}, {np.max(hyperpol_modified):.2f}]")
-            app_logger.debug(f"Modified depol range: [{np.min(depol_modified):.2f}, {np.max(depol_modified):.2f}]")
-            
-            return (hyperpol_modified, hyperpol_times,
-                    depol_modified, depol_times)
-                    
-        except Exception as e:
-            app_logger.error(f"Error applying average to peaks: {str(e)}")
-            return None, None, None, None
-
     def calculate_integral(self):
-        """Calculate integral and capacitance from the first cycle."""
+        """Calculate integral and capacitance from the first cycle (standard method)."""
         try:
             if not self.cycles:
                 return {
@@ -664,32 +398,24 @@ class ActionPotentialProcessor:
                     'capacitance_uF_cm2': '0.0000 µF/cm²',
                     'cycle_indices': []
                 }
-            
             cycle = self.cycles[0]
             cycle_time = self.cycle_times[0]
-            
-            # Convert units
-            current_in_A = cycle * 1e-12  # pA to A
-            time_in_s = cycle_time  # already in seconds
-            voltage_diff_in_V = (self.params['V1'] - self.params['V0'])  # mV to V, FELESLEGES - kiejtik egymást a mV és ms, ygx nem kellenek ezek az átváltások
-            
-            # Find threshold for integration
+            current_in_A = cycle * 1e-12
+            time_in_s = cycle_time
+            voltage_diff_in_V = (self.params['V1'] - self.params['V0'])
+
             peak_curr = np.max(np.abs(current_in_A))
             thr = 0.1 * peak_curr
             mask = np.abs(current_in_A) > thr
-            
             if not np.any(mask):
                 return {
                     'integral_value': '0.0000 C',
                     'capacitance_uF_cm2': '0.0000 µF/cm²',
                     'cycle_indices': self.cycle_indices
                 }
-            
-            # Calculate charge and capacitance
             charge_C = np.trapz(current_in_A[mask], time_in_s[mask])
             total_cap_F = abs(charge_C / voltage_diff_in_V)
             total_cap_uF = total_cap_F * 1e6
-            
             area = self.params.get('cell_area_cm2', 1e-4)
             cap_uF_cm2 = total_cap_uF / area
             
@@ -703,11 +429,9 @@ class ActionPotentialProcessor:
                     'area_cm2': area
                 }
             }
-            
             app_logger.info(f"Integrated charge: {charge_C:.2e} C, "
-                          f"Capacitance: {cap_uF_cm2:.4f} µF/cm²")
+                            f"Capacitance: {cap_uF_cm2:.4f} µF/cm²")
             return results
-            
         except Exception as e:
             app_logger.error(f"Error calculating integral: {str(e)}")
             return {

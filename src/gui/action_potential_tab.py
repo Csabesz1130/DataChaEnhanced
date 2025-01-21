@@ -88,18 +88,19 @@ class ActionPotentialTab:
             self.progress_var = tk.DoubleVar()
             
             # Display mode variables
+            self.show_noisy_original = tk.BooleanVar(value=False)  # New variable, default False
             self.show_processed = tk.BooleanVar(value=True)
             self.show_average = tk.BooleanVar(value=True)
             self.show_normalized = tk.BooleanVar(value=True)
             self.show_modified = tk.BooleanVar(value=True)
-            self.show_averaged_normalized = tk.BooleanVar(value=True)  # New variable
+            self.show_averaged_normalized = tk.BooleanVar(value=True)
             
             # Display modes for each curve type
             self.processed_display_mode = tk.StringVar(value="line")
             self.average_display_mode = tk.StringVar(value="line")
             self.normalized_display_mode = tk.StringVar(value="line")
             self.modified_display_mode = tk.StringVar(value="line")
-            self.averaged_normalized_display_mode = tk.StringVar(value="line")  # New variable
+            self.averaged_normalized_display_mode = tk.StringVar(value="line")
             
             # Add validation traces
             self.n_cycles.trace_add("write", self.validate_n_cycles)
@@ -547,16 +548,17 @@ class ActionPotentialTab:
                 'V2': self.V2.get(),
                 'use_alternative_method': self.integration_method.get() == "alternative",
                 'display_options': {
+                    'show_noisy_original': self.show_noisy_original.get(),
                     'show_processed': self.show_processed.get(),
                     'show_average': self.show_average.get(),
                     'show_normalized': self.show_normalized.get(),
                     'show_modified': self.show_modified.get(),
-                    'show_averaged_normalized': self.show_averaged_normalized.get(),  # New option
+                    'show_averaged_normalized': self.show_averaged_normalized.get(),
                     'processed_mode': self.processed_display_mode.get(),
                     'average_mode': self.average_display_mode.get(),
                     'normalized_mode': self.normalized_display_mode.get(),
                     'modified_mode': self.modified_display_mode.get(),
-                    'averaged_normalized_mode': self.averaged_normalized_display_mode.get()  # New option
+                    'averaged_normalized_mode': self.averaged_normalized_display_mode.get()
                 }
             }
             
