@@ -155,38 +155,72 @@ class SignalAnalyzerApp:
         self.notebook.add(self.view_tab.frame, text='View')
         self.notebook.add(self.action_potential_tab.frame, text='Action Potential')
 
+
+    def _find_closest_point(self, x_ms, y_pA):
+        """
+        Find closest orange point using both time and value differences.
+        
+        Args:
+            x_ms: Cursor x position in milliseconds
+            y_pA: Cursor y position in pA
+            
+        Returns:
+            tuple: (point_number, time_ms) or (None, None)
+        """
+        if not hasattr(self, 'orange_curve_times') or self.orange_curve_times is None:
+            return None, None
+
+        # Convert cursor time to seconds for comparison with stored times
+        x_sec = x_ms / 100.0  # Convert from ms to seconds (*100 plot scale)
+        
+        # Find time differences
+        time_diffs = np.abs(self.orange_curve_times - x_sec)
+        TIME_THRESHOLD = 2.0 / 100.0  # 2ms in seconds, accounting for *100 scale
+        
+        # Get points within time threshold
+        close_mask = time_diffs < TIME_THRESHOLD
+        if not np.any(close_mask):
+            return None, None
+            
+        # Among time-close points, find closest by value
+        close_indices = np.where(close_mask)[0]
+        value_diffs = np.abs(self.orange_curve[close_indices] - y_pA)
+        best_idx = close_indices[np.argmin(value_diffs)]
+        
+        # Get point info (convert back to ms for display)
+        point_time_ms = self.orange_curve_times[best_idx] * 100.0  # *100 for plot scale
+        point_number = best_idx + 1  # Convert to 1-based indexing
+        
+        app_logger.debug(
+            f"Found orange point {point_number} at {point_time_ms:.1f}ms "
+            f"(cursor: {x_ms:.1f}ms, {y_pA:.1f}pA)"
+        )
+        
+        return point_number, point_time_ms
+
     def on_mouse_move(self, event):
-        """Handle mouse movement over the plot."""
+        """Handle mouse movement with accurate point identification."""
         if event.inaxes != self.ax:
             self.cursor_label.config(text="")
             return
 
-        if self.time_data is None or len(self.time_data) < 2:
+        if self.time_data is None:
             return
 
-        # Convert x from ms back to index
-        x_idx = int((event.xdata / 1000) * (len(self.time_data) / self.time_data[-1]))
-        
-        cursor_text = f"Time: {event.xdata:.1f} ms, Current: {event.ydata:.1f} pA"
-        
-        if hasattr(self, 'orange_curve') and self.orange_curve is not None:
-            closest_idx = None
-            min_distance = float('inf')
-            for i in range(len(self.orange_curve_times)):
-                time_diff = abs(self.orange_curve_times[i] * 1000 - event.xdata)
-                if time_diff < 5:
-                    value_diff = abs(self.orange_curve[i] - event.ydata)
-                    distance = (time_diff**2 + value_diff**2) ** 0.5
-                    if distance < min_distance:
-                        min_distance = distance
-                        closest_idx = i
-            if closest_idx is not None and min_distance < 50:
-                cursor_text += f", Orange Point: {closest_idx + 1}"
+        # Get cursor position
+        x_ms = event.xdata  # Already in milliseconds
+        y_pA = event.ydata
 
-        if 0 <= x_idx < len(self.time_data):
-            if not cursor_text.endswith("}"):
-                cursor_text += f", Data Point: {x_idx + 1}"
-        
+        # Build cursor text
+        cursor_text = f"Time: {x_ms:.1f} ms, Current: {y_pA:.1f} pA"
+
+        # Find closest orange point
+        result = self._find_closest_point(x_ms, y_pA)
+        if result[0] is not None:  # If a point was found
+            point_num, _ = result
+            cursor_text += f", Orange Point: {point_num}"
+
+        # Update display
         self.cursor_label.config(text=cursor_text)
 
     def load_data(self):
@@ -272,14 +306,15 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error updating analysis: {str(e)}")
 
     def on_action_potential_analysis(self, params):
-        """Handle action potential analysis or visibility changes."""
-        # if this is just a 'visibility' update
+        """
+        Handle action potential analysis or display updates from the ActionPotentialTab.
+        """
+        # 1) If this is only a "visibility" request, just re-draw using existing data
         if isinstance(params, dict) and params.get('visibility_update', False):
             if hasattr(self, 'processed_data') and self.processed_data is not None:
-                # must pass all arguments including average_curve, average_curve_times:
                 self.update_plot_with_processed_data(
-                    self.processed_data, 
-                    self.orange_curve, 
+                    self.processed_data,
+                    self.orange_curve,
                     self.orange_curve_times,
                     self.normalized_curve,
                     self.normalized_curve_times,
@@ -288,18 +323,20 @@ class SignalAnalyzerApp:
                 )
             return
 
+        # 2) If no filtered data, cannot analyze
         if self.filtered_data is None:
             messagebox.showwarning("Analysis", "No filtered data available")
             return
-            
+
         try:
-            # Create the processor
+            # 3) Create the ActionPotentialProcessor with current data & parameters
             self.action_potential_processor = ActionPotentialProcessor(
                 self.filtered_data,
                 self.time_data,
                 params
             )
-            
+
+            # 4) Run main pipeline (baseline → normalization → ... → integration)
             (
                 processed_data,
                 orange_curve,
@@ -309,13 +346,19 @@ class SignalAnalyzerApp:
                 average_curve,
                 average_curve_times,
                 results
-            ) = self.action_potential_processor.process_signal()
+            ) = self.action_potential_processor.process_signal(
+                use_alternative_method=params.get('use_alternative_method', False)
+            )
 
+            # 5) If the pipeline itself failed
             if processed_data is None:
-                messagebox.showwarning("Analysis", 
-                                       "Analysis failed: " + str(results.get('integral_value', 'Unknown error')))
+                messagebox.showwarning(
+                    "Analysis",
+                    "Analysis failed: " + str(results.get('integral_value', 'Unknown error'))
+                )
                 return
-            
+
+            # 6) Store all these arrays in self for re-plotting
             self.processed_data = processed_data
             self.orange_curve = orange_curve
             self.orange_curve_times = orange_times
@@ -323,8 +366,20 @@ class SignalAnalyzerApp:
             self.normalized_curve_times = normalized_times
             self.average_curve = average_curve
             self.average_curve_times = average_curve_times
-            
-            # Pass all 7 data arrays to the update function
+
+            # 7) Now produce the "Modified Peaks" (the purple curves)
+            #    The call returns 4 arrays; store them on the processor so update_plot_with_processed_data can see them.
+            (
+                modified_hyperpol,
+                modified_hyperpol_times,
+                modified_depol,
+                modified_depol_times
+            ) = self.action_potential_processor.apply_average_to_peaks()
+
+            # If everything worked, the processor now has .modified_hyperpol, etc. attached
+            # No need to do anything else as your update_plot_with_processed_data() checks self.action_potential_processor
+
+            # 8) Update the plot with *all* relevant arrays
             self.update_plot_with_processed_data(
                 processed_data,
                 orange_curve,
@@ -334,11 +389,12 @@ class SignalAnalyzerApp:
                 average_curve,
                 average_curve_times
             )
-            
+
+            # 9) Show results in the ActionPotentialTab (integral, etc.)
             self.action_potential_tab.update_results(results)
-            
+
             app_logger.info("Action potential analysis completed successfully")
-            
+
         except Exception as e:
             app_logger.error(f"Error in action potential analysis: {str(e)}")
             messagebox.showerror("Error", f"Analysis failed: {str(e)}")

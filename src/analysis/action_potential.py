@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import signal
 from src.utils.logger import app_logger
+from scipy.signal import savgol_filter
 
 class ActionPotentialProcessor:
     def __init__(self, data, time_data, params=None):
@@ -159,6 +160,135 @@ class ActionPotentialProcessor:
         except Exception as e:
             app_logger.error(f"Error calculating segment average: {str(e)}")
             return None, None
+        
+    def apply_enhanced_smoothing(self, data, window_size=7, passes=2):
+        if len(data) < window_size:
+            return data
+        smoothed = data.copy()
+        for _ in range(passes):
+            smoothed = savgol_filter(smoothed, window_size, polyorder=2)
+        return smoothed
+        
+    def apply_average_to_peaks(self):
+        """
+        Add the average_curve to the "high hyperpolarization" segment
+        and subtract it from the "high depolarization" segment.
+        Then do final smoothing & edge blending.
+        
+        1) 'average_curve' is what we computed in calculate_segment_average().
+        2) We resample it to match each high peak segment length (like 200 points).
+        3) We add or subtract that resampled average, scaled by ~ (V2 - V0)*0.2.
+        4) We store the final "modified" curves in 'modified_hyperpol' and 'modified_depol'.
+        """
+        try:
+            # If we have not yet computed self.average_curve, do so
+            if self.average_curve is None:
+                self.average_curve, _ = self.calculate_segment_average()
+                if self.average_curve is None:
+                    return None, None, None, None
+
+            # Indices for high segments
+            # - You may adjust these if your "high" segments differ in your data
+            depol_start = 834    # high depolarization start
+            depol_end   = 1034
+            hyperpol_start = 1034
+            hyperpol_end   = 1234
+
+            # Check lengths
+            if len(self.orange_curve) < hyperpol_end:
+                app_logger.error(
+                    f"Orange curve too short ({len(self.orange_curve)} points) "
+                    f"for high peak segments up to {hyperpol_end}."
+                )
+                return None, None, None, None
+
+            # We extract those segments from the orange curve
+            depol_data  = self.orange_curve[depol_start:depol_end]
+            depol_times = self.orange_curve_times[depol_start:depol_end]
+            hyperpol_data  = self.orange_curve[hyperpol_start:hyperpol_end]
+            hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_end]
+
+            # Both are presumably the same length (e.g., 200)
+            depol_len   = len(depol_data)
+            hyperpol_len= len(hyperpol_data)
+            segment_length = min(depol_len, hyperpol_len)
+            if segment_length < 20:
+                app_logger.warning("High segments too small to apply average properly.")
+                return None, None, None, None
+
+            # Resample the average_curve to match segment_length if needed
+            if len(self.average_curve) != segment_length:
+                original_points = np.linspace(0, 1, len(self.average_curve))
+                new_points      = np.linspace(0, 1, segment_length)
+                avg_curve_resampled = np.interp(new_points, original_points, self.average_curve)
+            else:
+                avg_curve_resampled = self.average_curve.copy()
+
+            # Optional smoothing to the resampled average itself
+            avg_curve_resampled = self.apply_enhanced_smoothing(avg_curve_resampled, window_size=7, passes=2)
+
+            # Now we do the same for depol_data and hyperpol_data
+            depol_data   = depol_data[:segment_length]
+            depol_times  = depol_times[:segment_length]
+            hyperpol_data= hyperpol_data[:segment_length]
+            hyperpol_times= hyperpol_times[:segment_length]
+
+            # Pre-smooth each segment
+            depol_data   = self.apply_enhanced_smoothing(depol_data,   window_size=7, passes=2)
+            hyperpol_data= self.apply_enhanced_smoothing(hyperpol_data,window_size=7, passes=2)
+
+            # Scale the average curve by voltage_diff * 0.2 (or whatever factor you want)
+            voltage_diff = abs(self.params['V2'] - self.params['V0'])  # e.g. ~90 mV
+            scaled_curve = avg_curve_resampled * voltage_diff * 0.2
+
+            # We add this to the hyperpolarization, subtract from depolarization
+            hyperpol_modified = hyperpol_data + scaled_curve
+            depol_modified    = depol_data   - scaled_curve
+
+            # Final smoothing
+            hyperpol_modified = self.apply_enhanced_smoothing(hyperpol_modified, window_size=7, passes=2)
+            depol_modified    = self.apply_enhanced_smoothing(depol_modified,    window_size=7, passes=2)
+
+            # Smooth edges (blend at the first & last 15 points)
+            blend_points = 15
+            for curve in [hyperpol_modified, depol_modified]:
+                # Start transition
+                weights = np.linspace(0, 1, blend_points)
+                curve[:blend_points] = (
+                    weights * curve[:blend_points]
+                    + (1 - weights) * curve[0]
+                )
+                # End transition
+                weights = np.linspace(1, 0, blend_points)
+                curve[-blend_points:] = (
+                    weights * curve[-blend_points:]
+                    + (1 - weights) * curve[-1]
+                )
+
+            # Store final results
+            self.modified_hyperpol       = hyperpol_modified
+            self.modified_hyperpol_times = hyperpol_times
+            self.modified_depol          = depol_modified
+            self.modified_depol_times    = depol_times
+
+            app_logger.info("Applied average curve to high depol/hyperpol segments with smoothing.")
+            app_logger.debug(
+                f"Modified hyperpol range: [{np.min(hyperpol_modified):.2f}, {np.max(hyperpol_modified):.2f}]"
+            )
+            app_logger.debug(
+                f"Modified depol range: [{np.min(depol_modified):.2f}, {np.max(depol_modified):.2f}]"
+            )
+
+            return (
+                self.modified_hyperpol,
+                self.modified_hyperpol_times,
+                self.modified_depol,
+                self.modified_depol_times
+            )
+
+        except Exception as e:
+            app_logger.error(f"Error applying average to peaks: {str(e)}")
+            return None, None, None, None
 
     def baseline_correction_initial(self):
         """Initial baseline correction excluding outlier points."""
