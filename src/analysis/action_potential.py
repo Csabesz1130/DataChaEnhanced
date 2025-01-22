@@ -189,9 +189,9 @@ class ActionPotentialProcessor:
 
             # Indices for high segments
             # - You may adjust these if your "high" segments differ in your data
-            depol_start = 834    # high depolarization start
+            depol_start = 835    # high depolarization start
             depol_end   = 1034
-            hyperpol_start = 1034
+            hyperpol_start = 1035
             hyperpol_end   = 1234
 
             # Check lengths
