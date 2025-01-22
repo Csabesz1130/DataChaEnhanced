@@ -171,113 +171,66 @@ class ActionPotentialProcessor:
         
     def apply_average_to_peaks(self):
         """
-        Add the average_curve to the "high hyperpolarization" segment
-        and subtract it from the "high depolarization" segment.
-        Then do final smoothing & edge blending.
-        
-        1) 'average_curve' is what we computed in calculate_segment_average().
-        2) We resample it to match each high peak segment length (like 200 points).
-        3) We add or subtract that resampled average, scaled by ~ (V2 - V0)*0.2.
-        4) We store the final "modified" curves in 'modified_hyperpol' and 'modified_depol'.
+        Add average_curve to high hyperpolarization and subtract from high depolarization,
+        with special handling for depolarization endpoint.
         """
         try:
-            # If we have not yet computed self.average_curve, do so
             if self.average_curve is None:
                 self.average_curve, _ = self.calculate_segment_average()
                 if self.average_curve is None:
                     return None, None, None, None
 
-            # Indices for high segments
-            # - You may adjust these if your "high" segments differ in your data
-            depol_start = 835    # high depolarization start
+            # Segment indices
+            depol_start = 835
             depol_end   = 1034
             hyperpol_start = 1035
             hyperpol_end   = 1234
 
-            # Check lengths
             if len(self.orange_curve) < hyperpol_end:
-                app_logger.error(
-                    f"Orange curve too short ({len(self.orange_curve)} points) "
-                    f"for high peak segments up to {hyperpol_end}."
-                )
+                app_logger.error(f"Orange curve too short ({len(self.orange_curve)} points)")
                 return None, None, None, None
 
-            # We extract those segments from the orange curve
-            depol_data  = self.orange_curve[depol_start:depol_end]
+            # Extract segments
+            depol_data = self.orange_curve[depol_start:depol_end].copy()
             depol_times = self.orange_curve_times[depol_start:depol_end]
-            hyperpol_data  = self.orange_curve[hyperpol_start:hyperpol_end]
+            hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_end].copy()
             hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_end]
 
-            # Both are presumably the same length (e.g., 200)
-            depol_len   = len(depol_data)
-            hyperpol_len= len(hyperpol_data)
-            segment_length = min(depol_len, hyperpol_len)
-            if segment_length < 20:
-                app_logger.warning("High segments too small to apply average properly.")
-                return None, None, None, None
-
-            # Resample the average_curve to match segment_length if needed
+            # Resample average curve if needed
+            segment_length = min(len(depol_data), len(hyperpol_data))
             if len(self.average_curve) != segment_length:
                 original_points = np.linspace(0, 1, len(self.average_curve))
-                new_points      = np.linspace(0, 1, segment_length)
-                avg_curve_resampled = np.interp(new_points, original_points, self.average_curve)
+                new_points = np.linspace(0, 1, segment_length)
+                avg_curve = np.interp(new_points, original_points, self.average_curve)
             else:
-                avg_curve_resampled = self.average_curve.copy()
+                avg_curve = self.average_curve.copy()
 
-            # Optional smoothing to the resampled average itself
-            avg_curve_resampled = self.apply_enhanced_smoothing(avg_curve_resampled, window_size=7, passes=2)
+            # Apply modifications
+            voltage_diff = abs(self.params['V2'] - self.params['V0'])
+            scaled_curve = avg_curve * voltage_diff * 0.2
 
-            # Now we do the same for depol_data and hyperpol_data
-            depol_data   = depol_data[:segment_length]
-            depol_times  = depol_times[:segment_length]
-            hyperpol_data= hyperpol_data[:segment_length]
-            hyperpol_times= hyperpol_times[:segment_length]
-
-            # Pre-smooth each segment
-            depol_data   = self.apply_enhanced_smoothing(depol_data,   window_size=7, passes=2)
-            hyperpol_data= self.apply_enhanced_smoothing(hyperpol_data,window_size=7, passes=2)
-
-            # Scale the average curve by voltage_diff * 0.2 (or whatever factor you want)
-            voltage_diff = abs(self.params['V2'] - self.params['V0'])  # e.g. ~90 mV
-            scaled_curve = avg_curve_resampled * voltage_diff * 0.2
-
-            # We add this to the hyperpolarization, subtract from depolarization
             hyperpol_modified = hyperpol_data + scaled_curve
-            depol_modified    = depol_data   - scaled_curve
+            depol_modified = depol_data - scaled_curve
 
-            # Final smoothing
-            hyperpol_modified = self.apply_enhanced_smoothing(hyperpol_modified, window_size=7, passes=2)
-            depol_modified    = self.apply_enhanced_smoothing(depol_modified,    window_size=7, passes=2)
+            # Handle endpoints differently for each segment
+            blend_points = 25
+            
+            # For depolarization: gradually reduce effect near end
+            for i in range(blend_points):
+                weight = ((blend_points - i) / blend_points) ** 2  # Quadratic falloff
+                idx = -(i + 1)
+                # Blend between modified and original data
+                depol_modified[idx] = (weight * depol_modified[idx] + 
+                                    (1 - weight) * depol_data[idx])
 
-            # Smooth edges (blend at the first & last 15 points)
-            blend_points = 15
-            for curve in [hyperpol_modified, depol_modified]:
-                # Start transition
-                weights = np.linspace(0, 1, blend_points)
-                curve[:blend_points] = (
-                    weights * curve[:blend_points]
-                    + (1 - weights) * curve[0]
-                )
-                # End transition
-                weights = np.linspace(1, 0, blend_points)
-                curve[-blend_points:] = (
-                    weights * curve[-blend_points:]
-                    + (1 - weights) * curve[-1]
-                )
+            # For hyperpolarization: direct return to original data
+            hyperpol_modified[-blend_points:] = hyperpol_data[-blend_points:]
 
-            # Store final results
-            self.modified_hyperpol       = hyperpol_modified
+            # Store results
+            self.modified_hyperpol = hyperpol_modified
             self.modified_hyperpol_times = hyperpol_times
-            self.modified_depol          = depol_modified
-            self.modified_depol_times    = depol_times
-
-            app_logger.info("Applied average curve to high depol/hyperpol segments with smoothing.")
-            app_logger.debug(
-                f"Modified hyperpol range: [{np.min(hyperpol_modified):.2f}, {np.max(hyperpol_modified):.2f}]"
-            )
-            app_logger.debug(
-                f"Modified depol range: [{np.min(depol_modified):.2f}, {np.max(depol_modified):.2f}]"
-            )
+            self.modified_depol = depol_modified
+            self.modified_depol_times = depol_times
 
             return (
                 self.modified_hyperpol,
