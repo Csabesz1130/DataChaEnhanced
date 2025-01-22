@@ -172,7 +172,7 @@ class ActionPotentialProcessor:
     def apply_average_to_peaks(self):
         """
         Add average_curve to high hyperpolarization and subtract from high depolarization,
-        with special handling for depolarization endpoint.
+        with smooth segment transitions.
         """
         try:
             if self.average_curve is None:
@@ -212,19 +212,21 @@ class ActionPotentialProcessor:
             hyperpol_modified = hyperpol_data + scaled_curve
             depol_modified = depol_data - scaled_curve
 
-            # Handle endpoints differently for each segment
+            # Get transition values
+            transition_value = self.orange_curve[depol_end]  # Value at the transition point
+
+            # Handle end points and transition
             blend_points = 25
             
-            # For depolarization: gradually reduce effect near end
-            for i in range(blend_points):
-                weight = ((blend_points - i) / blend_points) ** 2  # Quadratic falloff
-                idx = -(i + 1)
-                # Blend between modified and original data
-                depol_modified[idx] = (weight * depol_modified[idx] + 
-                                    (1 - weight) * depol_data[idx])
+            # Ensure depol ends at transition value
+            depol_modified[-5:] = transition_value
+            
+            # Ensure hyperpol starts at transition value
+            hyperpol_modified[:5] = transition_value
 
-            # For hyperpolarization: direct return to original data
+            # Regular end point handling
             hyperpol_modified[-blend_points:] = hyperpol_data[-blend_points:]
+            depol_modified[-blend_points:] = depol_data[-blend_points:]
 
             # Store results
             self.modified_hyperpol = hyperpol_modified
