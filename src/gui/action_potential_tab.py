@@ -77,7 +77,7 @@ class ActionPotentialTab:
             self.t2 = tk.DoubleVar(value=100.0)
             self.V0 = tk.DoubleVar(value=-80.0)
             self.V1 = tk.DoubleVar(value=-100.0)
-            self.V2 = tk.DoubleVar(value=10.0)
+            self.V2 = tk.DoubleVar(value=-20.0)
             
             # Integration method selection
             self.integration_method = tk.StringVar(value="traditional")

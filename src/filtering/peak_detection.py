@@ -7,7 +7,7 @@ class PeakDetector:
         self.peak_indices = None
         self.peak_properties = None
 
-    def detect_peaks(self, data, height=None, distance=None, prominence=None, width=None):
+    def detect_peaks(self, data, height=None, prominence=None, width=None):
         """
         Detect peaks in the signal data.
         
@@ -30,7 +30,6 @@ class PeakDetector:
             self.peak_indices, properties = find_peaks(
                 normalized_data,
                 height=height,
-                distance=distance,
                 prominence=prominence,
                 width=width
             )

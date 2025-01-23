@@ -24,7 +24,7 @@ class ActionPotentialProcessor:
             't3': 1000,
             'V0': -80,
             'V1': -100,
-            'V2': 10,
+            'V2': -20,
             'cell_area_cm2': 1e-4
         }
 
@@ -207,7 +207,7 @@ class ActionPotentialProcessor:
 
             # Apply modifications
             voltage_diff = abs(self.params['V2'] - self.params['V0'])
-            scaled_curve = avg_curve * voltage_diff * 0.2
+            scaled_curve = avg_curve * voltage_diff
 
             hyperpol_modified = hyperpol_data + scaled_curve
             depol_modified = depol_data - scaled_curve
@@ -216,17 +216,17 @@ class ActionPotentialProcessor:
             transition_value = self.orange_curve[depol_end]  # Value at the transition point
 
             # Handle end points and transition
-            blend_points = 25
+            #blend_points = 25
             
             # Ensure depol ends at transition value
-            depol_modified[-5:] = transition_value
+            #depol_modified[-5:] = transition_value
             
             # Ensure hyperpol starts at transition value
-            hyperpol_modified[:5] = transition_value
+            #hyperpol_modified[:5] = transition_value
 
             # Regular end point handling
-            hyperpol_modified[-blend_points:] = hyperpol_data[-blend_points:]
-            depol_modified[-blend_points:] = depol_data[-blend_points:]
+            #hyperpol_modified[-blend_points:] = hyperpol_data[-blend_points:]
+            #depol_modified[-blend_points:] = depol_data[-blend_points:]
 
             # Store results
             self.modified_hyperpol = hyperpol_modified
@@ -270,6 +270,7 @@ class ActionPotentialProcessor:
         """Align segments, remove offsets for hyper/depolarization."""
         try:
             sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
+            { app_logger.info(f"Sampling rate: {sampling_rate}") }
             threshold_slope = 3 * np.std(np.diff(self.processed_data))
             segment_start = 0
             segments = []
@@ -382,7 +383,7 @@ class ActionPotentialProcessor:
         """Identify consistent hyperpolarization cycles."""
         try:
             sampling_rate = 1.0 / np.mean(np.diff(self.time_data))
-            t1_samps = int(self.params['t1'] * sampling_rate / 1000)
+            t1_samps = int(self.params['t1'] * sampling_rate)
             neg_peaks, _ = signal.find_peaks(
                 -self.processed_data,
                 prominence=np.std(self.processed_data)*1.5,
@@ -430,97 +431,108 @@ class ActionPotentialProcessor:
             app_logger.error(f"Error in cycle detection: {str(e)}")
             raise
 
-    def calculate_alternative_integral(self):
-        """Calculate integral using the entire normalized_curve average approach."""
+    def calculate_integral(self):
+        """
+        Integrates the first detected cycle (self.cycles[0]) with baseline correction.
+        The relationship pA×ms = pC and pC / mV = nF is used.
+        Typically, the professors expect 1–3 nF values in these measurements.
+        """
         try:
-            if self.normalized_curve is None:
-                self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
-            if self.normalized_curve is None:
+            # If no cycles have been found, there's nothing to integrate
+            if not self.cycles:
+                return {'error': 'No cycles found'}
+
+            # 1) Get the data (pA) and time (seconds) from the first cycle
+            cycle_data = self.cycles[0]
+            cycle_time = self.cycle_times[0]
+
+            # 2) Convert time from seconds to milliseconds for trapezoidal integration
+            current_pA = cycle_data
+            time_ms = cycle_time
+
+            # 3) Voltage difference in mV (e.g. V1=-100 mV, V0=-80 mV => 20 mV)
+            #delta_V_mV = abs(self.params['V1'] - self.params['V0'])
+
+            # 4) Baseline correction (for instance, the median of the first 20 points)
+            #baseline = np.median(current_pA[:20])
+            #current_corrected = current_pA - baseline
+
+            # 5) Trapezoidal integration: 1 pA × 1 ms = 1 pC
+            charge_pC = np.trapz(current_corrected, x=time_ms)
+
+            # 6) Capacitance: 1 pC / 1 mV = 1 nF
+            capacitance_nF = charge_pC
+
+            # 7) (Optional) Normalize to cell area, if 'cell_area_cm2' is provided
+            area_cm2 = self.params.get('cell_area_cm2', 1e-4)
+            specific_capacitance_nF_cm2 = capacitance_nF / area_cm2
+
+            # 8) Validation against 1–3 nF range
+            validation_result = 'OK' if 1 <= capacitance_nF <= 3 else 'OUT_OF_RANGE'
+            if validation_result == 'OUT_OF_RANGE':
+                app_logger.warning(
+                    f"Capacitance {capacitance_nF:.2f} nF is outside the expected 1–3 nF range."
+                )
+
+            return {
+                'charge_pC': f"{charge_pC:.2f} pC",
+                'capacitance_nF': f"{capacitance_nF:.2f} nF",
+                'specific_capacitance': f"{specific_capacitance_nF_cm2:.2f} nF/cm²",
+                'validation': validation_result
+            }
+
+        except Exception as e:
+            app_logger.error(f"Error in calculate_integral(): {str(e)}")
+            return {'error': str(e)}
+
+
+    def calculate_alternative_integral(self):
+        """
+        Example of an alternative integration approach, also using pA–ms for 
+        the integral and mV for the voltage difference, yielding nF in the end.
+        This differs from the 'classic' method in that it may, for instance, 
+        integrate the normalized curve or another segment.
+        """
+        try:
+            # Make sure the normalized curve exists if we want to use it
+            #tehát itt az average curve-t kellene használni
+            if not hasattr(self, 'average_curve') or self.average_curve is None:
+                self.average_curve, self.average_curve_times = self.calculate_segment_average()
+
+            # If there's still no normalized curve, we cannot proceed
+            if self.average_curve is None or self.average_curve_times is None:
                 return {
                     'integral_value': 'No normalized curve available',
-                    'capacitance_uF_cm2': '0.0000 µF/cm²'
+                    'capacitance_nF': 'N/A'
                 }
 
-            avg_norm = np.mean(self.normalized_curve)
-            dt = np.mean(np.diff(self.normalized_curve_times))
-            integral = np.trapz(self.normalized_curve, dx=dt)
-            voltage_diff = abs(self.params['V2'] - self.params['V0'])
-            total_integral = integral * voltage_diff
+            # Assume the normalized_curve is also in pA. If it's actually nS or something else, adjust accordingly.
+            current_pA = self.average_curve
+            time_ms = self.average_curve_times
 
-            total_cap_F = abs(total_integral * 1e-12)
-            total_cap_uF = total_cap_F * 1e6
-            area = self.params.get('cell_area_cm2', 1e-4)
-            cap_uF_cm2 = total_cap_uF / area
-            
-            results = {
-                'integral_value': f"{abs(total_integral):.6e} C",
-                'capacitance_uF_cm2': f"{cap_uF_cm2:.4f} µF/cm²",
-                'cycle_indices': self.cycle_indices,
-                'raw_values': {
-                    'normalized_integral': integral,
-                    'voltage_diff': voltage_diff,
-                    'capacitance_F': total_cap_F,
-                    'area_cm2': area
-                }
+            # Optional baseline correction (example: median of the first 10 points)
+            #baseline_alt = np.median(current_pA[:10])
+            #current_corrected = current_pA 
+            # Voltage difference in mV, e.g. between V2 and V0
+            delta_V_mV = abs(self.params['V2'] - self.params['V0'])
+
+            # Integration in pA–ms => pC
+            charge_pC = np.trapz(current_pA, x=time_ms)
+
+            # 1 pC / 1 mV = 1 nF
+            capacitance_nF = charge_pC
+
+            return {
+                'method': 'alternative',
+                'integral_value': f"{charge_pC:.2f} pC,",
+                'capacitance_nF': f"{capacitance_nF:.2f} nF"
             }
-            app_logger.info(f"Alternative integration method - "
-                            f"Capacitance: {cap_uF_cm2:.4f} µF/cm²")
-            return results
+
         except Exception as e:
-            app_logger.error(f"Error in alternative integration: {str(e)}")
+            app_logger.error(f"Error in calculate_alternative_integral(): {str(e)}")
             return {
                 'integral_value': f"Error: {str(e)}",
-                'capacitance_uF_cm2': 'Error',
-                'cycle_indices': []
+                'capacitance_nF': 'Error'
             }
 
-    def calculate_integral(self):
-        """Calculate integral and capacitance from the first cycle (standard method)."""
-        try:
-            if not self.cycles:
-                return {
-                    'integral_value': 'No cycles found',
-                    'capacitance_uF_cm2': '0.0000 µF/cm²',
-                    'cycle_indices': []
-                }
-            cycle = self.cycles[0]
-            cycle_time = self.cycle_times[0]
-            current_in_A = cycle * 1e-12
-            time_in_s = cycle_time
-            voltage_diff_in_V = (self.params['V1'] - self.params['V0'])
 
-            peak_curr = np.max(np.abs(current_in_A))
-            thr = 0.1 * peak_curr
-            mask = np.abs(current_in_A) > thr
-            if not np.any(mask):
-                return {
-                    'integral_value': '0.0000 C',
-                    'capacitance_uF_cm2': '0.0000 µF/cm²',
-                    'cycle_indices': self.cycle_indices
-                }
-            charge_C = np.trapz(current_in_A[mask], time_in_s[mask])
-            total_cap_F = abs(charge_C / voltage_diff_in_V)
-            total_cap_uF = total_cap_F * 1e6
-            area = self.params.get('cell_area_cm2', 1e-4)
-            cap_uF_cm2 = total_cap_uF / area
-            
-            results = {
-                'integral_value': f"{abs(charge_C):.6e} C",
-                'capacitance_uF_cm2': f"{cap_uF_cm2:.4f} µF/cm²",
-                'cycle_indices': self.cycle_indices,
-                'raw_values': {
-                    'charge_C': charge_C,
-                    'capacitance_F': total_cap_F,
-                    'area_cm2': area
-                }
-            }
-            app_logger.info(f"Integrated charge: {charge_C:.2e} C, "
-                            f"Capacitance: {cap_uF_cm2:.4f} µF/cm²")
-            return results
-        except Exception as e:
-            app_logger.error(f"Error calculating integral: {str(e)}")
-            return {
-                'integral_value': 'Error in calculation',
-                'capacitance_uF_cm2': 'Error',
-                'cycle_indices': self.cycle_indices
-            }

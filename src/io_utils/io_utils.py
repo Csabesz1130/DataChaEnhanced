@@ -88,16 +88,18 @@ class ATFHandler:
             # Special handling for time column
             if column_name.lower() == 'time':
                 # Find time data or generate it based on sampling rate
-                time_col = next((i for i, h in enumerate(self.headers) if 'Time' in h), None)
+                time_col = next((i for i, h in enumerate(self.headers) if 'time' in h), None)
                 if time_col is not None:
                     time_data = self.data[:, time_col]
                     app_logger.info("Using time data from file")
                 else:
-                    # Generate time data based on sampling rate
-                    sampling_interval = self.get_sampling_rate()  # in seconds
-                    time_data = np.arange(len(self.data)) * sampling_interval
-                    app_logger.info(f"Generated time data with interval: {sampling_interval*1e6} µs")
+                    #Generate time data based on sampling rate
+                    sampling_interval = self.get_sampling_rate() # in seconds
+                    time_data = np.arange(len(self.data))
+                    time_data = time_data * sampling_interval
+                    app_logger.info(f"Generated time data with interval: {sampling_interval} mikros")
                 return time_data  # Time data in seconds
+            
 
             # Handle trace columns
             if column_name.startswith('#'):
@@ -151,12 +153,12 @@ class ATFHandler:
                     return interval  # Return interval in seconds
             
             # Default fallback (100 µs = 0.0001s = 10kHz)
-            default_interval = 1e-4  # 100 µs in seconds
+            default_interval = 1e-5  # 100 µs in seconds
             app_logger.info(f"Using default sampling interval: 100 µs")
             return default_interval  # Return default interval in seconds
             
         except Exception as e:
             app_logger.error(f"Error getting sampling rate: {str(e)}")
-            default_interval = 1e-4  # 100 µs in seconds
+            default_interval = 1e-5  # 100 µs in seconds
             app_logger.warning(f"Error occurred, using default sampling interval: 100 µs")
             return default_interval
