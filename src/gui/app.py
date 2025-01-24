@@ -157,49 +157,30 @@ class SignalAnalyzerApp:
 
 
     def _find_closest_point(self, x_ms, y_pA):
-        """
-        Find closest orange point using both time and value differences.
-        
-        Args:
-            x_ms: Cursor x position in milliseconds
-            y_pA: Cursor y position in pA
-            
-        Returns:
-            tuple: (point_number, time_ms) or (None, None)
-        """
-        if not hasattr(self, 'orange_curve_times') or self.orange_curve_times is None:
+        """Find closest orange point when in All Points mode."""
+        if (not hasattr(self, 'orange_curve_times') or 
+            self.orange_curve_times is None or 
+            not hasattr(self.action_potential_tab, 'average_display_mode') or
+            self.action_potential_tab.average_display_mode.get() != "all_points"):
             return None, None
-
-        # Convert cursor time to seconds for comparison with stored times
-        x_sec = x_ms / 100.0  # Convert from ms to seconds (*100 plot scale)
+                
+        # Find closest point index ignoring units - numpy will handle the scale
+        diffs = np.abs(self.orange_curve_times - x_ms)
+        closest_idx = np.argmin(diffs)
         
-        # Find time differences
-        time_diffs = np.abs(self.orange_curve_times - x_sec)
-        TIME_THRESHOLD = 2.0 / 100.0  # 2ms in seconds, accounting for *100 scale
-        
-        # Get points within time threshold
-        close_mask = time_diffs < TIME_THRESHOLD
-        if not np.any(close_mask):
+        # Use 0.0002 seconds threshold (0.2ms)
+        if diffs[closest_idx] > 0.0002:
             return None, None
             
-        # Among time-close points, find closest by value
-        close_indices = np.where(close_mask)[0]
-        value_diffs = np.abs(self.orange_curve[close_indices] - y_pA)
-        best_idx = close_indices[np.argmin(value_diffs)]
-        
-        # Get point info (convert back to ms for display)
-        point_time_ms = self.orange_curve_times[best_idx] * 100.0  # *100 for plot scale
-        point_number = best_idx + 1  # Convert to 1-based indexing
-        
-        app_logger.debug(
-            f"Found orange point {point_number} at {point_time_ms:.1f}ms "
-            f"(cursor: {x_ms:.1f}ms, {y_pA:.1f}pA)"
-        )
-        
-        return point_number, point_time_ms
+        # Check amplitude is close enough (within 20 pA)
+        if abs(self.orange_curve[closest_idx] - y_pA) > 20:
+            return None, None
+            
+        point_number = closest_idx + 1
+        return point_number, self.orange_curve_times[closest_idx]
 
     def on_mouse_move(self, event):
-        """Handle mouse movement with accurate point identification."""
+        """Handle cursor movement and point detection."""
         if event.inaxes != self.ax:
             self.cursor_label.config(text="")
             return
@@ -207,20 +188,17 @@ class SignalAnalyzerApp:
         if self.time_data is None:
             return
 
-        # Get cursor position
-        x_ms = event.xdata  # Already in milliseconds
-        y_pA = event.ydata
+        cursor_text = f"Time: {event.xdata:.1f} ms, Current: {event.ydata:.1f} pA"
+        
+        # Only find points if we have data and are in All Points mode
+        if (hasattr(self, 'orange_curve') and 
+            hasattr(self.action_potential_tab, 'average_display_mode') and
+            self.action_potential_tab.average_display_mode.get() == "all_points"):
+            
+            point_num, _ = self._find_closest_point(event.xdata, event.ydata)
+            if point_num is not None:
+                cursor_text += f", Orange Point: {point_num}"
 
-        # Build cursor text
-        cursor_text = f"Time: {x_ms:.1f} ms, Current: {y_pA:.1f} pA"
-
-        # Find closest orange point
-        result = self._find_closest_point(x_ms, y_pA)
-        if result[0] is not None:  # If a point was found
-            point_num, _ = result
-            cursor_text += f", Orange Point: {point_num}"
-
-        # Update display
         self.cursor_label.config(text=cursor_text)
 
     def load_data(self):
