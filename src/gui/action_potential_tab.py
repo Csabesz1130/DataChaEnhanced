@@ -127,61 +127,6 @@ class ActionPotentialTab:
             app_logger.error(f"Error initializing variables: {str(e)}")
             raise
 
-    def setup_normalization_points(self):
-        """Setup input fields for normalization segment points"""
-        norm_frame = ttk.LabelFrame(self.frame, text="Normalization Points (Optional)")
-        norm_frame.pack(fill='x', padx=5, pady=5)
-
-        # Create a frame for segment inputs with grid layout
-        segments_frame = ttk.Frame(norm_frame)
-        segments_frame.pack(fill='x', padx=5, pady=5)
-
-        # Initialize variables for storing point values
-        self.norm_points = {
-            'seg1_start': tk.StringVar(),
-            'seg1_end': tk.StringVar(),
-            'seg2_start': tk.StringVar(),
-            'seg2_end': tk.StringVar(),
-            'seg3_start': tk.StringVar(),
-            'seg3_end': tk.StringVar(),
-            'seg4_start': tk.StringVar(),
-            'seg4_end': tk.StringVar()
-        }
-
-        # Column headers
-        ttk.Label(segments_frame, text="Segment").grid(row=0, column=0, padx=5)
-        ttk.Label(segments_frame, text="Start").grid(row=0, column=1, padx=5)
-        ttk.Label(segments_frame, text="End").grid(row=0, column=2, padx=5)
-        ttk.Label(segments_frame, text="Type").grid(row=0, column=3, padx=5)
-
-        # Add segment rows
-        segments = [
-            ("1", "Hyperpol"),
-            ("2", "Depol"),
-            ("3", "Hyperpol"),
-            ("4", "Depol")
-        ]
-
-        for i, (seg_num, seg_type) in enumerate(segments, 1):
-            ttk.Label(segments_frame, text=f"{seg_num}").grid(row=i, column=0, padx=5, pady=2)
-            
-            # Start point entry
-            start_entry = ttk.Entry(segments_frame, width=8, 
-                                  textvariable=self.norm_points[f'seg{seg_num}_start'])
-            start_entry.grid(row=i, column=1, padx=2, pady=2)
-            
-            # End point entry
-            end_entry = ttk.Entry(segments_frame, width=8,
-                                textvariable=self.norm_points[f'seg{seg_num}_end'])
-            end_entry.grid(row=i, column=2, padx=2, pady=2)
-            
-            # Type label
-            ttk.Label(segments_frame, text=seg_type).grid(row=i, column=3, padx=5, pady=2)
-
-        # Add info label
-        ttk.Label(norm_frame, text="Leave blank to use default values",
-                 font=('TkDefaultFont', 8, 'italic')).pack(pady=2)
-
     def setup_parameter_controls(self):
         """Setup parameter input controls"""
         try:
@@ -404,41 +349,52 @@ class ActionPotentialTab:
             app_logger.error(f"Error handling display change: {str(e)}")
             raise
 
+    def setup_normalization_points(self):
+        """Setup single input field for the starting point"""
+        norm_frame = ttk.LabelFrame(self.scrollable_frame, text="Normalization Point")
+        norm_frame.pack(fill='x', padx=5, pady=5)
+
+        # Single point input
+        point_frame = ttk.Frame(norm_frame)
+        point_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Label(point_frame, text="Starting Point:").pack(side='left')
+        self.norm_point = tk.StringVar()
+        ttk.Entry(point_frame, textvariable=self.norm_point, width=10).pack(side='left', padx=5)
+        
+        # Info label
+        ttk.Label(norm_frame, text="Leave blank to use default value (35)", 
+                font=('TkDefaultFont', 8, 'italic')).pack(pady=2)
+
     def get_normalization_points(self):
-        """
-        Get normalization points if all fields are filled in correctly.
-        Returns None if any field is empty or invalid.
-        """
+        """Get segments based on single starting point"""
         try:
-            # Check if all fields are filled
-            all_points = []
-            for seg_num in range(1, 5):
-                start = self.norm_points[f'seg{seg_num}_start'].get().strip()
-                end = self.norm_points[f'seg{seg_num}_end'].get().strip()
+            start_point = self.norm_point.get().strip()
+            
+            if not start_point:
+                return None
                 
-                # If any field is empty, return None
-                if not start or not end:
+            try:
+                n = int(start_point)
+                if n < 1:
+                    messagebox.showwarning("Invalid Input", "Starting point must be positive")
                     return None
                     
-                try:
-                    start_val = int(start)
-                    end_val = int(end)
-                    all_points.extend([start_val, end_val])
-                except ValueError:
-                    return None
-
-            # Return points only if all values are valid
-            return {
-                'seg1': (all_points[0], all_points[1]),
-                'seg2': (all_points[2], all_points[3]),
-                'seg3': (all_points[4], all_points[5]),
-                'seg4': (all_points[6], all_points[7])
-            }
+                return {
+                    'seg1': (n, n + 199),
+                    'seg2': (n + 200, n + 399),
+                    'seg3': (n + 400, n + 599),
+                    'seg4': (n + 600, n + 799)
+                }
+                
+            except ValueError:
+                messagebox.showwarning("Invalid Input", "Please enter a valid number")
+                return None
 
         except Exception as e:
             app_logger.error(f"Error getting normalization points: {str(e)}")
             return None
-
+    
     def create_tooltip(self, widget, text):
         """Create tooltip for a widget"""
         def enter(event):

@@ -337,44 +337,55 @@ class ActionPotentialProcessor:
             raise
 
     def calculate_normalized_curve(self):
-        """Build normalized curves for hyper/depolarization segments."""
+        """Build normalized curves using starting point from user input."""
         try:
             if self.orange_curve is None:
                 return None, None
+                
+            # Default starting point
+            n = 35
 
+            # Use custom starting point if provided
+            if 'normalization_points' in self.params:
+                norm_points = self.params['normalization_points']
+                n = norm_points['seg1'][0]
+
+            # Create segments based on starting point
             segments = [
-                {"start": 35, "end": 234, "is_hyperpol": True},
-                {"start": 235, "end": 434, "is_hyperpol": False},
-                {"start": 435, "end": 634, "is_hyperpol": True},
-                {"start": 635, "end": 834, "is_hyperpol": False}
+                {"start": n,      "end": n + 199, "is_hyperpol": True},
+                {"start": n+200,  "end": n + 399, "is_hyperpol": False},
+                {"start": n+400,  "end": n + 599, "is_hyperpol": True},
+                {"start": n+600,  "end": n + 799, "is_hyperpol": False}
             ]
             
             normalized_points = []
             normalized_times = []
             
             for seg in segments:
-                start_idx = seg["start"]
-                end_idx = seg["end"]
+                start_idx = seg["start"] - 1
+                end_idx = seg["end"] - 1
+                
                 if end_idx >= len(self.orange_curve):
-                    app_logger.warning(f"Segment {start_idx}-{end_idx} out of range.")
+                    app_logger.warning(f"Segment {start_idx+1}-{end_idx+1} out of range.")
                     continue
+                    
                 selected_points = self.orange_curve[start_idx:end_idx]
                 selected_times = self.orange_curve_times[start_idx:end_idx]
                 voltage_step = -20.0 if seg["is_hyperpol"] else 20.0
                 segment_norm = selected_points / voltage_step
                 normalized_points.extend(segment_norm)
                 normalized_times.extend(selected_times)
-                app_logger.debug(f"Processed segment {start_idx+1}-{end_idx}: "
-                                 f"{'hyperpolarization' if seg['is_hyperpol'] else 'depolarization'}")
+                
+                app_logger.debug(f"Processed segment {start_idx+1}-{end_idx+1}")
                 app_logger.debug(f"Voltage step: {voltage_step} mV")
                 app_logger.debug(f"Current range: [{np.min(selected_points):.2f}, {np.max(selected_points):.2f}] pA")
                 app_logger.debug(f"Conductance range: [{np.min(segment_norm):.2f}, {np.max(segment_norm):.2f}] nS")
-            
+
             self.normalized_curve = np.array(normalized_points)
             self.normalized_curve_times = np.array(normalized_times)
             app_logger.info("Conductance values calculated for all segments")
             return self.normalized_curve, self.normalized_curve_times
-        
+            
         except Exception as e:
             app_logger.error(f"Error calculating normalized curve: {str(e)}")
             return None, None
@@ -458,10 +469,10 @@ class ActionPotentialProcessor:
             #current_corrected = current_pA - baseline
 
             # 5) Trapezoidal integration: 1 pA × 1 ms = 1 pC
-            charge_pC = np.trapz(current_corrected, x=time_ms)
+            charge_pC = 0
 
             # 6) Capacitance: 1 pC / 1 mV = 1 nF
-            capacitance_nF = charge_pC
+            capacitance_nF = 0
 
             # 7) (Optional) Normalize to cell area, if 'cell_area_cm2' is provided
             area_cm2 = self.params.get('cell_area_cm2', 1e-4)
