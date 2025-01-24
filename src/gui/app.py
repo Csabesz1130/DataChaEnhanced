@@ -379,6 +379,10 @@ class SignalAnalyzerApp:
             # If everything worked, the processor now has .modified_hyperpol, etc. attached
             # No need to do anything else as your update_plot_with_processed_data() checks self.action_potential_processor
 
+            purple_results = self.action_potential_processor.calculate_purple_integrals()
+            if isinstance(purple_results, dict):
+                results.update(purple_results)
+
             # 8) Update the plot with *all* relevant arrays
             self.update_plot_with_processed_data(
                 processed_data,
@@ -432,7 +436,7 @@ class SignalAnalyzerApp:
         xlim = self.ax.get_xlim()
 
         self.ax.xaxis.set_major_formatter(lambda x, p: f"{x*1000:.0f}")
-        self.ax.set_xlabel('Time (ms)')
+        self.ax.set_xlabel('Time (s)')
         time_range = xlim[1] - xlim[0]
         if time_range > 10:
             self.ax.xaxis.set_major_locator(plt.MaxNLocator(10))

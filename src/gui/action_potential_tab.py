@@ -316,6 +316,9 @@ class ActionPotentialTab:
             ttk.Label(results_frame, textvariable=self.integral_value,
                     width=20).pack(side='left', padx=5)
             
+            self.extra_info_var = tk.StringVar(value="")
+            ttk.Label(results_frame, textvariable=self.extra_info_var, width=40).pack(side='left', padx=5)
+            
             # Status display
             status_frame = ttk.Frame(self.scrollable_frame)
             status_frame.pack(fill='x', padx=5, pady=5)
@@ -532,19 +535,44 @@ class ActionPotentialTab:
             raise
 
     def update_results(self, results):
-        """Update displayed results"""
+        """
+        Updates the displayed integral_value and status_text labels
+        based on the dictionary returned by the analysis.
+        Also displays any other interesting fields in extra_info_var.
+        """
         try:
             if isinstance(results, dict):
+                # 1) Show main integral in the existing label
                 self.integral_value.set(results.get('integral_value', 'N/A'))
+                
+                # 2) Optionally set the status text
                 self.status_text.set(results.get('status', 'Results updated'))
+                
+                # 3) Collect extra lines
+                extra_lines = []
+                
+                # Show the purple integral if we have it
+                if 'purple_integral_value' in results:
+                    extra_lines.append(f"Purple: {results['purple_integral_value']}")
+
+                # Also show other interesting keys
+                for key in ('capacitance_nF', 'hyperpol_area', 'depol_area'):
+                    if key in results:
+                        extra_lines.append(f"{key}: {results[key]}")
+                
+                self.extra_info_var.set(",  ".join(extra_lines))
+                
             else:
-                self.integral_value.set(f"{results:.6f} µC/cm²")
+                self.integral_value.set("Unexpected format")
+                self.extra_info_var.set("")
                 self.status_text.set("Results updated")
-            
+
         except Exception as e:
             app_logger.error(f"Error updating results: {str(e)}")
             self.status_text.set("Error updating results")
+            self.extra_info_var.set("")
             raise
+
 
     def reset(self):
         """Reset the tab to initial state"""

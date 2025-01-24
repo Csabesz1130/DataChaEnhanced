@@ -38,6 +38,58 @@ class ActionPotentialProcessor:
 
         app_logger.debug(f"Parameters validated: {self.params}")
 
+    def print_curve_points(self):
+        """Print point ranges for each curve type after analysis"""
+        try:
+            n = self.params.get('normalization_points', {}).get('seg1', (35, None))[0]
+            
+            # Orange curve (50-point average)
+            if self.orange_curve is not None:
+                total_points = len(self.orange_curve)
+                app_logger.info(f"\nORANGE CURVE (50-point average):")
+                app_logger.info(f"Total points: {total_points}")
+                app_logger.info(f"Point range: {1} - {total_points}")
+                
+            # Dark blue (Voltage-Normalized)
+            if self.normalized_curve is not None:
+                total_norm = len(self.normalized_curve)
+                segments = [
+                    {"range": f"{n} - {n+200}", "type": "hyperpol"},
+                    {"range": f"{n+200} - {n+400}", "type": "depol"},
+                    {"range": f"{n+400} - {n+600}", "type": "hyperpol"},
+                    {"range": f"{n+600} - {n+800}", "type": "depol"}
+                ]
+                app_logger.info(f"\nDARK BLUE CURVE (Voltage-Normalized):")
+                app_logger.info(f"Total points: {total_norm}")
+                for i, seg in enumerate(segments, 1):
+                    app_logger.info(f"Segment {i}: {seg['range']} ({seg['type']})")
+                    
+            # Magenta (Averaged Normalized)
+            if self.average_curve is not None:
+                total_avg = len(self.average_curve)
+                app_logger.info(f"\nMAGENTA CURVE (Averaged Normalized):")
+                app_logger.info(f"Total points: {total_avg}")
+                app_logger.info(f"Point range: {n} - {n+total_avg}")
+                
+            # Purple (Modified Peaks)
+            if hasattr(self, 'modified_hyperpol') and hasattr(self, 'modified_depol'):
+                hyperpol_len = len(self.modified_hyperpol) if self.modified_hyperpol is not None else 0
+                depol_len = len(self.modified_depol) if self.modified_depol is not None else 0
+                app_logger.info(f"\nPURPLE CURVE (Modified Peaks):")
+                app_logger.info(f"Hyperpolarization points: {hyperpol_len}")
+                app_logger.info(f"Depolarization points: {depol_len}")
+                if hasattr(self, 'modified_hyperpol_times') and self.modified_hyperpol_times is not None:
+                    t_start = self.modified_hyperpol_times[0]
+                    t_end = self.modified_hyperpol_times[-1]
+                    app_logger.info(f"Hyperpol time range: {t_start*1000:.3f} - {t_end*1000:.3f} ms")
+                if hasattr(self, 'modified_depol_times') and self.modified_depol_times is not None:
+                    t_start = self.modified_depol_times[0]
+                    t_end = self.modified_depol_times[-1]
+                    app_logger.info(f"Depol time range: {t_start*1000:.3f} - {t_end*1000:.3f} ms")
+                    
+        except Exception as e:
+            app_logger.error(f"Error printing curve points: {str(e)}")
+
     def process_signal(self, use_alternative_method=False):
         """
         Process the signal and store all results.
@@ -78,6 +130,8 @@ class ActionPotentialProcessor:
                 results = self.calculate_alternative_integral()
             else:
                 results = self.calculate_integral()
+
+            self.print_curve_points()
 
             # 8. Return all relevant data
             return (
@@ -170,63 +224,51 @@ class ActionPotentialProcessor:
         return smoothed
         
     def apply_average_to_peaks(self):
-        """
-        Add average_curve to high hyperpolarization and subtract from high depolarization,
-        with smooth segment transitions.
-        """
+        """Apply average to peaks with smooth segment transitions."""
         try:
             if self.average_curve is None:
                 self.average_curve, _ = self.calculate_segment_average()
                 if self.average_curve is None:
                     return None, None, None, None
+                
+            # Default starting point
+            n = 35
 
-            # Segment indices
-            depol_start = 835
-            depol_end   = 1034
-            hyperpol_start = 1035
-            hyperpol_end   = 1234
+            # Use custom starting point if provided
+            if 'normalization_points' in self.params:
+                norm_points = self.params['normalization_points']
+                n = norm_points['seg1'][0]
+
+            # Fixed segment indices
+            depol_start = n + 800
+            depol_end = n + 1000
+            hyperpol_start = n + 1000
+            hyperpol_end = n + 1200
 
             if len(self.orange_curve) < hyperpol_end:
                 app_logger.error(f"Orange curve too short ({len(self.orange_curve)} points)")
                 return None, None, None, None
 
-            # Extract segments
+            # Extract segments with same length as average curve
             depol_data = self.orange_curve[depol_start:depol_end].copy()
             depol_times = self.orange_curve_times[depol_start:depol_end]
             hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_end].copy()
             hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_end]
 
-            # Resample average curve if needed
-            segment_length = min(len(depol_data), len(hyperpol_data))
-            if len(self.average_curve) != segment_length:
-                original_points = np.linspace(0, 1, len(self.average_curve))
-                new_points = np.linspace(0, 1, segment_length)
-                avg_curve = np.interp(new_points, original_points, self.average_curve)
+            # Make average curve match segment length
+            if len(self.average_curve) < len(depol_data):
+                pad_length = len(depol_data) - len(self.average_curve)
+                scaled_curve = np.pad(self.average_curve, (0, pad_length), mode='edge')
             else:
-                avg_curve = self.average_curve.copy()
+                scaled_curve = self.average_curve[:len(depol_data)]
+
+            # Apply voltage scaling
+            voltage_diff = abs(self.params['V2'] - self.params['V0'])
+            scaled_curve = scaled_curve * voltage_diff
 
             # Apply modifications
-            voltage_diff = abs(self.params['V2'] - self.params['V0'])
-            scaled_curve = avg_curve * voltage_diff
-
             hyperpol_modified = hyperpol_data + scaled_curve
             depol_modified = depol_data - scaled_curve
-
-            # Get transition values
-            transition_value = self.orange_curve[depol_end]  # Value at the transition point
-
-            # Handle end points and transition
-            #blend_points = 25
-            
-            # Ensure depol ends at transition value
-            #depol_modified[-5:] = transition_value
-            
-            # Ensure hyperpol starts at transition value
-            #hyperpol_modified[:5] = transition_value
-
-            # Regular end point handling
-            #hyperpol_modified[-blend_points:] = hyperpol_data[-blend_points:]
-            #depol_modified[-blend_points:] = depol_data[-blend_points:]
 
             # Store results
             self.modified_hyperpol = hyperpol_modified
@@ -352,18 +394,18 @@ class ActionPotentialProcessor:
 
             # Create segments based on starting point
             segments = [
-                {"start": n,      "end": n + 199, "is_hyperpol": True},
-                {"start": n+200,  "end": n + 399, "is_hyperpol": False},
-                {"start": n+400,  "end": n + 599, "is_hyperpol": True},
-                {"start": n+600,  "end": n + 799, "is_hyperpol": False}
+                {"start": n,      "end": n + 200, "is_hyperpol": True},
+                {"start": n+200,  "end": n + 400, "is_hyperpol": False},
+                {"start": n+400,  "end": n + 600, "is_hyperpol": True},
+                {"start": n+600,  "end": n + 800, "is_hyperpol": False}
             ]
             
             normalized_points = []
             normalized_times = []
             
             for seg in segments:
-                start_idx = seg["start"] - 1
-                end_idx = seg["end"] - 1
+                start_idx = seg["start"]
+                end_idx = seg["end"]
                 
                 if end_idx >= len(self.orange_curve):
                     app_logger.warning(f"Segment {start_idx+1}-{end_idx+1} out of range.")
@@ -545,5 +587,51 @@ class ActionPotentialProcessor:
                 'integral_value': f"Error: {str(e)}",
                 'capacitance_nF': 'Error'
             }
+        
+    def calculate_purple_integrals(self):
+        """
+        Integrates the 'modified' hyperpolarization (self.modified_hyperpol) and
+        depolarization (self.modified_depol) segments separately, returning dimensioned
+        results in pC.
+        """
+        try:
+            if (not hasattr(self, 'modified_hyperpol') or self.modified_hyperpol is None
+                or not hasattr(self, 'modified_hyperpol_times') or self.modified_hyperpol_times is None
+                or not hasattr(self, 'modified_depol') or self.modified_depol is None
+                or not hasattr(self, 'modified_depol_times') or self.modified_depol_times is None):
+                return {
+                    'error': 'No modified purple data available (hyperpol/depol missing)'
+                }
+
+            # Assume modified_*_times are already in ms
+            hyperpol_current_pA = self.modified_hyperpol
+            hyperpol_time_ms = self.modified_hyperpol_times
+            depol_current_pA = self.modified_depol
+            depol_time_ms = self.modified_depol_times
+
+            # Integrate pA × ms => pC
+            hyperpol_charge_pC = np.trapz(hyperpol_current_pA, x=hyperpol_time_ms)
+            depol_charge_pC = np.trapz(depol_current_pA, x=depol_time_ms)
+
+            # Format them
+            # For example, if you just want a single integral_value describing both:
+            purple_integral_str = (f"Hyperpol: {hyperpol_charge_pC:.2f} pC, "
+                                f"Depol: {depol_charge_pC:.2f} pC")
+
+            return {
+                # Let’s name it differently so it doesn’t overwrite the main integral_value
+                'purple_integral_value': purple_integral_str,
+                'hyperpol_area': f"{hyperpol_charge_pC:.2f} pC",
+                'depol_area': f"{depol_charge_pC:.2f} pC"
+            }
+
+        except Exception as e:
+            app_logger.error(f"Error in calculate_purple_integrals(): {str(e)}")
+            return {
+                'purple_integral_value': f"Error: {str(e)}"
+            }
+
+
+
 
 
