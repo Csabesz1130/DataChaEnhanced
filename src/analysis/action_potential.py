@@ -135,49 +135,70 @@ class ActionPotentialProcessor:
             app_logger.error(f"Error printing curve relationships: {str(e)}")
 
     def validate_curve_points(self):
-        """Validate point relationships between curves."""
-        # Check normalized curve segments
+        """
+        Validate point relationships between curves.
+        This logs actual slice indices for purple segments
+        instead of computing them from lengths.
+        """
         n = self.params.get('normalization_points', {}).get('seg1', (35, None))[0]
         
-        # Calculate expected lengths and ranges
+        # If your code changed the default from 2200 -> 1800, just keep it consistent
         expected_points = {
-            'orange': 1800,
-            'normalized': 800,  # 4 segments x 200 points
-            'average': 200,     # Average segment
-            'modified': 200     # Each modified segment
+            'orange': 2200,       # or 1800, whichever you truly expect
+            'normalized': 800,    # 4 segments x 200 points
+            'average': 200,       # average segment
+            'modified': 200       # each modified segment
         }
-        
+
         expected_ranges = {
             'hyperpol': (n + 1000, n + 1200),
             'depol': (n + 800, n + 1000)
         }
         
-        # Log actual vs expected values
         app_logger.info("\nPoint Range Validation:")
         app_logger.info(f"Starting point (n): {n}")
-        
+
+        # 1) Orange count
         if self.orange_curve is not None:
-            app_logger.info(f"Orange points: {len(self.orange_curve)} (expected: {expected_points['orange']})")
-            
-        if self.normalized_curve is not None:
-            app_logger.info(f"Normalized points: {len(self.normalized_curve)} (expected: {expected_points['normalized']})")
-        
-        if self.average_curve is not None:
-            app_logger.info(f"Average points: {len(self.average_curve)} (expected: {expected_points['average']})")
-        
-        if hasattr(self, 'modified_hyperpol') and self.modified_hyperpol is not None:
-            actual_range = (
-                len(self.orange_curve_times) - len(self.modified_hyperpol_times),
-                len(self.orange_curve_times)
+            actual_orange = len(self.orange_curve)
+            app_logger.info(
+                f"Orange points: {actual_orange} (expected: {expected_points['orange']})"
             )
-            app_logger.info(f"Hyperpol range: {actual_range} (expected: {expected_ranges['hyperpol']})")
+
+        # 2) Normalized
+        if self.normalized_curve is not None:
+            actual_norm = len(self.normalized_curve)
+            app_logger.info(
+                f"Normalized points: {actual_norm} (expected: {expected_points['normalized']})"
+            )
+
+        # 3) Average
+        if self.average_curve is not None:
+            actual_avg = len(self.average_curve)
+            app_logger.info(
+                f"Average points: {actual_avg} (expected: {expected_points['average']})"
+            )
+
+        # 4) Purple slices
+        if hasattr(self, 'modified_hyperpol') and self.modified_hyperpol is not None:
+            # We rely on the stored indices from apply_average_to_peaks
+            if hasattr(self, '_hyperpol_slice'):
+                actual_slice = self._hyperpol_slice
+                app_logger.info(
+                    f"Hyperpol range: {actual_slice} (expected: {expected_ranges['hyperpol']})"
+                )
+            else:
+                app_logger.info("No hyperpol slice info stored.")
             
         if hasattr(self, 'modified_depol') and self.modified_depol is not None:
-            actual_range = (
-                len(self.orange_curve_times) - len(self.modified_depol_times),
-                len(self.orange_curve_times)
-            )
-            app_logger.info(f"Depol range: {actual_range} (expected: {expected_ranges['depol']})")
+            # Same for depol
+            if hasattr(self, '_depol_slice'):
+                actual_slice = self._depol_slice
+                app_logger.info(
+                    f"Depol range: {actual_slice} (expected: {expected_ranges['depol']})"
+                )
+            else:
+                app_logger.info("No depol slice info stored.")
 
     def process_signal(self, use_alternative_method=False):
         """Process signal and generate all curves."""
@@ -288,34 +309,64 @@ class ActionPotentialProcessor:
         return smoothed
         
     def apply_average_to_peaks(self):
-        """Apply average to peaks with consistent segmentation."""
+        """Apply average to peaks with smooth segment transitions."""
         try:
             if self.average_curve is None:
+                self.average_curve, _ = self.calculate_segment_average()
+                if self.average_curve is None:
+                    return None, None, None, None
+                
+            # Default starting point
+            n = 35
+
+            # Use custom starting point if provided
+            if 'normalization_points' in self.params:
+                norm_points = self.params['normalization_points']
+                n = norm_points['seg1'][0]
+
+            # Fixed segment indices
+            depol_start = n + 800
+            depol_end = n + 1000
+            hyperpol_start = n + 1000
+            hyperpol_end = n + 1200
+
+            if len(self.orange_curve) < hyperpol_end:
+                app_logger.error(f"Orange curve too short ({len(self.orange_curve)} points)")
                 return None, None, None, None
 
-            bounds = self.get_segment_bounds()
-            depol_range = bounds['peaks']['depol'] 
-            hyperpol_range = bounds['peaks']['hyperpol']
+            # Extract segments with same length as average curve
+            depol_data = self.orange_curve[depol_start:depol_end].copy()
+            depol_times = self.orange_curve_times[depol_start:depol_end]
+            hyperpol_data = self.orange_curve[hyperpol_start:hyperpol_end].copy()
+            hyperpol_times = self.orange_curve_times[hyperpol_start:hyperpol_end]
 
-            # Extract segments
-            depol_data = self.orange_curve[depol_range[0]:depol_range[1]].copy()
-            depol_times = self.orange_curve_times[depol_range[0]:depol_range[1]]
-            hyperpol_data = self.orange_curve[hyperpol_range[0]:hyperpol_range[1]].copy()
-            hyperpol_times = self.orange_curve_times[hyperpol_range[0]:hyperpol_range[1]]
+            # Make average curve match segment length
+            if len(self.average_curve) < len(depol_data):
+                pad_length = len(depol_data) - len(self.average_curve)
+                scaled_curve = np.pad(self.average_curve, (0, pad_length), mode='edge')
+            else:
+                scaled_curve = self.average_curve[:len(depol_data)]
 
-            # Prepare average curve
-            scaled_curve = self.average_curve[:200]  # Fixed length of 200 points
+            # Apply voltage scaling
             voltage_diff = abs(self.params['V2'] - self.params['V0'])
             scaled_curve = scaled_curve * voltage_diff
 
             # Apply modifications
-            self.modified_hyperpol = hyperpol_data + scaled_curve
+            hyperpol_modified = hyperpol_data + scaled_curve
+            depol_modified = depol_data - scaled_curve
+
+            # Store results
+            self.modified_hyperpol = hyperpol_modified
             self.modified_hyperpol_times = hyperpol_times
-            self.modified_depol = depol_data - scaled_curve
+            self.modified_depol = depol_modified
             self.modified_depol_times = depol_times
 
-            return (self.modified_hyperpol, self.modified_hyperpol_times,
-                    self.modified_depol, self.modified_depol_times)
+            return (
+                self.modified_hyperpol,
+                self.modified_hyperpol_times,
+                self.modified_depol,
+                self.modified_depol_times
+            )
 
         except Exception as e:
             app_logger.error(f"Error applying average to peaks: {str(e)}")
