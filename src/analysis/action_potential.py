@@ -134,6 +134,42 @@ class ActionPotentialProcessor:
         except Exception as e:
             app_logger.error(f"Error printing curve relationships: {str(e)}")
 
+    @staticmethod
+    def parse_voltage_from_filename(filepath):
+        """
+        Parse V2 voltage value from filename following patterns like:
+        20130507_0006_10mVdepol, 20130406_0023_-50mVdepol
+        
+        Args:
+            filepath (str): Full path to ATF file
+            
+        Returns:
+            float: Voltage value in mV or None if not found
+        """
+        try:
+            import os
+            import re
+            
+            # Extract filename without path and extension
+            filename = os.path.splitext(os.path.basename(filepath))[0]
+            
+            # Pattern matches: -50mV, 10mV, -10mV, 50mV followed by "depol" or at end of string
+            pattern = r'(-?\d+)mV(?:depol|$)'
+            match = re.search(pattern, filename)
+            
+            if match:
+                voltage_str = match.group(1)
+                voltage = float(voltage_str)
+                app_logger.debug(f"Found voltage in filename {filename}: {voltage} mV")
+                return voltage
+                
+            app_logger.debug(f"No voltage value found in filename: {filename}")
+            return None
+            
+        except Exception as e:
+            app_logger.error(f"Error parsing voltage from filename: {str(e)}")
+            return None
+
     def validate_curve_points(self):
         """
         Validate point relationships between curves.
