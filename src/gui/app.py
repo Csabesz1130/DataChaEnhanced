@@ -213,6 +213,7 @@ class SignalAnalyzerApp:
                 
             app_logger.info(f"Loading file: {filepath}")
             
+            # Clear existing data
             self.data = None
             self.time_data = None
             self.filtered_data = None
@@ -227,6 +228,7 @@ class SignalAnalyzerApp:
             self.data = atf_handler.get_column("#1")
             self.filtered_data = self.data.copy()
             
+            # Update view limits
             self.view_tab.update_limits(
                 t_min=self.time_data[0],
                 t_max=self.time_data[-1],
@@ -236,7 +238,18 @@ class SignalAnalyzerApp:
             
             self.analysis_tab.update_data(self.data, self.time_data)
             
-            self.action_potential_processor = None
+            # Extract voltage from filename and initialize processor if found
+            voltage = ActionPotentialProcessor.parse_voltage_from_filename(filepath)
+            if voltage is not None:
+                app_logger.info(f"Detected V2 voltage from filename: {voltage} mV")
+                self.action_potential_tab.V2.set(voltage)  # Update UI value
+                self.action_potential_processor = ActionPotentialProcessor(
+                    self.data,
+                    self.time_data,
+                    {'V2': voltage}
+                )
+            else:
+                self.action_potential_processor = None
             
             self.update_plot()
             filename = os.path.basename(filepath)

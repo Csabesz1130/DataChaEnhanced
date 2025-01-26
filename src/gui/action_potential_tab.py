@@ -77,7 +77,7 @@ class ActionPotentialTab:
             self.t2 = tk.DoubleVar(value=100.0)
             self.V0 = tk.DoubleVar(value=-80.0)
             self.V1 = tk.DoubleVar(value=-100.0)
-            self.V2 = tk.DoubleVar(value=-20.0)
+            self.V2 = tk.DoubleVar(value=-20.0)  # This now properly updates from filename
             
             # Integration method selection
             self.integration_method = tk.StringVar(value="traditional")
@@ -88,7 +88,7 @@ class ActionPotentialTab:
             self.progress_var = tk.DoubleVar()
             
             # Display mode variables
-            self.show_noisy_original = tk.BooleanVar(value=False)  # New variable, default False
+            self.show_noisy_original = tk.BooleanVar(value=False)
             self.show_processed = tk.BooleanVar(value=True)
             self.show_average = tk.BooleanVar(value=True)
             self.show_normalized = tk.BooleanVar(value=True)
@@ -107,6 +107,7 @@ class ActionPotentialTab:
             self.t0.trace_add("write", self.validate_time_constant)
             self.t1.trace_add("write", self.validate_time_constant)
             self.t2.trace_add("write", self.validate_time_constant)
+            self.V2.trace_add("write", self.validate_voltage)  # Added voltage validation
             self.integration_method.trace_add("write", self.on_method_change)
             
             # Initialize variables for normalization points
@@ -121,11 +122,34 @@ class ActionPotentialTab:
                 'seg4_end': tk.StringVar()
             }
             
+            # Single normalization point
+            self.norm_point = tk.StringVar()
+            
             app_logger.debug("Variables initialized successfully")
             
         except Exception as e:
             app_logger.error(f"Error initializing variables: {str(e)}")
             raise
+
+    def validate_voltage(self, *args):
+        """Validate voltage values and trigger reanalysis"""
+        try:
+            v2 = self.V2.get()
+            # Typical range check (-100mV to +100mV)
+            if abs(v2) > 100:
+                messagebox.showwarning("Validation", "Voltage should be between -100mV and +100mV")
+                self.V2.set(-20.0)  # Reset to default
+                return
+            
+            # If voltage is valid and we've already performed analysis once,
+            # trigger reanalysis with new voltage
+            if self.integral_value.get() != "No analysis performed":
+                app_logger.debug(f"V2 changed to {v2}mV, triggering reanalysis")
+                self.analyze_signal()  # This will recalculate everything with new V2
+                
+        except tk.TclError:
+            # Invalid float - reset to default
+            self.V2.set(-20.0)
 
     def setup_parameter_controls(self):
         """Setup parameter input controls"""

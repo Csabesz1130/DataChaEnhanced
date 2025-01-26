@@ -139,6 +139,8 @@ class ActionPotentialProcessor:
         """
         Parse V2 voltage value from filename following patterns like:
         20130507_0006_10mVdepol, 20130406_0023_-50mVdepol
+        or
+        20130509_0007_-50depol, 20130911_0036_-50depol
         
         Args:
             filepath (str): Full path to ATF file
@@ -153,9 +155,19 @@ class ActionPotentialProcessor:
             # Extract filename without path and extension
             filename = os.path.splitext(os.path.basename(filepath))[0]
             
-            # Pattern matches: -50mV, 10mV, -10mV, 50mV followed by "depol" or at end of string
-            pattern = r'(-?\d+)mV(?:depol|$)'
-            match = re.search(pattern, filename)
+            # Try first pattern: -50mV, 10mV, -10mV, 50mV followed by "depol"
+            pattern1 = r'(-?\d+)mV(?:depol|$)'
+            match = re.search(pattern1, filename)
+            
+            if match:
+                voltage_str = match.group(1)
+                voltage = float(voltage_str)
+                app_logger.debug(f"Found voltage in filename {filename}: {voltage} mV")
+                return voltage
+                
+            # Try second pattern: -50depol, 50depol
+            pattern2 = r'(-?\d+)depol'
+            match = re.search(pattern2, filename)
             
             if match:
                 voltage_str = match.group(1)
