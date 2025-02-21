@@ -1,3 +1,4 @@
+import csv
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from matplotlib.figure import Figure
@@ -18,6 +19,7 @@ from src.gui.window_manager import SignalWindowManager
 
 class SignalAnalyzerApp:
     def __init__(self, master):
+        """Initialize the Signal Analyzer application."""
         self.master = master
         self.master.title("Signal Analyzer")
         
@@ -37,6 +39,7 @@ class SignalAnalyzerApp:
         # Setup components
         self.setup_toolbar()
         self.setup_plot()
+        self.setup_plot_interaction()  # Add this line
         self.setup_tabs()
         
         app_logger.info("Application initialized successfully")
@@ -81,6 +84,17 @@ class SignalAnalyzerApp:
                   command=self.export_figure).pack(side='left', padx=2)
         
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
+
+        # Now add a frame for the "Export Purple Curves" button:
+        export_frame = ttk.Frame(self.toolbar_frame)
+        export_frame.pack(side='left', padx=5)
+
+        self.export_curves_btn = ttk.Button(
+            export_frame,
+            text="Export Purple Curves",
+            command=self.on_export_purple_curves
+        )
+        self.export_curves_btn.pack(side='left', padx=2)
         
         plots_frame = ttk.Frame(self.toolbar_frame)
         plots_frame.pack(side='left', fill='x')
@@ -125,6 +139,142 @@ class SignalAnalyzerApp:
         y = self.separate_plots_btn.winfo_rooty() + self.separate_plots_btn.winfo_height()
         
         self.plot_menu.post(x, y)
+
+    def setup_plot_interaction(self):
+        """Setup interactive plot selection and regression visualization."""
+        from matplotlib.widgets import SpanSelector
+        
+        def on_select(xmin, xmax):
+            """Handle region selection on plot."""
+            if not hasattr(self, 'action_potential_tab'):
+                return
+            
+            try:
+                if not hasattr(self.action_potential_processor, 'modified_hyperpol_times'):
+                    return
+                    
+                # Convert milliseconds to seconds for calculation
+                xmin_sec = xmin / 1000
+                xmax_sec = xmax / 1000
+                
+                # Get time range in seconds
+                time_range = (self.action_potential_processor.modified_hyperpol_times[-1] - 
+                            self.action_potential_processor.modified_hyperpol_times[0])
+                
+                # Calculate indices (0-199 range)
+                start_idx = int((xmin_sec - self.action_potential_processor.modified_hyperpol_times[0]) / 
+                            time_range * 199)
+                end_idx = int((xmax_sec - self.action_potential_processor.modified_hyperpol_times[0]) / 
+                            time_range * 199)
+                
+                # Ensure indices are within bounds
+                start_idx = max(0, min(start_idx, 198))
+                end_idx = max(1, min(end_idx, 199))
+                
+                # Update sliders
+                self.action_potential_tab.regression_start.set(start_idx)
+                self.action_potential_tab.regression_end.set(end_idx)
+                
+                # Update display
+                self.action_potential_tab.on_regression_interval_change()
+                app_logger.debug(f"Selected range: {start_idx}-{end_idx}")
+                
+            except Exception as e:
+                app_logger.error(f"Error in span selection: {str(e)}")
+        
+        # Create span selector with better visibility
+        self.span_selector = SpanSelector(
+            self.ax,
+            on_select,
+            'horizontal',
+            useblit=True,
+            props=dict(
+                alpha=0.3,
+                facecolor='lightblue',
+                edgecolor='blue'
+            ),
+            interactive=True,
+            drag_from_anywhere=True
+        )
+        
+        # Initially hide it
+        self.span_selector.visible = False
+
+    def toggle_span_selector(self, visible):
+        """Toggle the visibility and activity of the span selector."""
+        if hasattr(self, 'span_selector'):
+            try:
+                # Both set visibility and active state
+                self.span_selector.set_visible(visible)
+                self.span_selector.set_active(visible)
+                
+                # Ensure the canvas is updated
+                self.canvas.draw_idle()
+                
+                app_logger.debug(f"Span selector visibility set to {visible}")
+                
+            except Exception as e:
+                app_logger.error(f"Error toggling span selector: {str(e)}")
+                # Ensure selector is hidden on error
+                self.span_selector.set_visible(False)
+                self.span_selector.set_active(False)
+                self.canvas.draw_idle()
+
+    def plot_regression_lines(self, data, times, interval, color='purple', alpha=0.7):
+        """Plot regression line for a given segment of data with improved visibility."""
+        if data is None or times is None or len(data) < 2:
+            return
+
+        try:
+            start_idx, end_idx = interval
+            if start_idx >= end_idx or start_idx < 0 or end_idx > len(data):
+                return
+
+            # Extract data for regression
+            x = times[start_idx:end_idx]
+            y = data[start_idx:end_idx]
+            
+            # Scatter points in selection range
+            self.ax.scatter(x * 1000, y, 
+                        color=color, 
+                        alpha=alpha,
+                        s=30,  # Increased point size
+                        zorder=5)  # Ensure points are on top
+
+            # Fit linear regression
+            coeffs = np.polyfit(x, y, 1)
+            reg_line = np.poly1d(coeffs)
+
+            # Calculate R-squared
+            y_pred = reg_line(x)
+            r2 = 1 - (np.sum((y - y_pred) ** 2) / np.sum((y - np.mean(y)) ** 2))
+
+            # Plot the regression line
+            self.ax.plot(x * 1000, reg_line(x), 
+                        '--',  # Dashed line
+                        color=color, 
+                        alpha=alpha,
+                        linewidth=2,
+                        zorder=6,  # Make sure line is above points
+                        label=f'Fit (R²={r2:.3f})')
+
+            # Add slope annotation
+            slope = coeffs[0]
+            slope_text = f'Slope: {slope:.2f} pA/s'
+            mid_x = np.mean(x) * 1000
+            mid_y = np.mean(y)
+            self.ax.annotate(slope_text, 
+                            xy=(mid_x, mid_y),
+                            xytext=(10, 10), 
+                            textcoords='offset points',
+                            color=color,
+                            alpha=alpha,
+                            bbox=dict(facecolor='white', edgecolor=color, alpha=0.7))
+
+            app_logger.debug(f"Regression line plotted: {slope_text}, R²={r2:.3f}")
+
+        except Exception as e:
+            app_logger.error(f"Error plotting regression line: {str(e)}")
 
     def setup_plot(self):
         """Setup the matplotlib plot area with cursor tracking."""
@@ -200,6 +350,40 @@ class SignalAnalyzerApp:
                 cursor_text += f", Orange Point: {point_num}"
 
         self.cursor_label.config(text=cursor_text)
+
+    def on_export_purple_curves(self):
+        """
+        Handler for the 'Export Purple Curves' button.
+        1) Grab the processor + results from your analysis
+        2) Ask user for a save filename
+        3) Call processor.export_all_curves(...)
+        """
+        # Make sure we have a valid processor
+        if not self.action_potential_processor:
+            messagebox.showwarning("No Data", "Please run analysis before exporting.")
+            return
+
+        # If you store the final integrals in self.action_potential_tab somewhere:
+        # or in a local variable from last analysis:
+        results_dict = self.action_potential_tab.get_results_dict()  # or whatever your code uses
+        if not results_dict:
+            messagebox.showinfo("No Results", "No integral results found yet.")
+            return
+
+        # Prompt for save location
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")]
+        )
+        if not save_path:
+            return  # user canceled
+
+        # Now call the function in the processor
+        try:
+            self.action_potential_processor.export_all_curves(results_dict, save_path)
+            messagebox.showinfo("Export", f"Exported to {save_path}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
 
     def load_data(self):
         """Load data from file with proper cleanup of old data."""
@@ -473,7 +657,7 @@ class SignalAnalyzerApp:
                     self.ax.scatter(plot_time, plot_processed, color='green', s=15, alpha=0.8, marker='.',
                                     label='Processed Signal' if display_mode=="points" else "_nolegend_")
             
-            self.ax.set_xlabel('Time (ms)')
+            self.ax.set_xlabel('Time (s)')
             self.ax.set_ylabel('Current (pA)')
             self.ax.grid(True, alpha=0.3)
             self.ax.legend()
@@ -490,24 +674,87 @@ class SignalAnalyzerApp:
             raise
 
     def export_data(self):
-        """Export the current data to CSV"""
+        """Export the current data to a CSV file with detailed sections and integral values"""
         if self.filtered_data is None:
             messagebox.showwarning("Export", "No filtered data to export")
             return
+            
         try:
-            filepath = filedialog.asksaveasfilename(defaultextension=".csv",
-                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+            )
+            
             if filepath:
-                df = pd.DataFrame({
-                    'Time': self.time_data,
-                    'Original': self.data,
-                    'Filtered': self.filtered_data
-                })
-                if self.action_potential_processor is not None:
-                    df['Processed'] = self.filtered_data
-                df.to_csv(filepath, index=False)
-                app_logger.info(f"Data exported to {filepath}")
-                messagebox.showinfo("Export", "Data exported successfully")
+                # Get original input filename
+                input_filename = "No input file"
+                if hasattr(self, 'current_file'):
+                    input_filename = os.path.basename(self.current_file)
+                
+                # Get processor and results
+                processor = getattr(self, 'action_potential_processor', None)
+                if processor is None:
+                    messagebox.showwarning("Export", "No processed data available")
+                    return
+                    
+                # Get integral values
+                results_dict = {
+                    'integral_value': getattr(processor, 'integral_value', 'N/A'),
+                    'hyperpol_area': getattr(processor, 'hyperpol_area', 'N/A'),
+                    'depol_area': getattr(processor, 'depol_area', 'N/A'),
+                    'purple_integral_value': getattr(processor, 'purple_integral_value', 'N/A')
+                }
+                
+                with open(filepath, 'w', newline='') as f:
+                    writer = csv.writer(f, delimiter=';')
+                    
+                    # Write file info and V2
+                    v2 = processor.params.get('V2', 0) if hasattr(processor, 'params') else 0
+                    writer.writerow(["Input File:", input_filename, f"{v2}mV"])
+                    writer.writerow([])
+                    
+                    # Write overall integral
+                    writer.writerow(["Overall Integral (pC):", results_dict['integral_value']])
+                    writer.writerow([])
+                    
+                    # Purple Hyperpol Section
+                    writer.writerow(["PURPLE HYPERPOL CURVE"])
+                    writer.writerow(["Hyperpol Integral:", results_dict['hyperpol_area']])
+                    writer.writerow(["Index", "Hyperpol_pA", "Hyperpol_time_ms"])
+                    
+                    if hasattr(processor, 'modified_hyperpol') and hasattr(processor, 'modified_hyperpol_times'):
+                        hyperpol = processor.modified_hyperpol
+                        hyperpol_times = processor.modified_hyperpol_times
+                        for i in range(len(hyperpol)):
+                            writer.writerow([
+                                i + 1,
+                                f"{hyperpol[i]:.7f}",
+                                f"{hyperpol_times[i]*1000:.7f}"
+                            ])
+                    writer.writerow([])
+                    
+                    # Purple Depol Section
+                    writer.writerow(["PURPLE DEPOL CURVE"])
+                    writer.writerow(["Depol Integral:", results_dict['depol_area']])
+                    writer.writerow(["Index", "Depol_pA", "Depol_time_ms"])
+                    
+                    if hasattr(processor, 'modified_depol') and hasattr(processor, 'modified_depol_times'):
+                        depol = processor.modified_depol
+                        depol_times = processor.modified_depol_times
+                        for i in range(len(depol)):
+                            writer.writerow([
+                                i + 1,
+                                f"{depol[i]:.7f}",
+                                f"{depol_times[i]*1000:.7f}"
+                            ])
+                    writer.writerow([])
+                    
+                    # Purple Integral Summary
+                    writer.writerow(["Purple Integral Summary:", results_dict['purple_integral_value']])
+                    
+                    app_logger.info(f"Data exported to {filepath}")
+                    messagebox.showinfo("Export", "Data exported successfully")
+                    
         except Exception as e:
             app_logger.error(f"Error exporting data: {str(e)}")
             messagebox.showerror("Error", f"Failed to export data: {str(e)}")
@@ -535,10 +782,7 @@ class SignalAnalyzerApp:
         average_curve,
         average_curve_times
     ):
-        """
-        Update the main plot with processed data, orange curve, normalized curve,
-        average curve, and any other specialized curves (modified peaks).
-        """
+        """Update the main plot with all processed data and curves."""
         try:
             if not hasattr(self, 'action_potential_tab'):
                 return
@@ -547,103 +791,175 @@ class SignalAnalyzerApp:
             view_params = self.view_tab.get_view_params()
             display_options = self.action_potential_tab.get_parameters().get('display_options', {})
 
-            # 1) Original signal if requested
+            # Get regression and integration intervals
+            intervals = self.action_potential_tab.get_intervals()
+            show_points = intervals.get('show_points', False)
+            regression_interval = intervals.get('regression_interval')
+
+            # Original signal
             if display_options.get('show_noisy_original', False):
-                self.ax.plot(self.time_data, self.data, 'b-', label='Original Signal', alpha=0.3)
+                self.ax.plot(self.time_data * 1000, self.data, 'b-', 
+                            label='Original Signal', alpha=0.3)
 
-            # 2) Filtered signal
-            if self.filtered_data is not None:
-                self.ax.plot(self.time_data, self.filtered_data, 'r-', label='Filtered Signal', alpha=0.5)
+            # Filtered signal in maroon
+            if self.filtered_data is not None and display_options.get('show_red_curve', True):
+                self.ax.plot(self.time_data * 1000, self.filtered_data, 
+                            color='#800000',  # Maroon color
+                            label='Filtered Signal', 
+                            alpha=0.7,
+                            linewidth=1.5)
 
-            # 3) Processed
+            # Processed signal
             if processed_data is not None and display_options.get('show_processed', True):
                 display_mode = self.action_potential_tab.processed_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(self.time_data, processed_data, 'g-', label='Processed Signal',
-                                 linewidth=1.5, alpha=0.7)
+                    self.ax.plot(self.time_data * 1000, processed_data, 'g-', 
+                            label='Processed Signal',
+                            linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(self.time_data, processed_data, color='green', s=15, alpha=0.8, marker='.',
-                                    label='Processed Points')
+                    self.ax.scatter(self.time_data * 1000, processed_data, 
+                                color='green', s=15, alpha=0.8, 
+                                marker='.', label='Processed Points')
 
-            # 4) 50-point average (orange)
+            # 50-point average (orange)
             if (orange_curve is not None and orange_times is not None
                 and display_options.get('show_average', True)):
                 display_mode = self.action_potential_tab.average_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(orange_times, orange_curve, color='orange',
-                                 label='50-point Average', linewidth=1.5, alpha=0.7)
+                    self.ax.plot(orange_times * 1000, orange_curve, 
+                            color='#FFA500',  # Orange
+                            label='50-point Average', 
+                            linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(orange_times, orange_curve, color='orange', s=25, alpha=1, marker='o',
-                                    label='Average Points')
+                    self.ax.scatter(orange_times * 1000, orange_curve, 
+                                color='#FFA500', s=25, alpha=1, 
+                                marker='o', label='Average Points')
 
-            # 5) Voltage-normalized (dark blue)
+            # Voltage-normalized (dark blue)
             if (normalized_curve is not None and normalized_times is not None
                 and display_options.get('show_normalized', True)):
                 display_mode = self.action_potential_tab.normalized_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(normalized_times, normalized_curve, color='darkblue',
-                                 label='Voltage-Normalized', linewidth=1.5, alpha=0.7)
+                    self.ax.plot(normalized_times * 1000, normalized_curve, 
+                            color='#0057B8',  # Dark blue
+                            label='Voltage-Normalized', 
+                            linewidth=1.5, alpha=0.7)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(normalized_times, normalized_curve, color='darkblue', s=25, alpha=1,
-                                    marker='o', label='Normalized Points')
+                    self.ax.scatter(normalized_times * 1000, normalized_curve, 
+                                color='#0057B8', s=25, alpha=1,
+                                marker='o', label='Normalized Points')
 
-            # 6) Averaged-normalized (magenta)
+            # Averaged-normalized (magenta)
             if (average_curve is not None and average_curve_times is not None
                 and display_options.get('show_averaged_normalized', True)):
                 display_mode = self.action_potential_tab.averaged_normalized_display_mode.get()
                 if display_mode in ["line", "all_points"]:
-                    self.ax.plot(average_curve_times, average_curve, color='magenta',
-                                 label='Averaged Normalized', linewidth=2, alpha=0.8)
+                    self.ax.plot(average_curve_times * 1000, average_curve, 
+                            color='magenta',
+                            label='Averaged Normalized', 
+                            linewidth=2, alpha=0.8)
                 if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(average_curve_times, average_curve, color='magenta', s=30, alpha=1,
-                                    marker='o', label='Avg Normalized Points')
+                    self.ax.scatter(average_curve_times * 1000, average_curve, 
+                                color='magenta', s=30, alpha=1,
+                                marker='o', label='Avg Normalized Points')
 
-            # 7) Plot "modified" peaks if applicable
+            # Modified peaks (purple) with regression lines
             if display_options.get('show_modified', True):
                 display_mode = self.action_potential_tab.modified_display_mode.get()
-                # hyperpol
-                if (hasattr(self.action_potential_processor, 'modified_hyperpol')
-                    and self.action_potential_processor.modified_hyperpol is not None):
-                    if display_mode in ["line", "all_points"]:
-                        self.ax.plot(self.action_potential_processor.modified_hyperpol_times,
-                                     self.action_potential_processor.modified_hyperpol,
-                                     color='purple', label='Modified Peaks', linewidth=2, alpha=0.8)
-                    if display_mode in ["points", "all_points"]:
-                        self.ax.scatter(self.action_potential_processor.modified_hyperpol_times,
-                                        self.action_potential_processor.modified_hyperpol,
-                                        color='purple', s=30, alpha=0.8)
-                # depol
-                if (hasattr(self.action_potential_processor, 'modified_depol')
-                    and self.action_potential_processor.modified_depol is not None):
-                    if display_mode in ["line", "all_points"]:
-                        self.ax.plot(self.action_potential_processor.modified_depol_times,
-                                     self.action_potential_processor.modified_depol,
-                                     color='purple', label='_nolegend_',
-                                     linewidth=2, alpha=0.8)
-                    if display_mode in ["points", "all_points"]:
-                        self.ax.scatter(self.action_potential_processor.modified_depol_times,
-                                        self.action_potential_processor.modified_depol,
-                                        color='purple', s=30, alpha=0.8)
+                
+                has_purple_curves = (hasattr(self.action_potential_processor, 'modified_hyperpol') and 
+                                self.action_potential_processor.modified_hyperpol is not None and
+                                hasattr(self.action_potential_processor, 'modified_depol') and 
+                                self.action_potential_processor.modified_depol is not None)
 
-            # Final labeling
+                if not has_purple_curves and show_points:
+                    self.action_potential_tab.show_points.set(False)
+                    show_points = False
+                    
+                if has_purple_curves:
+                    # Plot hyperpolarization
+                    hyperpol = self.action_potential_processor.modified_hyperpol[1:]
+                    hyperpol_times = self.action_potential_processor.modified_hyperpol_times[1:]
+                    
+                    if display_mode in ["line", "all_points"]:
+                        self.ax.plot(hyperpol_times * 1000, hyperpol,
+                                color='purple', label='Modified Peaks', 
+                                linewidth=2, alpha=0.8)
+                    if display_mode in ["points", "all_points"]:
+                        self.ax.scatter(hyperpol_times * 1000, hyperpol,
+                                    color='purple', s=30, alpha=0.8,
+                                    marker='o')  # Changed marker for better visibility
+                        
+                    # Add regression line for hyperpolarization
+                    if show_points and regression_interval:
+                        if not hasattr(self, 'plot_regression_lines'):
+                            app_logger.error("plot_regression_lines method not found")
+                        else:
+                            self.plot_regression_lines(
+                                hyperpol, hyperpol_times, 
+                                regression_interval, 
+                                color='blue', alpha=0.8  # Increased alpha for visibility
+                            )
+
+                    # Plot depolarization
+                    depol = self.action_potential_processor.modified_depol[1:]
+                    depol_times = self.action_potential_processor.modified_depol_times[1:]
+                    
+                    if display_mode in ["line", "all_points"]:
+                        self.ax.plot(depol_times * 1000, depol,
+                                color='purple', label='_nolegend_',
+                                linewidth=2, alpha=0.8)
+                    if display_mode in ["points", "all_points"]:
+                        self.ax.scatter(depol_times * 1000, depol,
+                                    color='purple', s=30, alpha=0.8,
+                                    marker='o')  # Changed marker for better visibility
+                        
+                    # Add regression line for depolarization
+                    if show_points and regression_interval:
+                        if hasattr(self, 'plot_regression_lines'):
+                            self.plot_regression_lines(
+                                depol, depol_times, 
+                                regression_interval, 
+                                color='red', alpha=0.8  # Increased alpha for visibility
+                            )
+
+                    # Show integration interval if enabled
+                    if intervals.get('integration_interval'):
+                        start_idx, end_idx = intervals['integration_interval']
+                        try:
+                            self.ax.axvspan(
+                                hyperpol_times[start_idx] * 1000,
+                                hyperpol_times[end_idx] * 1000,
+                                color='gray', alpha=0.1
+                            )
+                        except:
+                            pass  # Skip if times are out of range
+
+            # Configure axes and layout
             self.ax.set_xlabel('Time (ms)')
             self.ax.set_ylabel('Current (pA)')
             self.ax.grid(True, alpha=0.3)
             self.ax.legend()
 
+            # Apply view limits
             if view_params.get('use_custom_ylim', False):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
             if view_params.get('use_interval', False):
-                self.ax.set_xlim(view_params['t_min'], view_params['t_max'])
+                self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
 
             self.fig.tight_layout()
             self.canvas.draw_idle()
-            app_logger.debug("Plot updated with all processed data")
+            
+            # Toggle span selector if points are enabled
+            if hasattr(self, 'span_selector'):
+                self.span_selector.visible = show_points
+                self.span_selector.set_active(show_points)
+                
+            app_logger.debug("Plot updated with all processed data and regression lines")
 
         except Exception as e:
             app_logger.error(f"Error updating plot with processed data: {str(e)}")
             raise
-
 
 # For standalone testing
 if __name__ == "__main__":

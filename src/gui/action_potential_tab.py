@@ -5,22 +5,16 @@ import numpy as np
 
 class ActionPotentialTab:
     def __init__(self, parent, callback):
-        """
-        Initialize the action potential analysis tab.
-        
-        Args:
-            parent: Parent widget
-            callback: Function to call when analysis settings change
-        """
+        """Initialize the action potential analysis tab."""
         self.parent = parent
         self.update_callback = callback
         
-        # Create main frame with fixed width
+        # Create main frame
         self.frame = ttk.LabelFrame(parent, text="Action Potential Analysis")
         self.frame.pack(fill='both', expand=True, padx=5, pady=5)
         
         # Create canvas and scrollbar for scrolling
-        self.canvas = tk.Canvas(self.frame, width=260)  # Set fixed width
+        self.canvas = tk.Canvas(self.frame, width=260)
         self.scrollbar = ttk.Scrollbar(self.frame, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
         
@@ -44,6 +38,10 @@ class ActionPotentialTab:
         # Create controls within scrollable_frame
         self.setup_parameter_controls()
         self.setup_normalization_points()
+        
+        # Add interval controls BEFORE analysis controls
+        self.setup_interval_controls()  # Add this line
+        
         self.setup_analysis_controls()
         
         # Configure mouse wheel scrolling
@@ -51,6 +49,8 @@ class ActionPotentialTab:
         
         # Configure canvas resize
         self.frame.bind('<Configure>', self._on_frame_configure)
+
+        self._analysis_results = {}
         
         app_logger.debug("Action potential analysis tab initialized")
 
@@ -67,6 +67,359 @@ class ActionPotentialTab:
         """Handle mouse wheel scrolling"""
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
+    # Add to src/gui/action_potential_tab.py
+
+    def setup_integration_range_controls(self):
+        """Setup sliders for hyperpolarization and depolarization integration ranges."""
+        range_frame = ttk.LabelFrame(self.scrollable_frame, text="Integration Ranges")
+        range_frame.pack(fill='x', padx=5, pady=5)
+
+        # Hyperpolarization range
+        hyperpol_frame = ttk.LabelFrame(range_frame, text="Hyperpolarization")
+        hyperpol_frame.pack(fill='x', padx=5, pady=5)
+
+        # Start slider for hyperpol
+        hyperpol_start_frame = ttk.Frame(hyperpol_frame)
+        hyperpol_start_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(hyperpol_start_frame, text="Start:").pack(side='left')
+        self.hyperpol_start_display = ttk.Label(hyperpol_start_frame, width=5)
+        self.hyperpol_start_display.pack(side='right')
+        
+        self.hyperpol_start = tk.IntVar(value=0)
+        self.hyperpol_start_slider = ttk.Scale(
+            hyperpol_frame, 
+            from_=0, 
+            to=199,
+            variable=self.hyperpol_start,
+            orient='horizontal',
+            command=lambda v: self.update_slider_display(v, self.hyperpol_start_display, 'hyperpol_start')
+        )
+        self.hyperpol_start_slider.pack(fill='x', padx=5)
+
+        # End slider for hyperpol
+        hyperpol_end_frame = ttk.Frame(hyperpol_frame)
+        hyperpol_end_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(hyperpol_end_frame, text="End:").pack(side='left')
+        self.hyperpol_end_display = ttk.Label(hyperpol_end_frame, width=5)
+        self.hyperpol_end_display.pack(side='right')
+        
+        self.hyperpol_end = tk.IntVar(value=200)
+        self.hyperpol_end_slider = ttk.Scale(
+            hyperpol_frame, 
+            from_=1, 
+            to=200,
+            variable=self.hyperpol_end,
+            orient='horizontal',
+            command=lambda v: self.update_slider_display(v, self.hyperpol_end_display, 'hyperpol_end')
+        )
+        self.hyperpol_end_slider.pack(fill='x', padx=5)
+
+        # Depolarization range
+        depol_frame = ttk.LabelFrame(range_frame, text="Depolarization")
+        depol_frame.pack(fill='x', padx=5, pady=5)
+
+        # Start slider for depol
+        depol_start_frame = ttk.Frame(depol_frame)
+        depol_start_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(depol_start_frame, text="Start:").pack(side='left')
+        self.depol_start_display = ttk.Label(depol_start_frame, width=5)
+        self.depol_start_display.pack(side='right')
+        
+        self.depol_start = tk.IntVar(value=0)
+        self.depol_start_slider = ttk.Scale(
+            depol_frame, 
+            from_=0, 
+            to=199,
+            variable=self.depol_start,
+            orient='horizontal',
+            command=lambda v: self.update_slider_display(v, self.depol_start_display, 'depol_start')
+        )
+        self.depol_start_slider.pack(fill='x', padx=5)
+
+        # End slider for depol
+        depol_end_frame = ttk.Frame(depol_frame)
+        depol_end_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(depol_end_frame, text="End:").pack(side='left')
+        self.depol_end_display = ttk.Label(depol_end_frame, width=5)
+        self.depol_end_display.pack(side='right')
+        
+        self.depol_end = tk.IntVar(value=200)
+        self.depol_end_slider = ttk.Scale(
+            depol_frame, 
+            from_=1, 
+            to=200,
+            variable=self.depol_end,
+            orient='horizontal',
+            command=lambda v: self.update_slider_display(v, self.depol_end_display, 'depol_end')
+        )
+        self.depol_end_slider.pack(fill='x', padx=5)
+
+        # Add help text
+        ttk.Label(
+            range_frame,
+            text="Adjust sliders to set integration range for each curve (0.5ms per point)",
+            wraplength=250,
+            font=('TkDefaultFont', 8, 'italic')
+        ).pack(pady=5)
+
+    def update_slider_display(self, value, label, slider_type):
+        """Update display label for a slider and handle range validation."""
+        try:
+            val = int(float(value))
+            label.config(text=str(val))
+            
+            # Ensure end is always greater than start
+            if slider_type.endswith('_start'):
+                end_var = getattr(self, slider_type.replace('start', 'end'))
+                if val >= end_var.get():
+                    end_var.set(val + 1)
+            elif slider_type.endswith('_end'):
+                start_var = getattr(self, slider_type.replace('end', 'start'))
+                if val <= start_var.get():
+                    start_var.set(val - 1)
+                    
+            self.on_integration_interval_change()
+            
+        except Exception as e:
+            app_logger.error(f"Error updating slider display: {str(e)}")
+
+    def get_integration_ranges(self):
+        """Get current integration ranges for both curves."""
+        return {
+            'hyperpol': {
+                'start': self.hyperpol_start.get(),
+                'end': self.hyperpol_end.get()
+            },
+            'depol': {
+                'start': self.depol_start.get(),
+                'end': self.depol_end.get()
+            }
+        }
+
+    def setup_interval_controls(self):
+        """Setup sliders for controlling integration and regression intervals"""
+        # Create a frame after parameter controls and before analysis controls
+        interval_frame = ttk.LabelFrame(self.scrollable_frame, text="Purple Curve Analysis")
+        interval_frame.pack(fill='x', padx=5, pady=5)
+
+        # Show points control in its own frame
+        points_frame = ttk.Frame(interval_frame)
+        points_frame.pack(fill='x', padx=5, pady=2)
+
+        # Add explanatory text
+        ttk.Label(
+            points_frame,
+            text="First run analysis, then enable points to show regression lines",
+            font=('TkDefaultFont', 8, 'italic')
+        ).pack(pady=(0,5))
+
+        # Add "Show Points & Regression" checkbox with larger text and padding
+        self.show_points = tk.BooleanVar(value=False)
+        points_check = ttk.Checkbutton(
+            points_frame, 
+            text="Show Points & Fit Regression Lines",
+            variable=self.show_points,
+            command=self.on_show_points_change,
+            style='Bold.TCheckbutton'  # Use bold style for emphasis
+        )
+        points_check.pack(pady=5, padx=5)
+
+        # Regression interval controls
+        regression_frame = ttk.LabelFrame(interval_frame, text="Regression Range")
+        regression_frame.pack(fill='x', padx=5, pady=5)
+
+        # Start slider with formatted display
+        reg_start_frame = ttk.Frame(regression_frame)
+        reg_start_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(reg_start_frame, text="Start Point:").pack(side='left')
+        
+        self.reg_start_display = ttk.Label(reg_start_frame, width=5)
+        self.reg_start_display.pack(side='right')
+        
+        self.regression_start = tk.IntVar(value=0)
+        self.reg_start_slider = ttk.Scale(
+            reg_start_frame, 
+            from_=0, 
+            to=199,
+            variable=self.regression_start,
+            orient='horizontal',
+            command=lambda v: self.update_slider_display(v, self.reg_start_display)
+        )
+        self.reg_start_slider.pack(side='left', fill='x', expand=True)
+
+        # End slider with formatted display
+        reg_end_frame = ttk.Frame(regression_frame)
+        reg_end_frame.pack(fill='x', padx=5, pady=2)
+        ttk.Label(reg_end_frame, text="End Point:").pack(side='left')
+        
+        self.reg_end_display = ttk.Label(reg_end_frame, width=5)
+        self.reg_end_display.pack(side='right')
+        
+        self.regression_end = tk.IntVar(value=200)
+        self.reg_end_slider = ttk.Scale(
+            reg_end_frame, 
+            from_=1, 
+            to=200,
+            variable=self.regression_end,
+            orient='horizontal',
+            command=lambda v: self.update_slider_display(v, self.reg_end_display)
+        )
+        self.reg_end_slider.pack(side='left', fill='x', expand=True)
+
+        # Add instruction text
+        ttk.Label(
+            regression_frame,
+            text="Drag on plot or use sliders to adjust regression range",
+            font=('TkDefaultFont', 8, 'italic')
+        ).pack(pady=(0,5))
+
+    # Add to ActionPotentialTab class:
+
+    def setup_regression_controls(self):
+        """Setup regression range selection controls."""
+        reg_frame = ttk.LabelFrame(self.scrollable_frame, text="Regression Range")
+        reg_frame.pack(fill='x', padx=5, pady=5)
+
+        # Show points toggle
+        self.show_points = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            reg_frame,
+            text="Enable Range Selection",
+            variable=self.show_points,
+            command=self.on_show_points_change
+        ).pack(pady=5)
+
+        # Info label
+        ttk.Label(
+            reg_frame,
+            text="Drag directly on the purple curves to select integration ranges",
+            wraplength=250,
+            font=('TkDefaultFont', 8, 'italic')
+        ).pack(pady=2)
+
+        # Display current ranges
+        self.range_display = ttk.Label(reg_frame, text="")
+        self.range_display.pack(pady=5)
+
+    def on_show_points_change(self):
+        """Handle toggling of range selection mode."""
+        show_points = self.show_points.get()
+        
+        if show_points and not hasattr(self.parent.master, 'action_potential_processor'):
+            self.show_points.set(False)
+            messagebox.showinfo(
+                "Analysis Required",
+                "Please run 'Analyze Signal' first to generate the purple curves."
+            )
+            return
+
+        # Update plot display mode
+        if show_points:
+            self.modified_display_mode.set("all_points")
+
+        # Toggle span selectors in main app
+        if hasattr(self.parent, 'master'):
+            self.parent.master.toggle_span_selectors(show_points)
+
+        # Update integration with current ranges
+        self.on_integration_interval_change()
+
+    def update_range_display(self):
+        """Update the display of current integration ranges."""
+        hyperpol_start = self.hyperpol_start.get()
+        hyperpol_end = self.hyperpol_end.get()
+        depol_start = self.depol_start.get()
+        depol_end = self.depol_end.get()
+
+        self.range_display.config(
+            text=f"Hyperpol: {hyperpol_start}-{hyperpol_end}\n"
+                f"Depol: {depol_start}-{depol_end}"
+        )
+
+    def update_slider_ranges(self, data_length):
+        """Update slider ranges based on data length"""
+        try:
+            # Update integration sliders
+            self.int_start_slider.configure(to=data_length-1)
+            self.int_end_slider.configure(to=data_length-1)
+            self.integration_end.set(data_length-1)
+
+            # Update regression sliders
+            self.reg_start_slider.configure(to=data_length-1)
+            self.reg_end_slider.configure(to=data_length-1)
+            self.regression_end.set(data_length-1)
+
+        except Exception as e:
+            app_logger.error(f"Error updating slider ranges: {str(e)}")
+
+    def on_integration_interval_change(self, *args):
+        """Handle changes to integration interval"""
+        try:
+            start = self.integration_start.get()
+            end = self.integration_end.get()
+
+            # Ensure end is greater than start
+            if start >= end:
+                self.integration_end.set(start + 1)
+                end = start + 1
+
+            if self.update_callback:
+                self.update_callback({
+                    'integration_interval': (start, end),
+                    'show_points': self.show_points.get()
+                })
+
+        except Exception as e:
+            app_logger.error(f"Error handling integration interval change: {str(e)}")
+
+    def on_regression_interval_change(self, *args):
+        """Handle changes to regression interval"""
+        try:
+            start = self.regression_start.get()
+            end = self.regression_end.get()
+
+            # Ensure end is greater than start
+            if start >= end:
+                self.regression_end.set(start + 1)
+                end = start + 1
+
+            # Only trigger update if show_points is enabled
+            if self.show_points.get() and self.update_callback:
+                params = self.get_parameters()
+                params.update({
+                    'show_points': True,
+                    'regression_interval': (start, end)
+                })
+                self.update_callback(params)
+
+        except Exception as e:
+            app_logger.error(f"Error handling regression interval change: {str(e)}")
+
+    def update_slider_display(self, value, label):
+        """Update the display label for a slider with formatted integer."""
+        try:
+            val = int(float(value))
+            label.config(text=str(val))
+            self.on_regression_interval_change()
+        except:
+            pass
+
+    def get_intervals(self):
+        """Get current interval settings"""
+        return {
+            'integration_interval': (
+                self.integration_start.get(),
+                self.integration_end.get()
+            ),
+            'regression_interval': (
+                self.regression_start.get(),
+                self.regression_end.get()
+            ),
+            'show_points': self.show_points.get()
+        }
+
+    # Update the init_variables method in src/gui/action_potential_tab.py
+
     def init_variables(self):
         """Initialize control variables with validation"""
         try:
@@ -77,8 +430,8 @@ class ActionPotentialTab:
             self.t2 = tk.DoubleVar(value=100.0)
             self.V0 = tk.DoubleVar(value=-80.0)
             self.V1 = tk.DoubleVar(value=-100.0)
-            self.V2 = tk.DoubleVar(value=-20.0)  # This now properly updates from filename
-            
+            self.V2 = tk.DoubleVar(value=-20.0)  
+
             # Integration method selection
             self.integration_method = tk.StringVar(value="traditional")
             
@@ -89,6 +442,7 @@ class ActionPotentialTab:
             
             # Display mode variables
             self.show_noisy_original = tk.BooleanVar(value=False)
+            self.show_red_curve = tk.BooleanVar(value=True)
             self.show_processed = tk.BooleanVar(value=True)
             self.show_average = tk.BooleanVar(value=True)
             self.show_normalized = tk.BooleanVar(value=True)
@@ -101,13 +455,20 @@ class ActionPotentialTab:
             self.normalized_display_mode = tk.StringVar(value="line")
             self.modified_display_mode = tk.StringVar(value="line")
             self.averaged_normalized_display_mode = tk.StringVar(value="line")
+
+            # Integration and regression interval variables
+            self.integration_start = tk.IntVar(value=0)
+            self.integration_end = tk.IntVar(value=200)
+            self.regression_start = tk.IntVar(value=0)
+            self.regression_end = tk.IntVar(value=200)
+            self.show_points = tk.BooleanVar(value=False)
             
             # Add validation traces
             self.n_cycles.trace_add("write", self.validate_n_cycles)
             self.t0.trace_add("write", self.validate_time_constant)
             self.t1.trace_add("write", self.validate_time_constant)
             self.t2.trace_add("write", self.validate_time_constant)
-            self.V2.trace_add("write", self.validate_voltage)  # Added voltage validation
+            self.V2.trace_add("write", self.validate_voltage)
             self.integration_method.trace_add("write", self.on_method_change)
             
             # Initialize variables for normalization points
@@ -251,6 +612,9 @@ class ActionPotentialTab:
             ttk.Checkbutton(display_frame, text="Show Processed Signal",
                         variable=self.show_processed,
                         command=self.on_display_change).pack(anchor='w', padx=5)
+            ttk.Checkbutton(display_frame, text="Show Red Curve",
+                    variable=self.show_red_curve,
+                    command=self.on_display_change).pack(anchor='w', padx=5)
             ttk.Checkbutton(display_frame, text="Show 50-point Average",
                         variable=self.show_average,
                         command=self.on_display_change).pack(anchor='w', padx=5)
@@ -532,6 +896,7 @@ class ActionPotentialTab:
                 'use_alternative_method': self.integration_method.get() == "alternative",
                 'display_options': {
                     'show_noisy_original': self.show_noisy_original.get(),
+                    'show_red_curve': self.show_red_curve.get(),
                     'show_processed': self.show_processed.get(),
                     'show_average': self.show_average.get(),
                     'show_normalized': self.show_normalized.get(),
@@ -560,43 +925,44 @@ class ActionPotentialTab:
 
     def update_results(self, results):
         """
-        Updates the displayed integral_value and status_text labels
-        based on the dictionary returned by the analysis.
-        Also displays any other interesting fields in extra_info_var.
+        Update displayed integral_value, status_text, and store the dictionary
+        so it can be retrieved by get_results_dict().
         """
         try:
             if isinstance(results, dict):
-                # 1) Show main integral in the existing label
+                # Show main integral in the existing label
                 self.integral_value.set(results.get('integral_value', 'N/A'))
-                
-                # 2) Optionally set the status text
+                # Optionally set the status text
                 self.status_text.set(results.get('status', 'Results updated'))
                 
-                # 3) Collect extra lines
+                # Collect extra lines for other keys
                 extra_lines = []
-                
-                # Show the purple integral if we have it
                 if 'purple_integral_value' in results:
                     extra_lines.append(f"Purple: {results['purple_integral_value']}")
-
-                # Also show other interesting keys
                 for key in ('capacitance_nF', 'hyperpol_area', 'depol_area'):
                     if key in results:
                         extra_lines.append(f"{key}: {results[key]}")
                 
                 self.extra_info_var.set(",  ".join(extra_lines))
                 
+                # Store a copy of results for later retrieval
+                self._analysis_results = results.copy()
             else:
                 self.integral_value.set("Unexpected format")
                 self.extra_info_var.set("")
                 self.status_text.set("Results updated")
-
         except Exception as e:
             app_logger.error(f"Error updating results: {str(e)}")
             self.status_text.set("Error updating results")
             self.extra_info_var.set("")
             raise
 
+    def get_results_dict(self):
+        """
+        Return the last analysis results dictionary so the main GUI
+        can export integrals or other data to CSV.
+        """
+        return self._analysis_results
 
     def reset(self):
         """Reset the tab to initial state"""
@@ -634,6 +1000,7 @@ class ActionPotentialTab:
     def get_display_options(self):
         """Get current display options"""
         return {
+            'show_red_curve': self.show_red_curve.get(), 
             'show_processed': self.show_processed.get(),
             'show_average': self.show_average.get(),
             'show_normalized': self.show_normalized.get(),

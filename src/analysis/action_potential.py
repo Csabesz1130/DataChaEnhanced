@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import signal
 from src.utils.logger import app_logger
+import csv
 from scipy.signal import savgol_filter
 
 class ActionPotentialProcessor:
@@ -786,6 +787,152 @@ class ActionPotentialProcessor:
             return {
                 'purple_integral_value': f"Error: {str(e)}"
             }
+
+    # Add to src/analysis/action_potential.py
+
+def export_all_curves(self, results_dict, filename):
+    """Export the current data to a CSV file with filename, V2 voltage, and organized sections"""
+    try:
+        import csv
+        
+        with open(filename, 'w', newline='') as f:
+            writer = csv.writer(f, delimiter=';')
+            
+            # Write V2 voltage
+            writer.writerow(["V2 (mV):", f"{self.params.get('V2', 'N/A')}"])
+            writer.writerow([])
+            
+            # Write overall integral at the top
+            writer.writerow(["Overall Integral (pC):", results_dict.get('integral_value', 'N/A')])
+            writer.writerow([])  # blank line
+
+            # ============ 1) Purple Hyperpol Section ============
+            writer.writerow(["PURPLE HYPERPOL CURVE"])
+            writer.writerow(["Hyperpol Integral from the app:", results_dict.get('hyperpol_area', 'N/A')])
+            writer.writerow(["Index", "Hyperpol_pA", "Hyperpol_time_ms"])
+
+            if hasattr(self, 'modified_hyperpol') and hasattr(self, 'modified_hyperpol_times'):
+                for i in range(len(self.modified_hyperpol)):
+                    writer.writerow([
+                        i + 1,
+                        f"{self.modified_hyperpol[i]:.7f}",
+                        f"{self.modified_hyperpol_times[i]*1000:.7f}"
+                    ])
+            writer.writerow([])  # blank line separator
+
+            # ============ 2) Purple Depol Section ===============
+            writer.writerow(["PURPLE DEPOL CURVE"])
+            writer.writerow(["Depol Integral from the app:", results_dict.get('depol_area', 'N/A')])
+            writer.writerow(["Index", "Depol_pA", "Depol_time_ms"])
+
+            if hasattr(self, 'modified_depol') and hasattr(self, 'modified_depol_times'):
+                for i in range(len(self.modified_depol)):
+                    writer.writerow([
+                        i + 1,
+                        f"{self.modified_depol[i]:.7f}",
+                        f"{self.modified_depol_times[i]*1000:.7f}"
+                    ])
+            writer.writerow([])
+
+            # ============ 3) Purple Integral Summary =============
+            writer.writerow(["Purple Integral Summary:", results_dict.get('purple_integral_value', 'N/A')])
+            writer.writerow([])
+
+        app_logger.info(f"Exported purple curves to {filename}")
+        return True
+
+    except Exception as e:
+        app_logger.error(f"Error exporting curves: {str(e)}")
+        return False
+
+def remove_extreme_outliers(self, data, times):
+    """
+    Remove obvious extreme outliers from the data.
+    
+    Args:
+        data (np.array): Current values
+        times (np.array): Time values
+        
+    Returns:
+        tuple: (cleaned_data, cleaned_times)
+    """
+    try:
+        if data is None or times is None:
+            return None, None
+            
+        data = np.array(data)
+        times = np.array(times)
+        
+        # Calculate median of the data
+        median = np.median(data)
+        
+        # Set a simple threshold for what constitutes an extreme outlier
+        # Any point more than 5 times the median is considered extreme
+        threshold = 5 * abs(median)
+        
+        # Create mask for non-outlier points
+        mask = np.abs(data) < threshold
+        
+        # Get cleaned data
+        cleaned_data = data[mask]
+        cleaned_times = times[mask]
+        
+        # Log removed points
+        outlier_indices = np.where(~mask)[0]
+        outlier_values = data[~mask]
+        
+        app_logger.info(f"Removed {len(outlier_values)} extreme outliers")
+        app_logger.debug(f"Outlier indices: {outlier_indices}")
+        app_logger.debug(f"Outlier values: {outlier_values}")
+        
+        return cleaned_data, cleaned_times
+        
+    except Exception as e:
+        app_logger.error(f"Error removing outliers: {str(e)}")
+        return data, times  # Return original data if cleaning fails
+
+def calculate_cleaned_integrals(self):
+    """
+    Calculate integrals for hyperpolarization and depolarization segments
+    after removing extreme outliers.
+    """
+    try:
+        # Remove extreme outliers from both segments
+        hyperpol_clean, hyperpol_times_clean = self.remove_extreme_outliers(
+            self.modified_hyperpol, 
+            self.modified_hyperpol_times
+        )
+        
+        depol_clean, depol_times_clean = self.remove_extreme_outliers(
+            self.modified_depol,
+            self.modified_depol_times
+        )
+        
+        # Calculate time steps in milliseconds
+        hyperpol_dt = np.diff(hyperpol_times_clean * 1000)  # Convert to ms
+        depol_dt = np.diff(depol_times_clean * 1000)        # Convert to ms
+
+        # Calculate absolute integrals using trapezoidal rule
+        hyperpol_integral = np.abs(np.trapz(hyperpol_clean, 
+                                          dx=np.mean(hyperpol_dt)))
+        depol_integral = np.abs(np.trapz(depol_clean,
+                                       dx=np.mean(depol_dt)))
+
+        
+        hyperpol_integral_pC = hyperpol_integral 
+        depol_integral_pC = depol_integral
+
+        return {
+            'hyperpol_integral': hyperpol_integral_pC,
+            'depol_integral': depol_integral_pC,
+            'hyperpol_area': f"{hyperpol_integral_pC:.2f} pC",
+            'depol_area': f"{depol_integral_pC:.2f} pC",
+            'purple_integral_value': f"Hyperpol: {hyperpol_integral_pC:.2f} pC, Depol: {depol_integral_pC:.2f} pC"
+        }
+
+    except Exception as e:
+        app_logger.error(f"Error calculating cleaned integrals: {str(e)}")
+        return None
 
 
 
