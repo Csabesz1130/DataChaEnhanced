@@ -143,7 +143,25 @@ class ActionPotentialTab:
         """Handle toggling of range selection mode."""
         show_points = self.show_points.get()
         
-        if show_points and not hasattr(self.parent.master, 'action_potential_processor'):
+        # Check if we have processed data and purple curves
+        processor = getattr(self.parent.master, 'action_potential_processor', None)
+        has_purple_curves = False
+        
+        if processor is not None:
+            has_purple_curves = (
+                hasattr(processor, 'modified_hyperpol') and 
+                processor.modified_hyperpol is not None and
+                len(processor.modified_hyperpol) > 0 and
+                hasattr(processor, 'modified_depol') and 
+                processor.modified_depol is not None and
+                len(processor.modified_depol) > 0
+            )
+            app_logger.debug(f"Purple curves check - processor exists: True, has curves: {has_purple_curves}")
+        else:
+            app_logger.debug("No action potential processor found")
+
+        if show_points and not has_purple_curves:
+            app_logger.debug("Showing points requested but no purple curves exist")
             self.show_points.set(False)
             messagebox.showinfo(
                 "Analysis Required",
@@ -151,13 +169,30 @@ class ActionPotentialTab:
             )
             return
 
-        # Update plot display mode
+        # Update plot display mode for purple curves
         if show_points:
+            app_logger.debug("Enabling point selection mode")
             self.modified_display_mode.set("all_points")
+            
+            # Enable sliders
+            for slider in [self.hyperpol_start_slider, self.hyperpol_end_slider,
+                         self.depol_start_slider, self.depol_end_slider]:
+                slider.configure(state='normal')
+        else:
+            app_logger.debug("Disabling point selection mode")
+            self.modified_display_mode.set("line")
+            
+            # Disable sliders
+            for slider in [self.hyperpol_start_slider, self.hyperpol_end_slider,
+                         self.depol_start_slider, self.depol_end_slider]:
+                slider.configure(state='disabled')
 
         # Toggle span selectors in main app
         if hasattr(self.parent, 'master'):
             self.parent.master.toggle_span_selectors(show_points)
+
+        # Update display with current ranges
+        self.update_range_display()
 
         # Update integration with current ranges
         self.on_integration_interval_change()
@@ -375,6 +410,7 @@ class ActionPotentialTab:
         self.hyperpol_start_display = ttk.Label(hyperpol_start_frame, width=5)
         self.hyperpol_start_display.pack(side='right')
         
+        self.hyperpol_start = tk.IntVar(value=0)
         self.hyperpol_start_slider = ttk.Scale(
             hyperpol_frame, 
             from_=0, 
@@ -384,6 +420,7 @@ class ActionPotentialTab:
             command=lambda v: self.update_slider_display(v, self.hyperpol_start_display, 'hyperpol_start')
         )
         self.hyperpol_start_slider.pack(fill='x', padx=5)
+        self.hyperpol_start_slider.configure(state='disabled')  # Initially disabled
 
         # End slider for hyperpol
         hyperpol_end_frame = ttk.Frame(hyperpol_frame)
@@ -392,6 +429,7 @@ class ActionPotentialTab:
         self.hyperpol_end_display = ttk.Label(hyperpol_end_frame, width=5)
         self.hyperpol_end_display.pack(side='right')
         
+        self.hyperpol_end = tk.IntVar(value=200)
         self.hyperpol_end_slider = ttk.Scale(
             hyperpol_frame, 
             from_=1, 
@@ -401,6 +439,7 @@ class ActionPotentialTab:
             command=lambda v: self.update_slider_display(v, self.hyperpol_end_display, 'hyperpol_end')
         )
         self.hyperpol_end_slider.pack(fill='x', padx=5)
+        self.hyperpol_end_slider.configure(state='disabled')  # Initially disabled
 
         # Depolarization range
         depol_frame = ttk.LabelFrame(range_frame, text="Depolarization")
@@ -413,6 +452,7 @@ class ActionPotentialTab:
         self.depol_start_display = ttk.Label(depol_start_frame, width=5)
         self.depol_start_display.pack(side='right')
         
+        self.depol_start = tk.IntVar(value=0)
         self.depol_start_slider = ttk.Scale(
             depol_frame, 
             from_=0, 
@@ -422,6 +462,7 @@ class ActionPotentialTab:
             command=lambda v: self.update_slider_display(v, self.depol_start_display, 'depol_start')
         )
         self.depol_start_slider.pack(fill='x', padx=5)
+        self.depol_start_slider.configure(state='disabled')  # Initially disabled
 
         # End slider for depol
         depol_end_frame = ttk.Frame(depol_frame)
@@ -430,6 +471,7 @@ class ActionPotentialTab:
         self.depol_end_display = ttk.Label(depol_end_frame, width=5)
         self.depol_end_display.pack(side='right')
         
+        self.depol_end = tk.IntVar(value=200)
         self.depol_end_slider = ttk.Scale(
             depol_frame, 
             from_=1, 
@@ -439,6 +481,7 @@ class ActionPotentialTab:
             command=lambda v: self.update_slider_display(v, self.depol_end_display, 'depol_end')
         )
         self.depol_end_slider.pack(fill='x', padx=5)
+        self.depol_end_slider.configure(state='disabled')  # Initially disabled
 
         # Help text
         ttk.Label(
