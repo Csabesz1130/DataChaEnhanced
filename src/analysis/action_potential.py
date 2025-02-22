@@ -933,6 +933,76 @@ def calculate_cleaned_integrals(self):
     except Exception as e:
         app_logger.error(f"Error calculating cleaned integrals: {str(e)}")
         return None
+    
+def integrate_curves_separately(self, ranges, method="direct", linreg_params=None):
+    """
+    Integrate hyperpolarization and depolarization curves with separate ranges.
+    
+    Args:
+        ranges: dict with 'hyperpol' and 'depol' ranges, each containing 'start' and 'end'
+        method: 'direct' or 'linreg'
+        linreg_params: dict with linear regression parameters
+        
+    Returns:
+        dict: Results containing both integrals and capacitance
+    """
+    if (not hasattr(self, 'modified_hyperpol') or 
+        not hasattr(self, 'modified_depol') or
+        self.modified_hyperpol is None or 
+        self.modified_depol is None):
+        raise ValueError("No purple curves available. Run analysis first.")
+
+    # Get hyperpolarization range
+    hyperpol_range = ranges.get('hyperpol', {'start': 0, 'end': 200})
+    hyperpol_start = hyperpol_range['start']
+    hyperpol_end = hyperpol_range['end']
+
+    # Get depolarization range
+    depol_range = ranges.get('depol', {'start': 0, 'end': 200})
+    depol_start = depol_range['start']
+    depol_end = depol_range['end']
+
+    # Calculate integrals
+    hyperpol_integral = self.integrate_segment(
+        self.modified_hyperpol,
+        self.modified_hyperpol_times,
+        hyperpol_start,
+        hyperpol_end,
+        method,
+        linreg_params,
+        self.d3_factor if hasattr(self, 'd3_factor') else 1.0
+    )
+
+    depol_integral = self.integrate_segment(
+        self.modified_depol,
+        self.modified_depol_times,
+        depol_start,
+        depol_end,
+        method,
+        linreg_params,
+        self.d3_factor if hasattr(self, 'd3_factor') else 1.0
+    )
+
+    # Calculate linear capacitance
+    voltage_diff = abs(self.params['V2'] - self.params['V0'])
+    if voltage_diff > 0:
+        capacitance = abs(hyperpol_integral - depol_integral) / voltage_diff
+    else:
+        capacitance = 0
+
+    return {
+        'method': method,
+        'hyperpol_range': f"{hyperpol_start}..{hyperpol_end}",
+        'depol_range': f"{depol_start}..{depol_end}",
+        'hyperpol_area': f"{hyperpol_integral:.6f}",
+        'depol_area': f"{depol_integral:.6f}",
+        'capacitance_nF': f"{capacitance:.6f}",
+        'purple_integral_value': (
+            f"Hyperpol={hyperpol_integral:.6f} pC, "
+            f"Depol={depol_integral:.6f} pC, "
+            f"Cap={capacitance:.6f} nF"
+        )
+    }
 
 
 
