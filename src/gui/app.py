@@ -16,6 +16,8 @@ from src.io_utils.io_utils import ATFHandler
 from src.filtering.filtering import combined_filter
 from src.analysis.action_potential import ActionPotentialProcessor
 from src.gui.window_manager import SignalWindowManager
+from src.utils.history_manager import HistoryManager
+from src.gui.history_window import HistoryWindow
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -36,6 +38,9 @@ class SignalAnalyzerApp:
         # Initialize window manager BEFORE toolbar setup
         self.window_manager = SignalWindowManager(self.master)
         
+        self.history_manager = HistoryManager()
+        self.current_file = None  # Track current file
+
         # Setup components
         self.setup_toolbar()
         self.setup_plot()
@@ -89,6 +94,12 @@ class SignalAnalyzerApp:
         export_frame = ttk.Frame(self.toolbar_frame)
         export_frame.pack(side='left', padx=5)
 
+        history_frame = ttk.Frame(self.toolbar_frame)
+        history_frame.pack(side='left', padx=5)
+        
+        ttk.Button(history_frame, text="View History",
+                  command=self.show_history).pack(side='left', padx=2)
+
         self.export_curves_btn = ttk.Button(
             export_frame,
             text="Export Purple Curves",
@@ -139,6 +150,16 @@ class SignalAnalyzerApp:
         y = self.separate_plots_btn.winfo_rooty() + self.separate_plots_btn.winfo_height()
         
         self.plot_menu.post(x, y)
+
+    def show_history(self):
+        """Show the analysis history window."""
+        try:
+            history_window = HistoryWindow(self.master, self.history_manager)
+            history_window.transient(self.master)
+            history_window.grab_set()
+        except Exception as e:
+            app_logger.error(f"Error showing history window: {str(e)}")
+            messagebox.showerror("Error", f"Failed to show history: {str(e)}")
 
     def setup_plot_interaction(self):
         """Setup interactive plot selection and regression visualization."""
@@ -397,6 +418,9 @@ class SignalAnalyzerApp:
                 
             app_logger.info(f"Loading file: {filepath}")
             
+            # Store current file path
+            self.current_file = filepath
+            
             # Clear existing data
             self.data = None
             self.time_data = None
@@ -438,6 +462,22 @@ class SignalAnalyzerApp:
             self.update_plot()
             filename = os.path.basename(filepath)
             self.status_var.set(f"Loaded: {filename}")
+            
+            # Check if this file exists in history
+            history = self.history_manager.get_history()
+            file_history = [entry for entry in history if entry['filename'] == filename]
+            
+            if file_history:
+                # Show most recent analysis results for this file
+                latest_result = file_history[-1]
+                msg = (
+                    f"Previous analysis results for {filename}:\n"
+                    f"Integral Value: {latest_result['integral_value']}\n"
+                    f"Hyperpol Area: {latest_result['hyperpol_area']}\n"
+                    f"Depol Area: {latest_result['depol_area']}\n"
+                    f"Linear Capacitance: {latest_result['linear_capacitance']}"
+                )
+                messagebox.showinfo("File History", msg)
             
             app_logger.info("Data loaded successfully")
             
