@@ -523,8 +523,11 @@ class SignalAnalyzerApp:
     def on_action_potential_analysis(self, params):
         """
         Handle action potential analysis or display updates from the ActionPotentialTab.
+        
+        Args:
+            params (dict): Analysis parameters and display options
         """
-        # Handle visibility-only updates
+        # If this is only a "visibility" request, just re-draw using existing data
         if isinstance(params, dict) and params.get('visibility_update', False):
             if hasattr(self, 'processed_data') and self.processed_data is not None:
                 self.update_plot_with_processed_data(
@@ -538,20 +541,20 @@ class SignalAnalyzerApp:
                 )
             return
 
-        # Validate data availability
+        # If no filtered data, cannot analyze
         if self.filtered_data is None:
             messagebox.showwarning("Analysis", "No filtered data available")
             return
 
         try:
-            # Initialize the processor
+            # Create the ActionPotentialProcessor with current data & parameters
             self.action_potential_processor = ActionPotentialProcessor(
                 self.filtered_data,
                 self.time_data,
                 params
             )
 
-            # Run the main processing pipeline
+            # Run main pipeline (baseline → normalization → ... → integration)
             (
                 processed_data,
                 orange_curve,
@@ -560,18 +563,20 @@ class SignalAnalyzerApp:
                 normalized_times,
                 average_curve,
                 average_curve_times,
-                results
+                initial_results
             ) = self.action_potential_processor.process_signal(
                 use_alternative_method=params.get('use_alternative_method', False)
             )
 
-            # Check for pipeline failure
+            # If the pipeline itself failed
             if processed_data is None:
-                error_msg = str(results.get('integral_value', 'Unknown error'))
-                messagebox.showwarning("Analysis", f"Analysis failed: {error_msg}")
+                messagebox.showwarning(
+                    "Analysis",
+                    "Analysis failed: " + str(initial_results.get('error', 'Unknown error'))
+                )
                 return
 
-            # Store processed data for plotting
+            # Store all arrays for re-plotting
             self.processed_data = processed_data
             self.orange_curve = orange_curve
             self.orange_curve_times = orange_times
@@ -580,7 +585,7 @@ class SignalAnalyzerApp:
             self.average_curve = average_curve
             self.average_curve_times = average_curve_times
 
-            # Generate modified peaks (purple curves)
+            # Generate the purple curves
             (
                 modified_hyperpol,
                 modified_hyperpol_times,
@@ -588,16 +593,30 @@ class SignalAnalyzerApp:
                 modified_depol_times
             ) = self.action_potential_processor.apply_average_to_peaks()
 
-            # Store slice information
-            self.action_potential_processor._hyperpol_slice = (1035, 1235)  # From logs
-            self.action_potential_processor._depol_slice = (835, 1035)  # From logs
-
-            # Calculate and integrate purple curves
+            # Calculate purple curve integrals
             purple_results = self.action_potential_processor.calculate_purple_integrals()
             if isinstance(purple_results, dict):
-                results.update(purple_results)
+                initial_results.update(purple_results)
 
-            # Update the plot with all curves
+            # Calculate cleaned integrals for more accurate results
+            cleaned_results = self.action_potential_processor.calculate_cleaned_integrals()
+            if cleaned_results:
+                initial_results.update(cleaned_results)
+
+            # Try to calculate linear capacitance if necessary values are present
+            voltage_diff = abs(params.get('V2', 0) - params.get('V0', 0))
+            if 'hyperpol_area' in initial_results and 'depol_area' in initial_results and voltage_diff > 0:
+                try:
+                    # Extract numeric values from string results
+                    hyperpol_val = float(initial_results['hyperpol_area'].replace(' pC', ''))
+                    depol_val = float(initial_results['depol_area'].replace(' pC', ''))
+                    capacitance = abs(hyperpol_val - depol_val) / voltage_diff
+                    initial_results['capacitance_nF'] = f"{capacitance:.2f} nF"
+                except (ValueError, AttributeError) as e:
+                    app_logger.error(f"Error calculating capacitance: {str(e)}")
+                    initial_results['capacitance_nF'] = 'N/A'
+
+            # Update plot with all arrays
             self.update_plot_with_processed_data(
                 processed_data,
                 orange_curve,
@@ -608,20 +627,27 @@ class SignalAnalyzerApp:
                 average_curve_times
             )
 
-            # Update results in the UI
-            self.action_potential_tab.update_results(results)
-            
-            # Ensure UI state is updated
-            self.action_potential_tab.points_checkbox.state(['!disabled'])
-            self.action_potential_tab.enable_points_ui()
-            self.action_potential_tab.update_after_analysis()
-            
+            # Show results in the ActionPotentialTab
+            self.action_potential_tab.update_results(initial_results)
+
+            # Add to history if analysis was successful and we have a current file
+            if self.current_file:
+                # Prepare history entry with all relevant values
+                history_entry = {
+                    'integral_value': initial_results.get('integral_value', 'N/A'),
+                    'hyperpol_area': initial_results.get('hyperpol_area', 'N/A'),
+                    'depol_area': initial_results.get('depol_area', 'N/A'),
+                    'capacitance_nF': initial_results.get('capacitance_nF', 'N/A'),
+                    'v2_voltage': f"{params.get('V2', 'N/A')} mV"
+                }
+                self.history_manager.add_entry(self.current_file, history_entry)
+                app_logger.info(f"Added history entry for {os.path.basename(self.current_file)}")
+
             app_logger.info("Action potential analysis completed successfully")
 
         except Exception as e:
             app_logger.error(f"Error in action potential analysis: {str(e)}")
             messagebox.showerror("Error", f"Analysis failed: {str(e)}")
-            self.action_potential_tab.disable_points_ui()
 
     def plot_action_potential(self, processed_data, time_data):
         """Plot action potential analysis results"""

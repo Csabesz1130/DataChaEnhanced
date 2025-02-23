@@ -894,7 +894,7 @@ def remove_extreme_outliers(self, data, times):
 def calculate_cleaned_integrals(self):
     """
     Calculate integrals for hyperpolarization and depolarization segments
-    after removing extreme outliers.
+    after removing extreme outliers, with proper formatting for history.
     """
     try:
         # Remove extreme outliers from both segments
@@ -908,6 +908,9 @@ def calculate_cleaned_integrals(self):
             self.modified_depol_times
         )
         
+        if hyperpol_clean is None or depol_clean is None:
+            return None
+
         # Calculate time steps in milliseconds
         hyperpol_dt = np.diff(hyperpol_times_clean * 1000)  # Convert to ms
         depol_dt = np.diff(depol_times_clean * 1000)        # Convert to ms
@@ -918,16 +921,23 @@ def calculate_cleaned_integrals(self):
         depol_integral = np.abs(np.trapz(depol_clean,
                                        dx=np.mean(depol_dt)))
 
-        
-        hyperpol_integral_pC = hyperpol_integral 
-        depol_integral_pC = depol_integral
+        # Calculate capacitance
+        voltage_diff = abs(self.params['V2'] - self.params['V0'])
+        if voltage_diff > 0:
+            capacitance = abs(hyperpol_integral - depol_integral) / voltage_diff
+        else:
+            capacitance = 0
 
+        # Format values for history
         return {
-            'hyperpol_integral': hyperpol_integral_pC,
-            'depol_integral': depol_integral_pC,
-            'hyperpol_area': f"{hyperpol_integral_pC:.2f} pC",
-            'depol_area': f"{depol_integral_pC:.2f} pC",
-            'purple_integral_value': f"Hyperpol: {hyperpol_integral_pC:.2f} pC, Depol: {depol_integral_pC:.2f} pC"
+            'integral_value': f"{(hyperpol_integral + depol_integral) / 2:.2f} pC",
+            'hyperpol_area': f"{hyperpol_integral:.2f} pC",
+            'depol_area': f"{depol_integral:.2f} pC",
+            'capacitance_nF': f"{capacitance:.2f} nF",
+            'purple_integral_value': (
+                f"Hyperpol={hyperpol_integral:.2f} pC, "
+                f"Depol={depol_integral:.2f} pC"
+            )
         }
 
     except Exception as e:
