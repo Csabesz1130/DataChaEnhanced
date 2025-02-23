@@ -483,8 +483,18 @@ class SignalAnalyzerApp:
     def on_action_potential_analysis(self, params):
         """
         Handle action potential analysis or display updates from the ActionPotentialTab.
+        
+        Args:
+            params (dict): Analysis parameters and display settings
+            
+        The function performs the following steps:
+        1. Checks if this is just a visibility update
+        2. Validates data availability
+        3. Creates and runs the ActionPotentialProcessor
+        4. Stores results and updates the display
+        5. Handles any errors that occur
         """
-        # 1) If this is only a "visibility" request, just re-draw using existing data
+        # Handle visibility-only updates
         if isinstance(params, dict) and params.get('visibility_update', False):
             if hasattr(self, 'processed_data') and self.processed_data is not None:
                 self.update_plot_with_processed_data(
@@ -498,20 +508,20 @@ class SignalAnalyzerApp:
                 )
             return
 
-        # 2) If no filtered data, cannot analyze
+        # Validate data availability
         if self.filtered_data is None:
             messagebox.showwarning("Analysis", "No filtered data available")
             return
 
         try:
-            # 3) Create the ActionPotentialProcessor with current data & parameters
+            # Initialize the processor
             self.action_potential_processor = ActionPotentialProcessor(
                 self.filtered_data,
                 self.time_data,
                 params
             )
 
-            # 4) Run main pipeline (baseline → normalization → ... → integration)
+            # Run the main processing pipeline
             (
                 processed_data,
                 orange_curve,
@@ -525,15 +535,13 @@ class SignalAnalyzerApp:
                 use_alternative_method=params.get('use_alternative_method', False)
             )
 
-            # 5) If the pipeline itself failed
+            # Check for pipeline failure
             if processed_data is None:
-                messagebox.showwarning(
-                    "Analysis",
-                    "Analysis failed: " + str(results.get('integral_value', 'Unknown error'))
-                )
+                error_msg = str(results.get('integral_value', 'Unknown error'))
+                messagebox.showwarning("Analysis", f"Analysis failed: {error_msg}")
                 return
 
-            # 6) Store all these arrays in self for re-plotting
+            # Store processed data for plotting
             self.processed_data = processed_data
             self.orange_curve = orange_curve
             self.orange_curve_times = orange_times
@@ -542,8 +550,7 @@ class SignalAnalyzerApp:
             self.average_curve = average_curve
             self.average_curve_times = average_curve_times
 
-            # 7) Now produce the "Modified Peaks" (the purple curves)
-            #    The call returns 4 arrays; store them on the processor so update_plot_with_processed_data can see them.
+            # Generate modified peaks (purple curves)
             (
                 modified_hyperpol,
                 modified_hyperpol_times,
@@ -551,14 +558,12 @@ class SignalAnalyzerApp:
                 modified_depol_times
             ) = self.action_potential_processor.apply_average_to_peaks()
 
-            # If everything worked, the processor now has .modified_hyperpol, etc. attached
-            # No need to do anything else as your update_plot_with_processed_data() checks self.action_potential_processor
-
+            # Calculate and integrate purple curves
             purple_results = self.action_potential_processor.calculate_purple_integrals()
             if isinstance(purple_results, dict):
                 results.update(purple_results)
 
-            # 8) Update the plot with *all* relevant arrays
+            # Update the plot with all curves
             self.update_plot_with_processed_data(
                 processed_data,
                 orange_curve,
@@ -569,8 +574,11 @@ class SignalAnalyzerApp:
                 average_curve_times
             )
 
-            # 9) Show results in the ActionPotentialTab (integral, etc.)
+            # Update results in the UI
             self.action_potential_tab.update_results(results)
+            
+            # Update UI state now that analysis is complete
+            self.action_potential_tab.update_analysis_state()
 
             app_logger.info("Action potential analysis completed successfully")
 
