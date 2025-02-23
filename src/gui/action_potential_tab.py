@@ -206,47 +206,63 @@ class ActionPotentialTab:
         """Update UI state after successful analysis"""
         try:
             app = self.parent.master
-            if (hasattr(app, 'action_potential_processor') and 
-                app.action_potential_processor is not None and
-                hasattr(app.action_potential_processor, 'modified_hyperpol') and
-                hasattr(app.action_potential_processor, 'modified_depol')):
+            processor = getattr(app, 'action_potential_processor', None)
+            
+            if (processor is not None and 
+                hasattr(processor, 'modified_hyperpol') and 
+                hasattr(processor, 'modified_depol') and
+                processor.modified_hyperpol is not None and
+                processor.modified_depol is not None):
                 
-                # Enable the points checkbox
-                self.points_checkbox.state(['!disabled'])
-                app_logger.debug("Points checkbox enabled after analysis")
-
-                # If points were previously enabled, make sure UI reflects that
-                if self.show_points.get():
-                    self.slider_frame.pack(fill='x', padx=5, pady=5)
-                    self.enable_range_sliders(True)
-                    app_logger.debug("Sliders shown and enabled")
+                # Enable the UI
+                self.enable_points_ui()
+                
+                # Set initial state for UI elements
+                self.modified_display_mode.set('line')  # Start in line mode
+                self.points_checkbox.state(['!disabled'])  # Ensure checkbox is enabled
+                
+                app_logger.debug("UI updated after successful analysis")
                 
             else:
-                # Disable controls if analysis data isn't complete
-                self.points_checkbox.state(['disabled'])
-                self.show_points.set(False)
-                self.slider_frame.pack_forget()
-                self.enable_range_sliders(False)
-                app_logger.debug("Controls disabled - missing analysis data")
+                self.disable_points_ui()
+                app_logger.debug("UI disabled - missing processor or data")
                 
         except Exception as e:
             app_logger.error(f"Error updating UI after analysis: {str(e)}")
-            self.points_checkbox.state(['disabled'])
-            self.show_points.set(False)
-            self.slider_frame.pack_forget()
+            self.disable_points_ui()
 
     def enable_points_ui(self):
         """Enable points & regression UI after successful analysis"""
-        if hasattr(self, 'points_checkbox'):
-            self.points_checkbox.state(['!disabled'])
-            app_logger.debug("Points & regression UI enabled")
+        try:
+            if hasattr(self, 'points_checkbox'):
+                self.points_checkbox.state(['!disabled'])  # Enable checkbox
+                
+                # If points were previously enabled, make sure UI reflects that
+                if self.show_points.get():
+                    if hasattr(self, 'slider_frame'):
+                        self.slider_frame.pack(fill='x', padx=5, pady=5)
+                    self.enable_range_sliders(True)
+                    
+                app_logger.debug("Points & regression UI enabled")
+                
+        except Exception as e:
+            app_logger.error(f"Error enabling points UI: {str(e)}")
 
     def disable_points_ui(self):
         """Disable points & regression UI"""
-        if hasattr(self, 'points_checkbox'):
-            self.points_checkbox.state(['disabled'])
-            self.show_points.set(False)
-            app_logger.debug("Points & regression UI disabled")
+        try:
+            if hasattr(self, 'points_checkbox'):
+                self.points_checkbox.state(['disabled'])
+                self.show_points.set(False)
+                
+                if hasattr(self, 'slider_frame'):
+                    self.slider_frame.pack_forget()
+                self.enable_range_sliders(False)
+                
+                app_logger.debug("Points & regression UI disabled")
+                
+        except Exception as e:
+            app_logger.error(f"Error disabling points UI: {str(e)}")
 
     def check_and_enable_points(self):
         """Check for analysis existence before enabling points."""

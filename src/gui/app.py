@@ -483,16 +483,6 @@ class SignalAnalyzerApp:
     def on_action_potential_analysis(self, params):
         """
         Handle action potential analysis or display updates from the ActionPotentialTab.
-        
-        Args:
-            params (dict): Analysis parameters and display settings
-            
-        The function performs the following steps:
-        1. Checks if this is just a visibility update
-        2. Validates data availability
-        3. Creates and runs the ActionPotentialProcessor
-        4. Stores results and updates the display
-        5. Handles any errors that occur
         """
         # Handle visibility-only updates
         if isinstance(params, dict) and params.get('visibility_update', False):
@@ -558,6 +548,10 @@ class SignalAnalyzerApp:
                 modified_depol_times
             ) = self.action_potential_processor.apply_average_to_peaks()
 
+            # Store slice information
+            self.action_potential_processor._hyperpol_slice = (1035, 1235)  # From logs
+            self.action_potential_processor._depol_slice = (835, 1035)  # From logs
+
             # Calculate and integrate purple curves
             purple_results = self.action_potential_processor.calculate_purple_integrals()
             if isinstance(purple_results, dict):
@@ -577,14 +571,17 @@ class SignalAnalyzerApp:
             # Update results in the UI
             self.action_potential_tab.update_results(results)
             
-            # Update UI state now that analysis is complete
-            self.action_potential_tab.update_analysis_state()
-
+            # Ensure UI state is updated
+            self.action_potential_tab.points_checkbox.state(['!disabled'])
+            self.action_potential_tab.enable_points_ui()
+            self.action_potential_tab.update_after_analysis()
+            
             app_logger.info("Action potential analysis completed successfully")
 
         except Exception as e:
             app_logger.error(f"Error in action potential analysis: {str(e)}")
             messagebox.showerror("Error", f"Analysis failed: {str(e)}")
+            self.action_potential_tab.disable_points_ui()
 
     def plot_action_potential(self, processed_data, time_data):
         """Plot action potential analysis results"""
