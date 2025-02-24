@@ -845,104 +845,175 @@ def export_all_curves(self, results_dict, filename):
         app_logger.error(f"Error exporting curves: {str(e)}")
         return False
 
+# Add these methods to the ActionPotentialProcessor class in action_potential.py
+
 def remove_extreme_outliers(self, data, times):
-    """
-    Remove obvious extreme outliers from the data.
-    
-    Args:
-        data (np.array): Current values
-        times (np.array): Time values
+        """
+        Remove obvious extreme outliers from the data.
         
-    Returns:
-        tuple: (cleaned_data, cleaned_times)
-    """
-    try:
-        if data is None or times is None:
-            return None, None
+        Args:
+            data (np.array): Current values
+            times (np.array): Time values
             
-        data = np.array(data)
-        times = np.array(times)
-        
-        # Calculate median of the data
-        median = np.median(data)
-        
-        # Set a simple threshold for what constitutes an extreme outlier
-        # Any point more than 5 times the median is considered extreme
-        threshold = 5 * abs(median)
-        
-        # Create mask for non-outlier points
-        mask = np.abs(data) < threshold
-        
-        # Get cleaned data
-        cleaned_data = data[mask]
-        cleaned_times = times[mask]
-        
-        # Log removed points
-        outlier_indices = np.where(~mask)[0]
-        outlier_values = data[~mask]
-        
-        app_logger.info(f"Removed {len(outlier_values)} extreme outliers")
-        app_logger.debug(f"Outlier indices: {outlier_indices}")
-        app_logger.debug(f"Outlier values: {outlier_values}")
-        
-        return cleaned_data, cleaned_times
-        
-    except Exception as e:
-        app_logger.error(f"Error removing outliers: {str(e)}")
-        return data, times  # Return original data if cleaning fails
+        Returns:
+            tuple: (cleaned_data, cleaned_times)
+        """
+        try:
+            if data is None or times is None:
+                return None, None
+                
+            data = np.array(data)
+            times = np.array(times)
+            
+            # Calculate median of the data
+            median = np.median(data)
+            
+            # Set threshold for extreme outliers (5x median)
+            threshold = 5 * abs(median)
+            
+            # Create mask for non-outlier points
+            mask = np.abs(data) < threshold
+            
+            # Get cleaned data
+            cleaned_data = data[mask]
+            cleaned_times = times[mask]
+            
+            # Log removed points
+            outlier_indices = np.where(~mask)[0]
+            outlier_values = data[~mask]
+            
+            app_logger.info(f"Removed {len(outlier_values)} extreme outliers")
+            app_logger.debug(f"Outlier indices: {outlier_indices}")
+            app_logger.debug(f"Outlier values: {outlier_values}")
+            
+            return cleaned_data, cleaned_times
+            
+        except Exception as e:
+            app_logger.error(f"Error removing outliers: {str(e)}")
+            return data, times  # Return original data if cleaning fails
 
 def calculate_cleaned_integrals(self):
-    """
-    Calculate integrals for hyperpolarization and depolarization segments
-    after removing extreme outliers, with proper formatting for history.
-    """
-    try:
-        # Remove extreme outliers from both segments
-        hyperpol_clean, hyperpol_times_clean = self.remove_extreme_outliers(
-            self.modified_hyperpol, 
-            self.modified_hyperpol_times
-        )
-        
-        depol_clean, depol_times_clean = self.remove_extreme_outliers(
-            self.modified_depol,
-            self.modified_depol_times
-        )
-        
-        if hyperpol_clean is None or depol_clean is None:
+        """
+        Calculate integrals for hyperpolarization and depolarization segments
+        after removing extreme outliers, with proper formatting for history.
+        """
+        try:
+            # Remove extreme outliers from both segments
+            hyperpol_clean, hyperpol_times_clean = self.remove_extreme_outliers(
+                self.modified_hyperpol, 
+                self.modified_hyperpol_times
+            )
+            
+            depol_clean, depol_times_clean = self.remove_extreme_outliers(
+                self.modified_depol,
+                self.modified_depol_times
+            )
+            
+            if hyperpol_clean is None or depol_clean is None:
+                return None
+
+            # Calculate time steps in milliseconds
+            hyperpol_dt = np.diff(hyperpol_times_clean) * 1000  # Convert to ms
+            depol_dt = np.diff(depol_times_clean) * 1000        # Convert to ms
+
+            # Calculate absolute integrals using trapezoidal rule
+            hyperpol_integral = np.abs(np.trapz(hyperpol_clean, 
+                                              x=hyperpol_times_clean * 1000))  # time in ms
+            depol_integral = np.abs(np.trapz(depol_clean,
+                                           x=depol_times_clean * 1000))        # time in ms
+
+            # Calculate capacitance
+            voltage_diff = abs(self.params.get('V2', 0) - self.params.get('V0', 0))
+            if voltage_diff > 0:
+                capacitance = abs(hyperpol_integral - depol_integral) / voltage_diff
+            else:
+                capacitance = 0
+
+            # Format values for history
+            return {
+                'integral_value': f"{(hyperpol_integral + depol_integral) / 2:.2f} pC",
+                'hyperpol_area': f"{hyperpol_integral:.2f} pC",
+                'depol_area': f"{depol_integral:.2f} pC",
+                'capacitance_nF': f"{capacitance:.2f} nF",
+                'purple_integral_value': (
+                    f"Hyperpol={hyperpol_integral:.2f} pC, "
+                    f"Depol={depol_integral:.2f} pC"
+                )
+            }
+
+        except Exception as e:
+            app_logger.error(f"Error calculating cleaned integrals: {str(e)}")
             return None
 
-        # Calculate time steps in milliseconds
-        hyperpol_dt = np.diff(hyperpol_times_clean * 1000)  # Convert to ms
-        depol_dt = np.diff(depol_times_clean * 1000)        # Convert to ms
+def integrate_curves_separately(self, ranges, method="direct", linreg_params=None):
+        """
+        Integrate hyperpolarization and depolarization curves with separate ranges.
+        
+        Args:
+            ranges: dict with 'hyperpol' and 'depol' ranges, each containing 'start' and 'end'
+            method: 'direct' or 'linreg'
+            linreg_params: dict with linear regression parameters
+            
+        Returns:
+            dict: Results containing both integrals and capacitance
+        """
+        if (not hasattr(self, 'modified_hyperpol') or 
+            not hasattr(self, 'modified_depol') or
+            self.modified_hyperpol is None or 
+            self.modified_depol is None):
+            raise ValueError("No purple curves available. Run analysis first.")
 
-        # Calculate absolute integrals using trapezoidal rule
-        hyperpol_integral = np.abs(np.trapz(hyperpol_clean, 
-                                          dx=np.mean(hyperpol_dt)))
-        depol_integral = np.abs(np.trapz(depol_clean,
-                                       dx=np.mean(depol_dt)))
+        # Get hyperpolarization range
+        hyperpol_range = ranges.get('hyperpol', {'start': 0, 'end': 200})
+        hyperpol_start = hyperpol_range['start']
+        hyperpol_end = hyperpol_range['end']
 
-        # Calculate capacitance
+        # Get depolarization range
+        depol_range = ranges.get('depol', {'start': 0, 'end': 200})
+        depol_start = depol_range['start']
+        depol_end = depol_range['end']
+
+        # Calculate integrals
+        hyperpol_integral = self.integrate_segment(
+            self.modified_hyperpol,
+            self.modified_hyperpol_times,
+            hyperpol_start,
+            hyperpol_end,
+            method,
+            linreg_params,
+            self.d3_factor if hasattr(self, 'd3_factor') else 1.0
+        )
+
+        depol_integral = self.integrate_segment(
+            self.modified_depol,
+            self.modified_depol_times,
+            depol_start,
+            depol_end,
+            method,
+            linreg_params,
+            self.d3_factor if hasattr(self, 'd3_factor') else 1.0
+        )
+
+        # Calculate linear capacitance
         voltage_diff = abs(self.params['V2'] - self.params['V0'])
         if voltage_diff > 0:
             capacitance = abs(hyperpol_integral - depol_integral) / voltage_diff
         else:
             capacitance = 0
 
-        # Format values for history
         return {
-            'integral_value': f"{(hyperpol_integral + depol_integral) / 2:.2f} pC",
-            'hyperpol_area': f"{hyperpol_integral:.2f} pC",
-            'depol_area': f"{depol_integral:.2f} pC",
-            'capacitance_nF': f"{capacitance:.2f} nF",
+            'method': method,
+            'hyperpol_range': f"{hyperpol_start}..{hyperpol_end}",
+            'depol_range': f"{depol_start}..{depol_end}",
+            'hyperpol_area': f"{hyperpol_integral:.6f}",
+            'depol_area': f"{depol_integral:.6f}",
+            'capacitance_nF': f"{capacitance:.6f}",
             'purple_integral_value': (
-                f"Hyperpol={hyperpol_integral:.2f} pC, "
-                f"Depol={depol_integral:.2f} pC"
+                f"Hyperpol={hyperpol_integral:.6f} pC, "
+                f"Depol={depol_integral:.6f} pC, "
+                f"Cap={capacitance:.6f} nF"
             )
         }
-
-    except Exception as e:
-        app_logger.error(f"Error calculating cleaned integrals: {str(e)}")
-        return None
     
 def integrate_curves_separately(self, ranges, method="direct", linreg_params=None):
     """
