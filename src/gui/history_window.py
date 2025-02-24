@@ -1,7 +1,7 @@
 import os
 import datetime
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from src.utils.logger import app_logger
 
 class AnalysisHistoryManager:

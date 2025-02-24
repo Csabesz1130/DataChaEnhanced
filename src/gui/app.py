@@ -17,7 +17,7 @@ from src.filtering.filtering import combined_filter
 from src.analysis.action_potential import ActionPotentialProcessor
 from src.gui.window_manager import SignalWindowManager
 from src.utils.history_manager import HistoryManager
-from src.gui.history_window import HistoryWindow
+from src.gui.history_window import AnalysisHistoryManager, HistoryWindow
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -31,6 +31,7 @@ class SignalAnalyzerApp:
         self.filtered_data = None
         self.current_filters = {}
         self.action_potential_processor = None
+        self.current_file = None  # Track current file path
         
         # Create main layout
         self.setup_main_layout()
@@ -38,13 +39,13 @@ class SignalAnalyzerApp:
         # Initialize window manager BEFORE toolbar setup
         self.window_manager = SignalWindowManager(self.master)
         
-        self.history_manager = HistoryManager()
-        self.current_file = None  # Track current file
-
+        # Initialize history manager
+        self.history_manager = AnalysisHistoryManager(self)
+        
         # Setup components
         self.setup_toolbar()
         self.setup_plot()
-        self.setup_plot_interaction()  # Add this line
+        self.setup_plot_interaction()
         self.setup_tabs()
         
         app_logger.info("Application initialized successfully")
@@ -82,23 +83,17 @@ class SignalAnalyzerApp:
         file_frame.pack(side='left', fill='x')
         
         ttk.Button(file_frame, text="Load Data", 
-                  command=self.load_data).pack(side='left', padx=2)
+                command=self.load_data).pack(side='left', padx=2)
         ttk.Button(file_frame, text="Export Data", 
-                  command=self.export_data).pack(side='left', padx=2)
+                command=self.export_data).pack(side='left', padx=2)
         ttk.Button(file_frame, text="Export Figure", 
-                  command=self.export_figure).pack(side='left', padx=2)
+                command=self.export_figure).pack(side='left', padx=2)
         
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
 
-        # Now add a frame for the "Export Purple Curves" button:
+        # Export curves and view history buttons
         export_frame = ttk.Frame(self.toolbar_frame)
         export_frame.pack(side='left', padx=5)
-
-        history_frame = ttk.Frame(self.toolbar_frame)
-        history_frame.pack(side='left', padx=5)
-        
-        ttk.Button(history_frame, text="View History",
-                  command=self.show_history).pack(side='left', padx=2)
 
         self.export_curves_btn = ttk.Button(
             export_frame,
@@ -106,6 +101,15 @@ class SignalAnalyzerApp:
             command=self.on_export_purple_curves
         )
         self.export_curves_btn.pack(side='left', padx=2)
+        
+        # Add View History button
+        ttk.Button(
+            export_frame,
+            text="View History",
+            command=self.show_analysis_history
+        ).pack(side='left', padx=2)
+        
+        ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
         
         plots_frame = ttk.Frame(self.toolbar_frame)
         plots_frame.pack(side='left', fill='x')
@@ -150,6 +154,13 @@ class SignalAnalyzerApp:
         y = self.separate_plots_btn.winfo_rooty() + self.separate_plots_btn.winfo_height()
         
         self.plot_menu.post(x, y)
+
+    def show_analysis_history(self):
+        """Show the analysis history dialog."""
+        if hasattr(self, 'history_manager'):
+            self.history_manager.show_history_dialog()
+        else:
+            messagebox.showinfo("History", "History manager not initialized.")
 
     def show_history(self):
         """Show the analysis history window."""
@@ -418,9 +429,6 @@ class SignalAnalyzerApp:
                 
             app_logger.info(f"Loading file: {filepath}")
             
-            # Store current file path
-            self.current_file = filepath
-            
             # Clear existing data
             self.data = None
             self.time_data = None
@@ -428,6 +436,9 @@ class SignalAnalyzerApp:
             self.processed_data = None
             self.orange_curve = None
             self.orange_curve_times = None
+            
+            # Store current file path
+            self.current_file = filepath
             
             atf_handler = ATFHandler(filepath)
             atf_handler.load_atf()
@@ -464,20 +475,21 @@ class SignalAnalyzerApp:
             self.status_var.set(f"Loaded: {filename}")
             
             # Check if this file exists in history
-            history = self.history_manager.get_history()
-            file_history = [entry for entry in history if entry['filename'] == filename]
-            
-            if file_history:
-                # Show most recent analysis results for this file
-                latest_result = file_history[-1]
-                msg = (
-                    f"Previous analysis results for {filename}:\n"
-                    f"Integral Value: {latest_result['integral_value']}\n"
-                    f"Hyperpol Area: {latest_result['hyperpol_area']}\n"
-                    f"Depol Area: {latest_result['depol_area']}\n"
-                    f"Linear Capacitance: {latest_result['linear_capacitance']}"
-                )
-                messagebox.showinfo("File History", msg)
+            if hasattr(self, 'history_manager') and hasattr(self.history_manager, 'history_entries'):
+                history = self.history_manager.history_entries
+                file_history = [entry for entry in history if entry['filename'] == filename]
+                
+                if file_history:
+                    # Show most recent analysis results for this file
+                    latest_result = file_history[-1]
+                    msg = (
+                        f"Previous analysis results for {filename}:\n"
+                        f"Integral Value: {latest_result['integral_value']}\n"
+                        f"Hyperpol Area: {latest_result['hyperpol_area']}\n"
+                        f"Depol Area: {latest_result['depol_area']}\n"
+                        f"Linear Capacitance: {latest_result['capacitance_nF']}"
+                    )
+                    messagebox.showinfo("File History", msg)
             
             app_logger.info("Data loaded successfully")
             
@@ -627,6 +639,10 @@ class SignalAnalyzerApp:
             
             # Update UI state after analysis
             self.action_potential_tab.update_after_analysis()
+            
+            # Add entry to history
+            if hasattr(self, 'history_manager') and self.current_file:
+                self.history_manager.add_entry(self.current_file, results)
             
             app_logger.info("Action potential analysis completed successfully")
 
