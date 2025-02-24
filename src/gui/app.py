@@ -523,11 +523,8 @@ class SignalAnalyzerApp:
     def on_action_potential_analysis(self, params):
         """
         Handle action potential analysis or display updates from the ActionPotentialTab.
-        
-        Args:
-            params (dict): Analysis parameters and display options
         """
-        # If this is only a "visibility" request, just re-draw using existing data
+        # Handle visibility-only updates
         if isinstance(params, dict) and params.get('visibility_update', False):
             if hasattr(self, 'processed_data') and self.processed_data is not None:
                 self.update_plot_with_processed_data(
@@ -541,20 +538,22 @@ class SignalAnalyzerApp:
                 )
             return
 
-        # If no filtered data, cannot analyze
+        # Validate data availability
         if self.filtered_data is None:
             messagebox.showwarning("Analysis", "No filtered data available")
             return
 
         try:
-            # Create the ActionPotentialProcessor with current data & parameters
+            app_logger.debug(f"Starting action potential analysis with params: {params}")
+            
+            # Initialize the processor
             self.action_potential_processor = ActionPotentialProcessor(
                 self.filtered_data,
                 self.time_data,
                 params
             )
 
-            # Run main pipeline (baseline → normalization → ... → integration)
+            # Run the main processing pipeline
             (
                 processed_data,
                 orange_curve,
@@ -563,20 +562,18 @@ class SignalAnalyzerApp:
                 normalized_times,
                 average_curve,
                 average_curve_times,
-                initial_results
+                results
             ) = self.action_potential_processor.process_signal(
                 use_alternative_method=params.get('use_alternative_method', False)
             )
 
-            # If the pipeline itself failed
+            # Check for pipeline failure
             if processed_data is None:
-                messagebox.showwarning(
-                    "Analysis",
-                    "Analysis failed: " + str(initial_results.get('error', 'Unknown error'))
-                )
+                error_msg = str(results.get('integral_value', 'Unknown error'))
+                messagebox.showwarning("Analysis", f"Analysis failed: {error_msg}")
                 return
 
-            # Store all arrays for re-plotting
+            # Store processed data for plotting
             self.processed_data = processed_data
             self.orange_curve = orange_curve
             self.orange_curve_times = orange_times
@@ -585,7 +582,7 @@ class SignalAnalyzerApp:
             self.average_curve = average_curve
             self.average_curve_times = average_curve_times
 
-            # Generate the purple curves
+            # Generate modified peaks (purple curves)
             (
                 modified_hyperpol,
                 modified_hyperpol_times,
@@ -593,30 +590,23 @@ class SignalAnalyzerApp:
                 modified_depol_times
             ) = self.action_potential_processor.apply_average_to_peaks()
 
-            # Calculate purple curve integrals
+            # Store purple curve slice information from logs
+            self.action_potential_processor._hyperpol_slice = (1035, 1235)
+            self.action_potential_processor._depol_slice = (835, 1035)
+            
+            # Verify purple curves were created
+            if (modified_hyperpol is None or modified_depol is None or 
+                modified_hyperpol_times is None or modified_depol_times is None):
+                app_logger.error("Failed to generate purple curves")
+                messagebox.showwarning("Analysis", "Failed to generate purple curves")
+                return
+
+            # Calculate and integrate purple curves
             purple_results = self.action_potential_processor.calculate_purple_integrals()
             if isinstance(purple_results, dict):
-                initial_results.update(purple_results)
+                results.update(purple_results)
 
-            # Calculate cleaned integrals for more accurate results
-            cleaned_results = self.action_potential_processor.calculate_cleaned_integrals()
-            if cleaned_results:
-                initial_results.update(cleaned_results)
-
-            # Try to calculate linear capacitance if necessary values are present
-            voltage_diff = abs(params.get('V2', 0) - params.get('V0', 0))
-            if 'hyperpol_area' in initial_results and 'depol_area' in initial_results and voltage_diff > 0:
-                try:
-                    # Extract numeric values from string results
-                    hyperpol_val = float(initial_results['hyperpol_area'].replace(' pC', ''))
-                    depol_val = float(initial_results['depol_area'].replace(' pC', ''))
-                    capacitance = abs(hyperpol_val - depol_val) / voltage_diff
-                    initial_results['capacitance_nF'] = f"{capacitance:.2f} nF"
-                except (ValueError, AttributeError) as e:
-                    app_logger.error(f"Error calculating capacitance: {str(e)}")
-                    initial_results['capacitance_nF'] = 'N/A'
-
-            # Update plot with all arrays
+            # Update the plot with all curves
             self.update_plot_with_processed_data(
                 processed_data,
                 orange_curve,
@@ -627,27 +617,24 @@ class SignalAnalyzerApp:
                 average_curve_times
             )
 
-            # Show results in the ActionPotentialTab
-            self.action_potential_tab.update_results(initial_results)
-
-            # Add to history if analysis was successful and we have a current file
-            if self.current_file:
-                # Prepare history entry with all relevant values
-                history_entry = {
-                    'integral_value': initial_results.get('integral_value', 'N/A'),
-                    'hyperpol_area': initial_results.get('hyperpol_area', 'N/A'),
-                    'depol_area': initial_results.get('depol_area', 'N/A'),
-                    'capacitance_nF': initial_results.get('capacitance_nF', 'N/A'),
-                    'v2_voltage': f"{params.get('V2', 'N/A')} mV"
-                }
-                self.history_manager.add_entry(self.current_file, history_entry)
-                app_logger.info(f"Added history entry for {os.path.basename(self.current_file)}")
-
+            # Update results in the UI
+            self.action_potential_tab.update_results(results)
+            
+            # Directly enable the checkbox to ensure it's active
+            if hasattr(self.action_potential_tab, 'points_checkbox'):
+                self.action_potential_tab.points_checkbox.state(['!disabled'])
+                app_logger.debug("Points checkbox explicitly enabled")
+            
+            # Update UI state after analysis
+            self.action_potential_tab.update_after_analysis()
+            
             app_logger.info("Action potential analysis completed successfully")
 
         except Exception as e:
             app_logger.error(f"Error in action potential analysis: {str(e)}")
             messagebox.showerror("Error", f"Analysis failed: {str(e)}")
+            if hasattr(self.action_potential_tab, 'disable_points_ui'):
+                self.action_potential_tab.disable_points_ui()
 
     def plot_action_potential(self, processed_data, time_data):
         """Plot action potential analysis results"""
@@ -862,23 +849,26 @@ class SignalAnalyzerApp:
             view_params = self.view_tab.get_view_params()
             display_options = self.action_potential_tab.get_parameters().get('display_options', {})
 
-            # Get regression and integration intervals
+            # Get integration ranges and points visibility
             intervals = self.action_potential_tab.get_intervals()
             show_points = intervals.get('show_points', False)
-            regression_interval = intervals.get('regression_interval')
+            integration_ranges = intervals.get('integration_ranges', {})
+            
+            app_logger.debug(f"Updating plot with integration ranges: {integration_ranges}")
+            app_logger.debug(f"Points visibility: {show_points}")
 
             # Original signal
             if display_options.get('show_noisy_original', False):
                 self.ax.plot(self.time_data * 1000, self.data, 'b-', 
-                            label='Original Signal', alpha=0.3)
+                        label='Original Signal', alpha=0.3)
 
             # Filtered signal in maroon
             if self.filtered_data is not None and display_options.get('show_red_curve', True):
                 self.ax.plot(self.time_data * 1000, self.filtered_data, 
-                            color='#800000',  # Maroon color
-                            label='Filtered Signal', 
-                            alpha=0.7,
-                            linewidth=1.5)
+                        color='#800000',  # Maroon color
+                        label='Filtered Signal', 
+                        alpha=0.7,
+                        linewidth=1.5)
 
             # Processed signal
             if processed_data is not None and display_options.get('show_processed', True):
@@ -934,77 +924,91 @@ class SignalAnalyzerApp:
                                 color='magenta', s=30, alpha=1,
                                 marker='o', label='Avg Normalized Points')
 
-            # Modified peaks (purple) with regression lines
-            if display_options.get('show_modified', True):
+            # Modified peaks (purple) with integration ranges
+            has_purple_curves = (hasattr(self.action_potential_processor, 'modified_hyperpol') and 
+                            hasattr(self.action_potential_processor, 'modified_depol') and
+                            self.action_potential_processor.modified_hyperpol is not None and 
+                            self.action_potential_processor.modified_depol is not None)
+
+            if has_purple_curves and display_options.get('show_modified', True):
                 display_mode = self.action_potential_tab.modified_display_mode.get()
                 
-                has_purple_curves = (hasattr(self.action_potential_processor, 'modified_hyperpol') and 
-                                self.action_potential_processor.modified_hyperpol is not None and
-                                hasattr(self.action_potential_processor, 'modified_depol') and 
-                                self.action_potential_processor.modified_depol is not None)
-
-                if not has_purple_curves and show_points:
-                    self.action_potential_tab.show_points.set(False)
-                    show_points = False
-                    
-                if has_purple_curves:
-                    # Plot hyperpolarization
-                    hyperpol = self.action_potential_processor.modified_hyperpol[1:]
-                    hyperpol_times = self.action_potential_processor.modified_hyperpol_times[1:]
-                    
-                    if display_mode in ["line", "all_points"]:
-                        self.ax.plot(hyperpol_times * 1000, hyperpol,
-                                color='purple', label='Modified Peaks', 
-                                linewidth=2, alpha=0.8)
-                    if display_mode in ["points", "all_points"]:
-                        self.ax.scatter(hyperpol_times * 1000, hyperpol,
-                                    color='purple', s=30, alpha=0.8,
-                                    marker='o')  # Changed marker for better visibility
+                # Get hyperpolarization data
+                hyperpol = self.action_potential_processor.modified_hyperpol
+                hyperpol_times = self.action_potential_processor.modified_hyperpol_times
+                
+                # Get depolarization data
+                depol = self.action_potential_processor.modified_depol
+                depol_times = self.action_potential_processor.modified_depol_times
+                
+                # Plot curves based on display mode
+                if display_mode in ["line", "all_points"]:
+                    self.ax.plot(hyperpol_times * 1000, hyperpol,
+                            color='purple', label='Modified Peaks', 
+                            linewidth=2, alpha=0.8)
+                    self.ax.plot(depol_times * 1000, depol,
+                            color='purple', label='_nolegend_',
+                            linewidth=2, alpha=0.8)
+                            
+                if display_mode in ["points", "all_points"]:
+                    self.ax.scatter(hyperpol_times * 1000, hyperpol,
+                                color='purple', s=30, alpha=0.8,
+                                marker='o',
+                                label='_nolegend_' if display_mode == "all_points" else "Modified Points")
+                    self.ax.scatter(depol_times * 1000, depol,
+                                color='purple', s=30, alpha=0.8,
+                                marker='o',
+                                label='_nolegend_')
+                
+                # Visualize integration ranges as shaded areas
+                if integration_ranges:
+                    # Hyperpolarization range
+                    if 'hyperpol' in integration_ranges:
+                        hyperpol_range = integration_ranges['hyperpol']
+                        start_idx = hyperpol_range['start']
+                        end_idx = hyperpol_range['end']
                         
-                    # Add regression line for hyperpolarization
-                    if show_points and regression_interval:
-                        if not hasattr(self, 'plot_regression_lines'):
-                            app_logger.error("plot_regression_lines method not found")
-                        else:
-                            self.plot_regression_lines(
-                                hyperpol, hyperpol_times, 
-                                regression_interval, 
-                                color='blue', alpha=0.8  # Increased alpha for visibility
-                            )
-
-                    # Plot depolarization
-                    depol = self.action_potential_processor.modified_depol[1:]
-                    depol_times = self.action_potential_processor.modified_depol_times[1:]
-                    
-                    if display_mode in ["line", "all_points"]:
-                        self.ax.plot(depol_times * 1000, depol,
-                                color='purple', label='_nolegend_',
-                                linewidth=2, alpha=0.8)
-                    if display_mode in ["points", "all_points"]:
-                        self.ax.scatter(depol_times * 1000, depol,
-                                    color='purple', s=30, alpha=0.8,
-                                    marker='o')  # Changed marker for better visibility
-                        
-                    # Add regression line for depolarization
-                    if show_points and regression_interval:
-                        if hasattr(self, 'plot_regression_lines'):
-                            self.plot_regression_lines(
-                                depol, depol_times, 
-                                regression_interval, 
-                                color='red', alpha=0.8  # Increased alpha for visibility
-                            )
-
-                    # Show integration interval if enabled
-                    if intervals.get('integration_interval'):
-                        start_idx, end_idx = intervals['integration_interval']
-                        try:
+                        if 0 <= start_idx < len(hyperpol_times) and 0 < end_idx <= len(hyperpol_times):
                             self.ax.axvspan(
                                 hyperpol_times[start_idx] * 1000,
-                                hyperpol_times[end_idx] * 1000,
-                                color='gray', alpha=0.1
+                                hyperpol_times[end_idx-1] * 1000,
+                                color='blue', alpha=0.15,
+                                label='Hyperpol Range'
                             )
-                        except:
-                            pass  # Skip if times are out of range
+                            app_logger.debug(f"Added hyperpol range visualization: {start_idx}-{end_idx}")
+                    
+                    # Depolarization range
+                    if 'depol' in integration_ranges:
+                        depol_range = integration_ranges['depol']
+                        start_idx = depol_range['start']
+                        end_idx = depol_range['end']
+                        
+                        if 0 <= start_idx < len(depol_times) and 0 < end_idx <= len(depol_times):
+                            self.ax.axvspan(
+                                depol_times[start_idx] * 1000,
+                                depol_times[end_idx-1] * 1000,
+                                color='red', alpha=0.15,
+                                label='Depol Range'
+                            )
+                            app_logger.debug(f"Added depol range visualization: {start_idx}-{end_idx}")
+                            
+                # Add regression lines if enabled and regression intervals exist
+                if show_points and hasattr(self, 'plot_regression_lines'):
+                    regression_interval = intervals.get('regression_interval')
+                    if regression_interval:
+                        # Plot regression line for hyperpolarization
+                        self.plot_regression_lines(
+                            hyperpol, hyperpol_times, 
+                            regression_interval, 
+                            color='blue', alpha=0.8
+                        )
+                        
+                        # Plot regression line for depolarization
+                        self.plot_regression_lines(
+                            depol, depol_times, 
+                            regression_interval, 
+                            color='red', alpha=0.8
+                        )
 
             # Configure axes and layout
             self.ax.set_xlabel('Time (ms)')
@@ -1012,7 +1016,7 @@ class SignalAnalyzerApp:
             self.ax.grid(True, alpha=0.3)
             self.ax.legend()
 
-            # Apply view limits
+            # Apply view limits if set
             if view_params.get('use_custom_ylim', False):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
             if view_params.get('use_interval', False):
@@ -1021,12 +1025,13 @@ class SignalAnalyzerApp:
             self.fig.tight_layout()
             self.canvas.draw_idle()
             
-            # Toggle span selector if points are enabled
+            # Toggle span selector visibility
             if hasattr(self, 'span_selector'):
                 self.span_selector.visible = show_points
                 self.span_selector.set_active(show_points)
+                app_logger.debug(f"Span selector visibility set to {show_points}")
                 
-            app_logger.debug("Plot updated with all processed data and regression lines")
+            app_logger.debug("Plot updated with all processed data and integration ranges")
 
         except Exception as e:
             app_logger.error(f"Error updating plot with processed data: {str(e)}")

@@ -206,7 +206,9 @@ class ActionPotentialTab:
         """Update UI state after successful analysis"""
         try:
             app = self.parent.master
-            processor = getattr(app, 'action_potential_processor', None)
+            
+            # Direct reference to the processor
+            processor = app.action_potential_processor  # Not using getattr to catch AttributeError explicitly
             
             if (processor is not None and 
                 hasattr(processor, 'modified_hyperpol') and 
@@ -214,19 +216,36 @@ class ActionPotentialTab:
                 processor.modified_hyperpol is not None and
                 processor.modified_depol is not None):
                 
-                # Enable the UI
-                self.enable_points_ui()
+                app_logger.debug("Valid processor found with purple curves - enabling UI")
                 
-                # Set initial state for UI elements
-                self.modified_display_mode.set('line')  # Start in line mode
-                self.points_checkbox.state(['!disabled'])  # Ensure checkbox is enabled
+                # Always enable the checkbox
+                if hasattr(self, 'points_checkbox'):
+                    self.points_checkbox.state(['!disabled'])
                 
-                app_logger.debug("UI updated after successful analysis")
+                # Show sliders regardless of show_points state
+                if hasattr(self, 'slider_frame'):
+                    self.slider_frame.pack(fill='x', padx=5, pady=5)
+                    
+                # Enable sliders but keep them inactive until show_points is checked
+                self.enable_range_sliders(False)
                 
+                # Set initial mode
+                self.modified_display_mode.set('line')
+                
+                app_logger.debug("UI successfully updated after analysis")
             else:
                 self.disable_points_ui()
-                app_logger.debug("UI disabled - missing processor or data")
-                
+                if processor is None:
+                    app_logger.debug("UI disabled - processor is None")
+                elif not hasattr(processor, 'modified_hyperpol') or not hasattr(processor, 'modified_depol'):
+                    app_logger.debug("UI disabled - missing purple curve attributes")
+                elif processor.modified_hyperpol is None or processor.modified_depol is None:
+                    app_logger.debug("UI disabled - purple curves are None")
+                else:
+                    app_logger.debug("UI disabled - unknown reason")
+        except AttributeError as e:
+            app_logger.error(f"AttributeError in update_after_analysis: {str(e)}")
+            self.disable_points_ui()
         except Exception as e:
             app_logger.error(f"Error updating UI after analysis: {str(e)}")
             self.disable_points_ui()
@@ -235,16 +254,20 @@ class ActionPotentialTab:
         """Enable points & regression UI after successful analysis"""
         try:
             if hasattr(self, 'points_checkbox'):
-                self.points_checkbox.state(['!disabled'])  # Enable checkbox
+                self.points_checkbox.state(['!disabled'])  # Always enable the checkbox
+                app_logger.debug("Points checkbox enabled")
                 
-                # If points were previously enabled, make sure UI reflects that
-                if self.show_points.get():
-                    if hasattr(self, 'slider_frame'):
-                        self.slider_frame.pack(fill='x', padx=5, pady=5)
-                    self.enable_range_sliders(True)
-                    
-                app_logger.debug("Points & regression UI enabled")
-                
+            # Always show slider frame after analysis, regardless of show_points state
+            if hasattr(self, 'slider_frame'):
+                self.slider_frame.pack(fill='x', padx=5, pady=5)
+                app_logger.debug("Slider frame shown")
+            
+            # Enable sliders based on show_points state
+            slider_state = 'normal' if self.show_points.get() else 'disabled'
+            self.enable_range_sliders(slider_state == 'normal')
+            app_logger.debug(f"Sliders enabled with state: {slider_state}")
+            
+            app_logger.debug("Points & regression UI successfully enabled")
         except Exception as e:
             app_logger.error(f"Error enabling points UI: {str(e)}")
 
@@ -367,44 +390,52 @@ class ActionPotentialTab:
         """Handle toggling of points and regression visualization."""
         try:
             show_points = self.show_points.get()
+            app_logger.debug(f"Points toggle changed to: {show_points}")
             
             # Get the processor directly from the parent app
             app = self.parent.master
             
             if show_points:
+                # Check if processor exists and has required data
                 if not hasattr(app, 'action_potential_processor') or app.action_potential_processor is None:
                     self.show_points.set(False)
                     messagebox.showinfo(
                         "Analysis Required",
                         "Please run 'Analyze Signal' first to generate the purple curves."
                     )
+                    app_logger.debug("Show points aborted - no processor")
                     return
                 
-                # Enable points mode and show sliders
+                # Set display mode to show points
                 self.modified_display_mode.set("all_points")
-                self.slider_frame.pack(fill='x', padx=5, pady=5)
+                
+                # Enable sliders
                 self.enable_range_sliders(True)
-                app_logger.debug("Points mode enabled, sliders shown")
+                app_logger.debug("Sliders enabled for integration ranges")
                 
             else:
-                # Disable points mode and hide sliders
+                # Set display mode to line only
                 self.modified_display_mode.set("line")
-                self.slider_frame.pack_forget()
+                
+                # Disable sliders but keep them visible
                 self.enable_range_sliders(False)
-                app_logger.debug("Points mode disabled, sliders hidden")
+                app_logger.debug("Sliders disabled but still visible")
 
             # Toggle span selectors in main app
             if hasattr(self.parent, 'master'):
                 self.parent.master.toggle_span_selectors(show_points)
 
-            # Update display and trigger any needed callbacks
+            # Update display
             self.update_range_display()
+            
+            # Update plot with current integration ranges
             self.on_integration_interval_change()
+            
+            app_logger.debug(f"Points visibility updated: {show_points}")
             
         except Exception as e:
             app_logger.error(f"Error in show points change: {str(e)}")
             self.show_points.set(False)
-            self.slider_frame.pack_forget()
             self.enable_range_sliders(False)
 
     def get_intervals(self):
@@ -912,14 +943,26 @@ class ActionPotentialTab:
             app_logger.error(f"Error handling display change: {str(e)}")
 
     def on_integration_interval_change(self, *args):
-        """Handle changes to integration interval."""
+        """Handle changes to integration interval sliders."""
         try:
+            # Get current integration ranges
             ranges = self.get_integration_ranges()
+            app_logger.debug(f"Integration ranges updated: {ranges}")
+            
+            # Update display text
+            self.update_range_display()
+            
+            # Send to main app for plot update
             if self.update_callback:
                 self.update_callback({
                     'integration_ranges': ranges,
-                    'show_points': self.show_points.get()
+                    'show_points': self.show_points.get(),
+                    'visibility_update': True  # Flag as visibility-only update
                 })
+                app_logger.debug("Plot update triggered with new integration ranges")
+            else:
+                app_logger.warning("No update callback available for integration ranges")
+                
         except Exception as e:
             app_logger.error(f"Error handling integration interval change: {str(e)}")
 
