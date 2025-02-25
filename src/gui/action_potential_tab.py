@@ -207,8 +207,13 @@ class ActionPotentialTab:
         try:
             app = self.parent.master
             
-            # Direct reference to the processor
-            processor = app.action_potential_processor  # Not using getattr to catch AttributeError explicitly
+            # Direct reference to the processor in the main app
+            if not hasattr(app, 'action_potential_processor'):
+                app_logger.debug("UI disabled - app has no action_potential_processor attribute")
+                self.disable_points_ui()
+                return
+                
+            processor = app.action_potential_processor
             
             if (processor is not None and 
                 hasattr(processor, 'modified_hyperpol') and 

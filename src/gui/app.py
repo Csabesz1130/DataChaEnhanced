@@ -16,8 +16,8 @@ from src.io_utils.io_utils import ATFHandler
 from src.filtering.filtering import combined_filter
 from src.analysis.action_potential import ActionPotentialProcessor
 from src.gui.window_manager import SignalWindowManager
-from src.utils.history_manager import HistoryManager
-from src.gui.history_window import AnalysisHistoryManager, HistoryWindow
+from src.utils.analysis_history_manager import AnalysisHistoryManager
+from src.gui.history_window import HistoryWindow
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -157,10 +157,22 @@ class SignalAnalyzerApp:
 
     def show_analysis_history(self):
         """Show the analysis history dialog."""
-        if hasattr(self, 'history_manager'):
-            self.history_manager.show_history_dialog()
-        else:
+        if not hasattr(self, 'history_manager'):
             messagebox.showinfo("History", "History manager not initialized.")
+            return
+            
+        if not self.history_manager.history_entries:
+            messagebox.showinfo("History", "No analysis history available.")
+            return
+            
+        try:
+            # Import the HistoryWindow class directly here in case of import issues
+            from src.gui.history_window import HistoryWindow
+            # Create history window
+            history_window = HistoryWindow(self.master, self.history_manager)
+        except Exception as e:
+            app_logger.error(f"Error showing history window: {str(e)}")
+            messagebox.showerror("Error", f"Failed to show history: {str(e)}")
 
     def show_history(self):
         """Show the analysis history window."""
