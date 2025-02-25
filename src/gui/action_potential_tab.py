@@ -361,6 +361,40 @@ class ActionPotentialTab:
                     f"Depol: {depol['start']}-{depol['end']}"
             )
 
+    def get_display_options(self):
+        """Get current display options."""
+        try:
+            return {
+                'show_noisy_original': self.show_noisy_original.get(),
+                'show_red_curve': self.show_red_curve.get(),
+                'show_processed': self.show_processed.get(),
+                'show_average': self.show_average.get(),
+                'show_normalized': self.show_normalized.get(),
+                'show_modified': self.show_modified.get(),
+                'show_averaged_normalized': self.show_averaged_normalized.get(),
+                'processed_mode': self.processed_display_mode.get(),
+                'average_mode': self.average_display_mode.get(),
+                'normalized_mode': self.normalized_display_mode.get(),
+                'modified_mode': self.modified_display_mode.get(),
+                'averaged_normalized_mode': self.averaged_normalized_display_mode.get()
+            }
+        except Exception as e:
+            app_logger.error(f"Error getting display options: {str(e)}")
+            return {
+                'show_noisy_original': False,
+                'show_red_curve': True,
+                'show_processed': True,
+                'show_average': True,
+                'show_normalized': True,
+                'show_modified': True,
+                'show_averaged_normalized': True,
+                'processed_mode': 'line',
+                'average_mode': 'line',
+                'normalized_mode': 'line',
+                'modified_mode': 'line',
+                'averaged_normalized_mode': 'line'
+            }
+
     def get_integration_ranges(self):
         """Get current integration ranges for both curves."""
         try:

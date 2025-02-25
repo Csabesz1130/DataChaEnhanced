@@ -123,9 +123,26 @@ class HistoryWindow:
             for item in self.tree.get_children():
                 self.tree.delete(item)
                 
-            # Add history entries
+            # Filter to show only manual analyses or the most recent analysis for each file
             history_entries = self.history_manager.history_entries
-            for entry in reversed(history_entries):  # Newest first
+            
+            # Get unique filenames
+            filenames = set(entry['filename'] for entry in history_entries)
+            
+            # For each unique filename, get the most recent entry
+            filtered_entries = []
+            for filename in filenames:
+                file_entries = [entry for entry in history_entries if entry['filename'] == filename]
+                # Sort by timestamp (newest first)
+                file_entries.sort(key=lambda x: x['timestamp'], reverse=True)
+                # Add the most recent entry
+                filtered_entries.append(file_entries[0])
+            
+            # Sort by timestamp (newest first)
+            filtered_entries.sort(key=lambda x: x['timestamp'], reverse=True)
+            
+            # Add entries to tree
+            for entry in filtered_entries:
                 self.tree.insert(
                     '', 'end', 
                     values=(
@@ -139,7 +156,7 @@ class HistoryWindow:
                     )
                 )
             
-            app_logger.debug(f"Populated history tree with {len(history_entries)} entries")
+            app_logger.debug(f"Populated history tree with {len(filtered_entries)} entries")
                 
         except Exception as e:
             app_logger.error(f"Error populating history tree: {str(e)}")

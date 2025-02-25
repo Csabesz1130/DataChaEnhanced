@@ -473,12 +473,7 @@ class SignalAnalyzerApp:
             voltage = ActionPotentialProcessor.parse_voltage_from_filename(filepath)
             if voltage is not None:
                 app_logger.info(f"Detected V2 voltage from filename: {voltage} mV")
-                self.action_potential_tab.V2.set(voltage)  # Update UI value
-                self.action_potential_processor = ActionPotentialProcessor(
-                    self.data,
-                    self.time_data,
-                    {'V2': voltage}
-                )
+                self.action_potential_tab.V2.set(voltage)  # Update UI value but don't run analysis
             else:
                 self.action_potential_processor = None
             
@@ -654,7 +649,9 @@ class SignalAnalyzerApp:
             
             # Add entry to history
             if hasattr(self, 'history_manager') and self.current_file:
-                self.history_manager.add_entry(self.current_file, results)
+                # Determine if this is automatic or manual analysis
+                analysis_type = "auto" if hasattr(self, 'auto_analysis_in_progress') and self.auto_analysis_in_progress else "manual"
+                self.history_manager.add_entry(self.current_file, results, analysis_type)
             
             app_logger.info("Action potential analysis completed successfully")
 
@@ -701,6 +698,108 @@ class SignalAnalyzerApp:
         time_range = xlim[1] - xlim[0]
         if time_range > 10:
             self.ax.xaxis.set_major_locator(plt.MaxNLocator(10))
+
+    def show_file_history_dialog(self, filename):
+        """Show a dialog with previous analysis results for a file."""
+        if not hasattr(self, 'history_manager') or not hasattr(self.history_manager, 'history_entries'):
+            return
+        
+        history = self.history_manager.history_entries
+        file_history = [entry for entry in history if entry['filename'] == filename]
+        
+        if not file_history:
+            return
+        
+        # Create dialog window
+        dialog = tk.Toplevel(self.master)
+        dialog.title(f"File History: {filename}")
+        dialog.transient(self.master)
+        dialog.grab_set()
+        dialog.geometry("400x300")
+        
+        # Create content frame
+        frame = ttk.Frame(dialog, padding=10)
+        frame.pack(fill='both', expand=True)
+        
+        # Add icon
+        icon_frame = ttk.Frame(frame)
+        icon_frame.pack(fill='x', pady=10)
+        
+        info_icon = ttk.Label(icon_frame, text="ℹ", font=("Arial", 24))
+        info_icon.pack(side='left', padx=10)
+        
+        # Add header
+        header = ttk.Label(
+            icon_frame, 
+            text=f"Previous analysis results for {filename}:",
+            font=("Arial", 12, "bold"),
+            wraplength=300
+        )
+        header.pack(side='left', fill='x', expand=True)
+        
+        # Sort entries by timestamp (newest first)
+        file_history.sort(key=lambda x: x['timestamp'], reverse=True)
+        latest_result = file_history[0]
+        
+        # Create content
+        content_frame = ttk.Frame(frame)
+        content_frame.pack(fill='both', expand=True, pady=10)
+        
+        # Add results
+        results = [
+            ("Integral Value:", latest_result['integral_value']),
+            ("Hyperpol Area:", latest_result['hyperpol_area']),
+            ("Depol Area:", latest_result['depol_area']),
+            ("Linear Capacitance:", latest_result['capacitance_nF']),
+            ("V2 Voltage:", latest_result.get('v2_voltage', "N/A")),
+            ("Analysis Date:", latest_result['timestamp'])
+        ]
+        
+        for i, (label, value) in enumerate(results):
+            ttk.Label(content_frame, text=label, font=("Arial", 10, "bold")).grid(
+                row=i, column=0, sticky='w', padx=5, pady=3
+            )
+            ttk.Label(content_frame, text=value, font=("Arial", 10)).grid(
+                row=i, column=1, sticky='w', padx=5, pady=3
+            )
+        
+        # Add button
+        button_frame = ttk.Frame(frame)
+        button_frame.pack(fill='x', pady=10)
+        
+        # Add progress bar to show up-to-date status
+        progress_frame = ttk.Frame(frame)
+        progress_frame.pack(fill='x', pady=5)
+        
+        progress = ttk.Progressbar(progress_frame, length=300, mode='determinate', value=100)
+        progress.pack(side='top', fill='x', padx=10)
+        
+        status_text = "Analysis complete"
+        status = ttk.Label(progress_frame, text=status_text, anchor='center')
+        status.pack(side='top', fill='x', padx=10)
+        
+        # Close button
+        ttk.Button(
+            button_frame, 
+            text="OK", 
+            command=dialog.destroy,
+            width=10
+        ).pack(side='right', padx=10)
+        
+        # View History button
+        ttk.Button(
+            button_frame,
+            text="View All History",
+            command=lambda: [dialog.destroy(), self.show_analysis_history()]
+        ).pack(side='left', padx=10)
+        
+        # Center dialog on parent window
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = self.master.winfo_rootx() + (self.master.winfo_width() - width) // 2
+        y = self.master.winfo_rooty() + (self.master.winfo_height() - height) // 2
+        dialog.geometry(f"+{x}+{y}")
 
     def update_plot(self, view_params=None):
         """Update plot with current data ensuring arrays match."""
