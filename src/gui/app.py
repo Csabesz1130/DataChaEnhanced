@@ -216,11 +216,14 @@ class SignalAnalyzerApp:
                 end_idx = max(1, min(end_idx, 199))
                 
                 # Update sliders
-                self.action_potential_tab.regression_start.set(start_idx)
-                self.action_potential_tab.regression_end.set(end_idx)
+                if hasattr(self.action_potential_tab, 'regression_start'):
+                    self.action_potential_tab.regression_start.set(start_idx)
+                if hasattr(self.action_potential_tab, 'regression_end'):
+                    self.action_potential_tab.regression_end.set(end_idx)
                 
                 # Update display
-                self.action_potential_tab.on_regression_interval_change()
+                if hasattr(self.action_potential_tab, 'on_regression_interval_change'):
+                    self.action_potential_tab.on_regression_interval_change()
                 app_logger.debug(f"Selected range: {start_idx}-{end_idx}")
                 
             except Exception as e:
@@ -243,25 +246,54 @@ class SignalAnalyzerApp:
         
         # Initially hide it
         self.span_selector.visible = False
+        
+        # Setup interactive range span selectors
+        self.setup_interactive_ranges()
 
-    def toggle_span_selector(self, visible):
-        """Toggle the visibility and activity of the span selector."""
+    def toggle_span_selectors(self, visible):
+        """Toggle the visibility and activity of all span selectors."""
         if hasattr(self, 'span_selector'):
             try:
-                # Both set visibility and active state
-                self.span_selector.set_visible(visible)
-                self.span_selector.set_active(visible)
+                # Get current display mode
+                display_mode = "line"
+                if hasattr(self.action_potential_tab, 'modified_display_mode'):
+                    display_mode = self.action_potential_tab.modified_display_mode.get()
+                
+                # Enable if visible is True and display mode is either line or all_points
+                active = visible and display_mode in ["line", "all_points"]
+                
+                # Set visibility for the main span selector (regression)
+                self.span_selector.set_visible(active)
+                self.span_selector.set_active(active)
+                
+                # Also toggle the range span selectors if they exist
+                if hasattr(self, 'hyperpol_span'):
+                    self.hyperpol_span.set_visible(active)
+                    self.hyperpol_span.set_active(active)
+                    
+                if hasattr(self, 'depol_span'):
+                    self.depol_span.set_visible(active)
+                    self.depol_span.set_active(active)
                 
                 # Ensure the canvas is updated
                 self.canvas.draw_idle()
                 
-                app_logger.debug(f"Span selector visibility set to {visible}")
+                app_logger.debug(f"All span selectors visibility set to {active} (requested: {visible}, mode: {display_mode})")
                 
             except Exception as e:
-                app_logger.error(f"Error toggling span selector: {str(e)}")
-                # Ensure selector is hidden on error
+                app_logger.error(f"Error toggling span selectors: {str(e)}")
+                # Ensure selectors are hidden on error
                 self.span_selector.set_visible(False)
                 self.span_selector.set_active(False)
+                
+                if hasattr(self, 'hyperpol_span'):
+                    self.hyperpol_span.set_visible(False)
+                    self.hyperpol_span.set_active(False)
+                    
+                if hasattr(self, 'depol_span'):
+                    self.depol_span.set_visible(False)
+                    self.depol_span.set_active(False)
+                    
                 self.canvas.draw_idle()
 
     def plot_regression_lines(self, data, times, interval, color='purple', alpha=0.7):
@@ -429,6 +461,158 @@ class SignalAnalyzerApp:
         except Exception as e:
             messagebox.showerror("Export Error", str(e))
 
+    def setup_interactive_ranges(self):
+        """Setup interactive draggable span selectors for integration ranges."""
+        from matplotlib.widgets import SpanSelector
+        
+        # Create span selector for hyperpolarization range
+        self.hyperpol_span = SpanSelector(
+            self.ax,
+            self.on_hyperpol_span_select,
+            'horizontal',
+            useblit=True,
+            props=dict(
+                alpha=0.3,
+                facecolor='blue',
+                edgecolor='blue'
+            ),
+            interactive=True,
+            drag_from_anywhere=True
+        )
+        
+        # Create span selector for depolarization range
+        self.depol_span = SpanSelector(
+            self.ax,
+            self.on_depol_span_select,
+            'horizontal',
+            useblit=True,
+            props=dict(
+                alpha=0.3,
+                facecolor='red',
+                edgecolor='red'
+            ),
+            interactive=True,
+            drag_from_anywhere=True
+        )
+        
+        # Initially hide them
+        self.hyperpol_span.visible = False
+        self.depol_span.visible = False
+        
+        app_logger.debug("Interactive integration ranges initialized")
+
+    def on_depol_span_select(self, xmin, xmax):
+        """Handle dragging of the depolarization range."""
+        if not hasattr(self, 'action_potential_processor') or self.action_potential_processor is None:
+            return
+            
+        # Check if we're in the right display mode
+        if not hasattr(self.action_potential_tab, 'modified_display_mode'):
+            return
+            
+        display_mode = self.action_potential_tab.modified_display_mode.get()
+        if display_mode not in ["line", "all_points"]:
+            # Only process span selection in line or all_points mode
+            return
+            
+        try:
+            if not hasattr(self.action_potential_processor, 'modified_depol_times'):
+                return
+                
+            # Convert milliseconds to index in the depol range
+            # First, convert the selected range from ms to seconds
+            xmin_sec = xmin / 1000
+            xmax_sec = xmax / 1000
+            
+            # Get depol times array for index calculation
+            depol_times = self.action_potential_processor.modified_depol_times
+            if depol_times is None or len(depol_times) == 0:
+                return
+                
+            # Calculate the time span of the depol data
+            time_span = depol_times[-1] - depol_times[0]
+            if time_span <= 0:
+                return
+                
+            # Calculate the corresponding indices (0-199 range)
+            start_idx = int((xmin_sec - depol_times[0]) / time_span * (len(depol_times) - 1))
+            end_idx = int((xmax_sec - depol_times[0]) / time_span * (len(depol_times) - 1))
+            
+            # Ensure indices are within bounds
+            start_idx = max(0, min(start_idx, len(depol_times) - 2))
+            end_idx = max(start_idx + 1, min(end_idx, len(depol_times) - 1))
+            
+            # Update the sliders in the action potential tab
+            if hasattr(self.action_potential_tab, 'depol_start'):
+                self.action_potential_tab.depol_start.set(start_idx)
+            if hasattr(self.action_potential_tab, 'depol_end'):
+                self.action_potential_tab.depol_end.set(end_idx)
+            
+            # Trigger the interval change handler
+            if hasattr(self.action_potential_tab, 'on_integration_interval_change'):
+                self.action_potential_tab.on_integration_interval_change()
+            
+            app_logger.debug(f"Depol range updated: {start_idx}-{end_idx}")
+            
+        except Exception as e:
+            app_logger.error(f"Error updating depol range: {str(e)}")
+
+    def on_hyperpol_span_select(self, xmin, xmax):
+        """Handle dragging of the hyperpolarization range."""
+        if not hasattr(self, 'action_potential_processor') or self.action_potential_processor is None:
+            return
+            
+        # Check if we're in the right display mode
+        if not hasattr(self.action_potential_tab, 'modified_display_mode'):
+            return
+            
+        display_mode = self.action_potential_tab.modified_display_mode.get()
+        if display_mode not in ["line", "all_points"]:
+            # Only process span selection in line or all_points mode
+            return
+            
+        try:
+            if not hasattr(self.action_potential_processor, 'modified_hyperpol_times'):
+                return
+                
+            # Convert milliseconds to index in the hyperpol range
+            # First, convert the selected range from ms to seconds
+            xmin_sec = xmin / 1000
+            xmax_sec = xmax / 1000
+            
+            # Get hyperpol times array for index calculation
+            hyperpol_times = self.action_potential_processor.modified_hyperpol_times
+            if hyperpol_times is None or len(hyperpol_times) == 0:
+                return
+                
+            # Calculate the time span of the hyperpol data
+            time_span = hyperpol_times[-1] - hyperpol_times[0]
+            if time_span <= 0:
+                return
+                
+            # Calculate the corresponding indices (0-199 range)
+            start_idx = int((xmin_sec - hyperpol_times[0]) / time_span * (len(hyperpol_times) - 1))
+            end_idx = int((xmax_sec - hyperpol_times[0]) / time_span * (len(hyperpol_times) - 1))
+            
+            # Ensure indices are within bounds
+            start_idx = max(0, min(start_idx, len(hyperpol_times) - 2))
+            end_idx = max(start_idx + 1, min(end_idx, len(hyperpol_times) - 1))
+            
+            # Update the sliders in the action potential tab
+            if hasattr(self.action_potential_tab, 'hyperpol_start'):
+                self.action_potential_tab.hyperpol_start.set(start_idx)
+            if hasattr(self.action_potential_tab, 'hyperpol_end'):
+                self.action_potential_tab.hyperpol_end.set(end_idx)
+            
+            # Trigger the interval change handler
+            if hasattr(self.action_potential_tab, 'on_integration_interval_change'):
+                self.action_potential_tab.on_integration_interval_change()
+            
+            app_logger.debug(f"Hyperpol range updated: {start_idx}-{end_idx}")
+            
+        except Exception as e:
+            app_logger.error(f"Error updating hyperpol range: {str(e)}")
+
     def load_data(self):
         """Load data from file with proper cleanup of old data."""
         try:
@@ -539,6 +723,41 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error updating analysis: {str(e)}")
 
+    def on_display_mode_change(self, *args):
+        """Handle changes in display mode to update span selectors."""
+        try:
+            # Check if we have active span selectors
+            if not (hasattr(self, 'hyperpol_span') and hasattr(self, 'depol_span')):
+                return
+                
+            # Check if points are enabled
+            if not hasattr(self.action_potential_tab, 'show_points'):
+                return
+                
+            show_points = self.action_potential_tab.show_points.get()
+            if not show_points:
+                return
+                
+            # Get current display mode
+            display_mode = self.action_potential_tab.modified_display_mode.get()
+            
+            # Enable span selectors in both line and all_points modes
+            enable_spans = display_mode in ["line", "all_points"]
+            
+            # Update span selector visibility
+            self.hyperpol_span.visible = enable_spans
+            self.hyperpol_span.set_active(enable_spans)
+            self.depol_span.visible = enable_spans
+            self.depol_span.set_active(enable_spans)
+            
+            # Update canvas
+            self.canvas.draw_idle()
+            
+            app_logger.debug(f"Span selectors updated for display mode {display_mode}")
+            
+        except Exception as e:
+            app_logger.error(f"Error updating span selectors for display mode: {str(e)}")
+
     def on_action_potential_analysis(self, params):
         """
         Handle action potential analysis or display updates from the ActionPotentialTab.
@@ -588,7 +807,7 @@ class SignalAnalyzerApp:
 
             # Check for pipeline failure
             if processed_data is None:
-                error_msg = str(results.get('integral_value', 'Unknown error'))
+                error_msg = results.get('error', 'Unknown error')
                 messagebox.showwarning("Analysis", f"Analysis failed: {error_msg}")
                 return
 
@@ -639,19 +858,12 @@ class SignalAnalyzerApp:
             # Update results in the UI
             self.action_potential_tab.update_results(results)
             
-            # Directly enable the checkbox to ensure it's active
-            if hasattr(self.action_potential_tab, 'points_checkbox'):
-                self.action_potential_tab.points_checkbox.state(['!disabled'])
-                app_logger.debug("Points checkbox explicitly enabled")
+            # Make sure the action_potential_processor is fully stored
+            app_logger.debug(f"Analysis complete - action_potential_processor reference is {self.action_potential_processor is not None}")
             
-            # Update UI state after analysis
-            self.action_potential_tab.update_after_analysis()
-            
-            # Add entry to history
-            if hasattr(self, 'history_manager') and self.current_file:
-                # Determine if this is automatic or manual analysis
-                analysis_type = "auto" if hasattr(self, 'auto_analysis_in_progress') and self.auto_analysis_in_progress else "manual"
-                self.history_manager.add_entry(self.current_file, results, analysis_type)
+            # PASS THE PROCESSOR REFERENCE DIRECTLY to avoid lookup issues
+            if hasattr(self.action_potential_tab, 'set_processor'):
+                self.action_potential_tab.set_processor(self.action_potential_processor)
             
             app_logger.info("Action potential analysis completed successfully")
 
@@ -1152,11 +1364,74 @@ class SignalAnalyzerApp:
             self.fig.tight_layout()
             self.canvas.draw_idle()
             
-            # Toggle span selector visibility
+            # Toggle span selector visibility based on display mode
+            active_mode = False
+            if hasattr(self.action_potential_tab, 'modified_display_mode'):
+                # Enable in both line and all_points modes
+                active_mode = (self.action_potential_tab.modified_display_mode.get() in ["line", "all_points"])
+
+            # Enable spans if show_points is true and we're in a compatible display mode
+            enable_spans = show_points and active_mode
+
             if hasattr(self, 'span_selector'):
-                self.span_selector.visible = show_points
-                self.span_selector.set_active(show_points)
-                app_logger.debug(f"Span selector visibility set to {show_points}")
+                self.span_selector.visible = enable_spans
+                self.span_selector.set_active(enable_spans)
+                app_logger.debug(f"Span selector visibility set to {enable_spans}")
+
+            # If span selectors are visible and ranges are defined, position them
+            if enable_spans and hasattr(self, 'hyperpol_span') and hasattr(self, 'depol_span'):
+                # Make sure we have the times data
+                if hasattr(self.action_potential_processor, 'modified_hyperpol_times') and \
+                   hasattr(self.action_potential_processor, 'modified_depol_times'):
+                    
+                    hyperpol_times = self.action_potential_processor.modified_hyperpol_times
+                    depol_times = self.action_potential_processor.modified_depol_times
+                    
+                    # Hyperpol range
+                    if 'hyperpol' in integration_ranges:
+                        hyperpol_range = integration_ranges['hyperpol']
+                        start_idx = hyperpol_range['start']
+                        end_idx = hyperpol_range['end']
+                        
+                        if (hyperpol_times is not None and 0 <= start_idx < len(hyperpol_times) and 
+                            0 < end_idx <= len(hyperpol_times)):
+                            # Set the initial position of the hyperpol span selector
+                            try:
+                                self.hyperpol_span.extents = (
+                                    hyperpol_times[start_idx] * 1000, 
+                                    hyperpol_times[end_idx - 1] * 1000
+                                )
+                                self.hyperpol_span.visible = True
+                                self.hyperpol_span.set_active(True)
+                            except Exception as e:
+                                app_logger.error(f"Error setting hyperpol span extents: {str(e)}")
+                    
+                    # Depol range
+                    if 'depol' in integration_ranges:
+                        depol_range = integration_ranges['depol']
+                        start_idx = depol_range['start']
+                        end_idx = depol_range['end']
+                        
+                        if (depol_times is not None and 0 <= start_idx < len(depol_times) and 
+                            0 < end_idx <= len(depol_times)):
+                            # Set the initial position of the depol span selector
+                            try:
+                                self.depol_span.extents = (
+                                    depol_times[start_idx] * 1000, 
+                                    depol_times[end_idx - 1] * 1000
+                                )
+                                self.depol_span.visible = True
+                                self.depol_span.set_active(True)
+                            except Exception as e:
+                                app_logger.error(f"Error setting depol span extents: {str(e)}")
+            else:
+                # Disable span selectors when not in the right mode
+                if hasattr(self, 'hyperpol_span'):
+                    self.hyperpol_span.visible = False
+                    self.hyperpol_span.set_active(False)
+                if hasattr(self, 'depol_span'):
+                    self.depol_span.visible = False
+                    self.depol_span.set_active(False)
                 
             app_logger.debug("Plot updated with all processed data and integration ranges")
 

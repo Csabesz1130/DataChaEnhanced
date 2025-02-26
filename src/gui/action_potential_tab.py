@@ -113,11 +113,11 @@ class ActionPotentialTab:
             return None
         
     def setup_regression_controls(self):
-        """Setup regression range selection controls and sliders."""
+        """Setup regression range selection controls."""
         reg_frame = ttk.LabelFrame(self.scrollable_frame, text="Range Selection")
         reg_frame.pack(fill='x', padx=5, pady=5)
 
-        # Points control frame
+        # Show points toggle with better connection to existing analysis
         points_frame = ttk.Frame(reg_frame)
         points_frame.pack(fill='x', padx=5, pady=2)
 
@@ -129,6 +129,14 @@ class ActionPotentialTab:
             command=self.on_show_points_change
         )
         self.points_checkbox.pack(pady=5)
+        
+        # Initially disable the checkbox until analysis is complete
+        # Use State Flags correctly:
+        # The ttk widgets use state flags instead of the traditional 'state' property
+        # Flags are strings preceded by either '!' (to remove) or nothing (to add)
+        # E.g., ['disabled'] to disable, ['!disabled'] to enable
+        self.points_checkbox.state(['disabled'])
+        app_logger.debug("Points checkbox initially disabled")
 
         # Help text
         ttk.Label(
@@ -138,206 +146,101 @@ class ActionPotentialTab:
             font=('TkDefaultFont', 8, 'italic')
         ).pack(pady=2)
 
-        # Slider frames
-        self.slider_frame = ttk.Frame(reg_frame)
-        self.slider_frame.pack(fill='x', padx=5, pady=5)
-
-        # Hyperpolarization range
-        hyperpol_frame = ttk.LabelFrame(self.slider_frame, text="Hyperpolarization")
-        hyperpol_frame.pack(fill='x', pady=2)
-
-        # Start slider
-        self.hyperpol_start = tk.IntVar(value=0)
-        ttk.Label(hyperpol_frame, text="Start:").pack(side='left')
-        self.hyperpol_start_slider = ttk.Scale(
-            hyperpol_frame,
-            from_=0,
-            to=199,
-            variable=self.hyperpol_start,
-            orient='horizontal'
-        )
-        self.hyperpol_start_slider.pack(fill='x', padx=5)
-
-        # End slider
-        self.hyperpol_end = tk.IntVar(value=200)
-        ttk.Label(hyperpol_frame, text="End:").pack(side='left')
-        self.hyperpol_end_slider = ttk.Scale(
-            hyperpol_frame,
-            from_=1,
-            to=200,
-            variable=self.hyperpol_end,
-            orient='horizontal'
-        )
-        self.hyperpol_end_slider.pack(fill='x', padx=5)
-
-        # Depolarization range
-        depol_frame = ttk.LabelFrame(self.slider_frame, text="Depolarization")
-        depol_frame.pack(fill='x', pady=2)
-
-        # Start slider
-        self.depol_start = tk.IntVar(value=0)
-        ttk.Label(depol_frame, text="Start:").pack(side='left')
-        self.depol_start_slider = ttk.Scale(
-            depol_frame,
-            from_=0,
-            to=199,
-            variable=self.depol_start,
-            orient='horizontal'
-        )
-        self.depol_start_slider.pack(fill='x', padx=5)
-
-        # End slider
-        self.depol_end = tk.IntVar(value=200)
-        ttk.Label(depol_frame, text="End:").pack(side='left')
-        self.depol_end_slider = ttk.Scale(
-            depol_frame,
-            from_=1,
-            to=200,
-            variable=self.depol_end,
-            orient='horizontal'
-        )
-        self.depol_end_slider.pack(fill='x', padx=5)
-
-        # Initially hide slider frame and disable checkbox
-        self.slider_frame.pack_forget()
-        self.points_checkbox.state(['disabled'])
-
     def update_after_analysis(self):
-        """Update UI state after successful analysis"""
+        """Update UI state after successful analysis."""
         try:
+            # First check if we can access the processor through the app
             app = self.parent.master
+            processor_exists = hasattr(app, 'action_potential_processor') and app.action_potential_processor is not None
             
-            # Direct reference to the processor in the main app
-            if not hasattr(app, 'action_potential_processor'):
-                app_logger.debug("UI disabled - app has no action_potential_processor attribute")
-                self.disable_points_ui()
-                return
+            if processor_exists:
+                # Check if purple curves exist
+                has_purple_curves = (
+                    hasattr(app.action_potential_processor, 'modified_hyperpol') and 
+                    app.action_potential_processor.modified_hyperpol is not None and
+                    len(app.action_potential_processor.modified_hyperpol) > 0 and
+                    hasattr(app.action_potential_processor, 'modified_depol') and 
+                    app.action_potential_processor.modified_depol is not None and
+                    len(app.action_potential_processor.modified_depol) > 0
+                )
                 
-            processor = app.action_potential_processor
-            
-            if (processor is not None and 
-                hasattr(processor, 'modified_hyperpol') and 
-                hasattr(processor, 'modified_depol') and
-                processor.modified_hyperpol is not None and
-                processor.modified_depol is not None):
-                
-                app_logger.debug("Valid processor found with purple curves - enabling UI")
-                
-                # Always enable the checkbox
-                if hasattr(self, 'points_checkbox'):
-                    self.points_checkbox.state(['!disabled'])
-                
-                # Show sliders regardless of show_points state
-                if hasattr(self, 'slider_frame'):
-                    self.slider_frame.pack(fill='x', padx=5, pady=5)
-                    
-                # Enable sliders but keep them inactive until show_points is checked
-                self.enable_range_sliders(False)
-                
-                # Set initial mode
-                self.modified_display_mode.set('line')
-                
-                app_logger.debug("UI successfully updated after analysis")
-            else:
-                self.disable_points_ui()
-                if processor is None:
-                    app_logger.debug("UI disabled - processor is None")
-                elif not hasattr(processor, 'modified_hyperpol') or not hasattr(processor, 'modified_depol'):
-                    app_logger.debug("UI disabled - missing purple curve attributes")
-                elif processor.modified_hyperpol is None or processor.modified_depol is None:
-                    app_logger.debug("UI disabled - purple curves are None")
+                # Enable the points & regression checkbox if purple curves exist
+                if has_purple_curves:
+                    # First enable the checkbox (make it clickable)
+                    self.enable_points_ui()
+                    app_logger.debug("Points checkbox enabled - purple curves are available")
                 else:
-                    app_logger.debug("UI disabled - unknown reason")
-        except AttributeError as e:
-            app_logger.error(f"AttributeError in update_after_analysis: {str(e)}")
-            self.disable_points_ui()
+                    self.disable_points_ui()
+                    app_logger.debug("Points checkbox disabled - no purple curves available")
+            else:
+                # Schedule another attempt after a short delay (200ms)
+                app_logger.debug("action_potential_processor not available yet, retrying in 200ms")
+                self.parent.after(200, self.update_after_analysis)
+                
         except Exception as e:
-            app_logger.error(f"Error updating UI after analysis: {str(e)}")
+            app_logger.error(f"Error in update_after_analysis: {str(e)}")
             self.disable_points_ui()
 
     def enable_points_ui(self):
-        """Enable points & regression UI after successful analysis"""
+        """Enable the Points & Regression UI elements."""
         try:
-            if hasattr(self, 'points_checkbox'):
-                self.points_checkbox.state(['!disabled'])  # Always enable the checkbox
-                app_logger.debug("Points checkbox enabled")
+            if hasattr(self, 'show_points'):
+                # Store the current state
+                current_state = self.show_points.get()
                 
-            # Always show slider frame after analysis, regardless of show_points state
-            if hasattr(self, 'slider_frame'):
-                self.slider_frame.pack(fill='x', padx=5, pady=5)
-                app_logger.debug("Slider frame shown")
-            
-            # Enable sliders based on show_points state
-            slider_state = 'normal' if self.show_points.get() else 'disabled'
-            self.enable_range_sliders(slider_state == 'normal')
-            app_logger.debug(f"Sliders enabled with state: {slider_state}")
-            
-            app_logger.debug("Points & regression UI successfully enabled")
+                # Enable the checkbox - use correct ttk state management with flags
+                if hasattr(self, 'points_checkbox'):
+                    # The correct way is to add the '!disabled' flag which REMOVES the disabled state
+                    self.points_checkbox.state(['!disabled'])
+                    app_logger.debug("Points checkbox UI element enabled with ['!disabled'] state")
+                    
+                    # If it was previously enabled, ensure it stays enabled
+                    if current_state:
+                        self.show_points.set(True)
+                        self.check_and_enable_points()
         except Exception as e:
             app_logger.error(f"Error enabling points UI: {str(e)}")
 
     def disable_points_ui(self):
-        """Disable points & regression UI"""
+        """Disable the Points & Regression UI elements."""
         try:
             if hasattr(self, 'points_checkbox'):
+                # Add the 'disabled' flag to disable the checkbox
                 self.points_checkbox.state(['disabled'])
-                self.show_points.set(False)
-                
-                if hasattr(self, 'slider_frame'):
-                    self.slider_frame.pack_forget()
-                self.enable_range_sliders(False)
-                
-                app_logger.debug("Points & regression UI disabled")
-                
+                app_logger.debug("Points & regression UI disabled with ['disabled'] state")
         except Exception as e:
             app_logger.error(f"Error disabling points UI: {str(e)}")
+
+    # Add this to the ActionPotentialTab class's check_and_enable_points method
 
     def check_and_enable_points(self):
         """Check for analysis existence before enabling points."""
         try:
-            # Get the processor directly from the parent app
-            app = self.parent.master
-            
-            if not hasattr(app, 'action_potential_processor') or app.action_potential_processor is None:
-                self.show_points.set(False)
-                messagebox.showinfo(
-                    "Analysis Required",
-                    "Please run 'Analyze Signal' first to generate the purple curves."
-                )
-                return False
-                
-            processor = app.action_potential_processor
-            
-            # Check all required attributes exist
-            has_hyperpol = (hasattr(processor, 'modified_hyperpol') and 
-                        processor.modified_hyperpol is not None and 
-                        len(processor.modified_hyperpol) > 0)
-            has_hyperpol_times = (hasattr(processor, 'modified_hyperpol_times') and 
-                            processor.modified_hyperpol_times is not None)
-            has_depol = (hasattr(processor, 'modified_depol') and 
+            # First try to use our direct processor reference
+            if hasattr(self, 'processor') and self.processor is not None:
+                processor = self.processor
+                has_hyperpol = (hasattr(processor, 'modified_hyperpol') and 
+                            processor.modified_hyperpol is not None and 
+                            len(processor.modified_hyperpol) > 0)
+                has_depol = (hasattr(processor, 'modified_depol') and 
                         processor.modified_depol is not None and 
                         len(processor.modified_depol) > 0)
-            has_depol_times = (hasattr(processor, 'modified_depol_times') and 
-                            processor.modified_depol_times is not None)
-            
-            if all([has_hyperpol, has_hyperpol_times, has_depol, has_depol_times]):
-                self.modified_display_mode.set("all_points")
-                self.enable_range_sliders(True)
-                self.update_range_display()
-                return True
                 
-            # If we get here, something was missing
+                if has_hyperpol and has_depol:
+                    self.modified_display_mode.set("all_points")
+                    self.enable_range_sliders(True)
+                    self.update_range_display()
+                    return
+            
+            # If nothing worked, disable the checkbox
             self.show_points.set(False)
             messagebox.showinfo(
                 "Analysis Required",
-                "Purple curves are not available. Please run 'Analyze Signal' first."
+                "Please run 'Analyze Signal' first to generate the purple curves."
             )
-            return False
-            
         except Exception as e:
             app_logger.error(f"Error checking analysis state: {str(e)}")
             self.show_points.set(False)
-            return False
 
     def enable_range_sliders(self, enable):
         """Enable or disable range sliders."""
@@ -411,6 +314,36 @@ class ActionPotentialTab:
         except Exception as e:
             app_logger.error(f"Error getting integration ranges: {str(e)}")
             return None
+        
+    def set_processor(self, processor):
+        """Set a direct reference to the action_potential_processor."""
+        try:
+            # Store a direct reference to the processor
+            self.processor = processor
+            
+            # Now enable the UI if the processor is valid
+            if processor is not None:
+                has_purple_curves = (
+                    hasattr(processor, 'modified_hyperpol') and 
+                    processor.modified_hyperpol is not None and
+                    len(processor.modified_hyperpol) > 0 and
+                    hasattr(processor, 'modified_depol') and 
+                    processor.modified_depol is not None and
+                    len(processor.modified_depol) > 0
+                )
+                
+                if has_purple_curves:
+                    # Enable the UI
+                    self.enable_points_ui()
+                    app_logger.debug("Points UI enabled - processor reference received")
+                else:
+                    app_logger.debug("Processor received but no purple curves found")
+                    self.disable_points_ui()
+                    
+            app_logger.debug(f"Processor reference set: {processor is not None}")
+        except Exception as e:
+            app_logger.error(f"Error setting processor reference: {str(e)}")
+            self.disable_points_ui()
 
     def update_analysis_state(self):
         """Update UI state based on analysis existence."""
@@ -426,56 +359,86 @@ class ActionPotentialTab:
             app_logger.error(f"Error updating analysis state: {str(e)}")
 
     def on_show_points_change(self):
-        """Handle toggling of points and regression visualization."""
-        try:
-            show_points = self.show_points.get()
-            app_logger.debug(f"Points toggle changed to: {show_points}")
-            
-            # Get the processor directly from the parent app
-            app = self.parent.master
-            
-            if show_points:
-                # Check if processor exists and has required data
-                if not hasattr(app, 'action_potential_processor') or app.action_potential_processor is None:
-                    self.show_points.set(False)
-                    messagebox.showinfo(
-                        "Analysis Required",
-                        "Please run 'Analyze Signal' first to generate the purple curves."
-                    )
-                    app_logger.debug("Show points aborted - no processor")
-                    return
-                
-                # Set display mode to show points
-                self.modified_display_mode.set("all_points")
-                
-                # Enable sliders
-                self.enable_range_sliders(True)
-                app_logger.debug("Sliders enabled for integration ranges")
-                
-            else:
-                # Set display mode to line only
-                self.modified_display_mode.set("line")
-                
-                # Disable sliders but keep them visible
-                self.enable_range_sliders(False)
-                app_logger.debug("Sliders disabled but still visible")
+        """Handle toggling of range selection mode."""
+        show_points = self.show_points.get()
+        
+        # Check if we have processed data and purple curves
+        app = self.parent.master
+        has_purple_curves = False
+        
+        if hasattr(app, 'action_potential_processor') and app.action_potential_processor is not None:
+            processor = app.action_potential_processor
+            has_purple_curves = (
+                hasattr(processor, 'modified_hyperpol') and 
+                processor.modified_hyperpol is not None and
+                len(processor.modified_hyperpol) > 0 and
+                hasattr(processor, 'modified_depol') and 
+                processor.modified_depol is not None and
+                len(processor.modified_depol) > 0
+            )
+            app_logger.debug(f"Purple curves check - processor exists: True, has curves: {has_purple_curves}")
+        else:
+            app_logger.debug("No action potential processor found")
+            # Schedule a retry after a short delay
+            self.parent.after(100, lambda: self.retry_show_points(show_points))
+            return
 
-            # Toggle span selectors in main app
-            if hasattr(self.parent, 'master'):
-                self.parent.master.toggle_span_selectors(show_points)
-
-            # Update display
-            self.update_range_display()
-            
-            # Update plot with current integration ranges
-            self.on_integration_interval_change()
-            
-            app_logger.debug(f"Points visibility updated: {show_points}")
-            
-        except Exception as e:
-            app_logger.error(f"Error in show points change: {str(e)}")
+        if show_points and not has_purple_curves:
+            app_logger.debug("Showing points requested but no purple curves exist")
             self.show_points.set(False)
-            self.enable_range_sliders(False)
+            messagebox.showinfo(
+                "Analysis Required",
+                "Please run 'Analyze Signal' first to generate the purple curves."
+            )
+            return
+
+        # Set to all_points mode for purple curves when enabling points
+        if show_points:
+            app_logger.debug("Enabling point selection mode")
+            self.modified_display_mode.set("all_points")
+            
+            # Force the params to update with this change
+            params = self.get_parameters()
+            params['display_options']['modified_mode'] = "all_points"
+            if self.update_callback:
+                # Force redraw with updated display mode
+                self.update_callback(params)
+            
+            # Enable sliders
+            for slider in [self.hyperpol_start_slider, self.hyperpol_end_slider,
+                        self.depol_start_slider, self.depol_end_slider]:
+                if hasattr(self, slider.__name__):
+                    slider.configure(state='normal')
+        else:
+            app_logger.debug("Disabling point selection mode")
+            # Don't change the display mode back to "line" automatically
+            # This allows keeping "all_points" mode while toggling the interactivity
+            
+            # Disable sliders
+            for slider in [self.hyperpol_start_slider, self.hyperpol_end_slider,
+                        self.depol_start_slider, self.depol_end_slider]:
+                if hasattr(self, slider.__name__):
+                    slider.configure(state='disabled')
+
+        # Toggle span selectors in main app
+        if hasattr(self.parent, 'master') and hasattr(self.parent.master, 'toggle_span_selectors'):
+            self.parent.master.toggle_span_selectors(show_points)
+
+        # Update display with current ranges
+        if hasattr(self, 'update_range_display'):
+            self.update_range_display()
+
+        # Update integration with current ranges
+        if hasattr(self, 'on_integration_interval_change'):
+            self.on_integration_interval_change()
+
+    def retry_show_points(self, show_points):
+        """Retry enabling show points after a short delay."""
+        app_logger.debug("Retrying show points toggle")
+        if hasattr(self.parent, 'master') and hasattr(self.parent.master, 'action_potential_processor'):
+            # Try again now that the processor should be available
+            self.show_points.set(show_points)
+            self.on_show_points_change()
 
     def get_intervals(self):
         """Get current interval settings"""
