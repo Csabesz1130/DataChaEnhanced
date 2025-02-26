@@ -390,8 +390,11 @@ class SignalAnalyzerApp:
             self.action_potential_tab.average_display_mode.get() != "all_points"):
             return None, None
                 
-        # Find closest point index ignoring units - numpy will handle the scale
-        diffs = np.abs(self.orange_curve_times - x_ms)
+        # Convert x_ms from milliseconds to seconds for comparison
+        x_sec = x_ms / 1000.0
+        
+        # Find closest point index
+        diffs = np.abs(self.orange_curve_times - x_sec)
         closest_idx = np.argmin(diffs)
         
         # Use 0.0002 seconds threshold (0.2ms)
@@ -413,7 +416,7 @@ class SignalAnalyzerApp:
 
         if self.time_data is None:
             return
-
+        
         cursor_text = f"Time: {event.xdata:.1f} ms, Current: {event.ydata:.1f} pA"
         
         # Only find points if we have data and are in All Points mode
@@ -465,7 +468,7 @@ class SignalAnalyzerApp:
         """Setup interactive draggable span selectors for integration ranges."""
         from matplotlib.widgets import SpanSelector
         
-        # Create span selector for hyperpolarization range
+        # Create span selector for hyperpolarization range with reduced sensitivity
         self.hyperpol_span = SpanSelector(
             self.ax,
             self.on_hyperpol_span_select,
@@ -474,13 +477,17 @@ class SignalAnalyzerApp:
             props=dict(
                 alpha=0.3,
                 facecolor='blue',
-                edgecolor='blue'
+                edgecolor='blue',
+                linewidth=2  # Thicker border for better visibility
             ),
             interactive=True,
-            drag_from_anywhere=True
+            drag_from_anywhere=True,
+            button=1,        # Only respond to left mouse button
+            minspan=10,      # Minimum span size in pixels - prevents tiny selections
+            grab_range=8     # Makes it easier to grab the span (pixels)
         )
         
-        # Create span selector for depolarization range
+        # Create span selector for depolarization range with reduced sensitivity
         self.depol_span = SpanSelector(
             self.ax,
             self.on_depol_span_select,
@@ -489,58 +496,83 @@ class SignalAnalyzerApp:
             props=dict(
                 alpha=0.3,
                 facecolor='red',
-                edgecolor='red'
+                edgecolor='red',
+                linewidth=2  # Thicker border for better visibility
             ),
             interactive=True,
-            drag_from_anywhere=True
+            drag_from_anywhere=True,
+            button=1,        # Only respond to left mouse button
+            minspan=10,      # Minimum span size in pixels - prevents tiny selections
+            grab_range=8     # Makes it easier to grab the span (pixels)
         )
         
         # Initially hide them
         self.hyperpol_span.visible = False
         self.depol_span.visible = False
         
-        app_logger.debug("Interactive integration ranges initialized")
+        # Store previous extents to prevent unwanted movement
+        self.prev_hyperpol_extents = None
+        self.prev_depol_extents = None
+        
+        app_logger.debug("Interactive integration ranges initialized with improved sensitivity")
 
     def on_depol_span_select(self, xmin, xmax):
-        """Handle dragging of the depolarization range."""
+        """Handle dragging of the depolarization range with point snapping."""
         if not hasattr(self, 'action_potential_processor') or self.action_potential_processor is None:
-            return
-            
-        # Check if we're in the right display mode
-        if not hasattr(self.action_potential_tab, 'modified_display_mode'):
-            return
-            
-        display_mode = self.action_potential_tab.modified_display_mode.get()
-        if display_mode not in ["line", "all_points"]:
-            # Only process span selection in line or all_points mode
-            return
+            # Try using direct processor reference
+            if not hasattr(self.action_potential_tab, 'processor') or self.action_potential_tab.processor is None:
+                return
+            processor = self.action_potential_tab.processor
+        else:
+            processor = self.action_potential_processor
             
         try:
-            if not hasattr(self.action_potential_processor, 'modified_depol_times'):
+            if not hasattr(processor, 'modified_depol_times'):
                 return
                 
-            # Convert milliseconds to index in the depol range
-            # First, convert the selected range from ms to seconds
-            xmin_sec = xmin / 1000
-            xmax_sec = xmax / 1000
-            
             # Get depol times array for index calculation
-            depol_times = self.action_potential_processor.modified_depol_times
+            depol_times = processor.modified_depol_times
             if depol_times is None or len(depol_times) == 0:
                 return
                 
-            # Calculate the time span of the depol data
-            time_span = depol_times[-1] - depol_times[0]
-            if time_span <= 0:
-                return
-                
-            # Calculate the corresponding indices (0-199 range)
-            start_idx = int((xmin_sec - depol_times[0]) / time_span * (len(depol_times) - 1))
-            end_idx = int((xmax_sec - depol_times[0]) / time_span * (len(depol_times) - 1))
+            # Convert milliseconds to seconds for calculation
+            xmin_sec = xmin / 1000
+            xmax_sec = xmax / 1000
             
-            # Ensure indices are within bounds
-            start_idx = max(0, min(start_idx, len(depol_times) - 2))
-            end_idx = max(start_idx + 1, min(end_idx, len(depol_times) - 1))
+            # Find the closest actual data points rather than interpolating
+            # This creates a "snapping" effect to the real data points
+            start_idx = 0
+            end_idx = len(depol_times) - 1
+            
+            # Find closest point to xmin
+            min_dist = float('inf')
+            for i, t in enumerate(depol_times):
+                dist = abs(t - xmin_sec)
+                if dist < min_dist:
+                    min_dist = dist
+                    start_idx = i
+                    
+            # Find closest point to xmax
+            min_dist = float('inf')
+            for i, t in enumerate(depol_times):
+                dist = abs(t - xmax_sec)
+                if dist < min_dist:
+                    min_dist = dist
+                    end_idx = i
+            
+            # Ensure start_idx < end_idx and at least 1 point apart
+            if start_idx >= end_idx:
+                if start_idx == len(depol_times) - 1:
+                    start_idx = max(0, len(depol_times) - 2)
+                else:
+                    end_idx = min(start_idx + 1, len(depol_times) - 1)
+            
+            # Update the span extents to the actual data point times
+            # This makes the span appear to "snap" to data points
+            self.depol_span.extents = (
+                depol_times[start_idx] * 1000, 
+                depol_times[end_idx] * 1000
+            )
             
             # Update the sliders in the action potential tab
             if hasattr(self.action_potential_tab, 'depol_start'):
@@ -552,51 +584,68 @@ class SignalAnalyzerApp:
             if hasattr(self.action_potential_tab, 'on_integration_interval_change'):
                 self.action_potential_tab.on_integration_interval_change()
             
-            app_logger.debug(f"Depol range updated: {start_idx}-{end_idx}")
+            app_logger.debug(f"Depol range snapped to points: {start_idx}-{end_idx}")
             
         except Exception as e:
             app_logger.error(f"Error updating depol range: {str(e)}")
 
     def on_hyperpol_span_select(self, xmin, xmax):
-        """Handle dragging of the hyperpolarization range."""
+        """Handle dragging of the hyperpolarization range with point snapping."""
         if not hasattr(self, 'action_potential_processor') or self.action_potential_processor is None:
-            return
-            
-        # Check if we're in the right display mode
-        if not hasattr(self.action_potential_tab, 'modified_display_mode'):
-            return
-            
-        display_mode = self.action_potential_tab.modified_display_mode.get()
-        if display_mode not in ["line", "all_points"]:
-            # Only process span selection in line or all_points mode
-            return
+            # Try using direct processor reference
+            if not hasattr(self.action_potential_tab, 'processor') or self.action_potential_tab.processor is None:
+                return
+            processor = self.action_potential_tab.processor
+        else:
+            processor = self.action_potential_processor
             
         try:
-            if not hasattr(self.action_potential_processor, 'modified_hyperpol_times'):
+            if not hasattr(processor, 'modified_hyperpol_times'):
                 return
                 
-            # Convert milliseconds to index in the hyperpol range
-            # First, convert the selected range from ms to seconds
-            xmin_sec = xmin / 1000
-            xmax_sec = xmax / 1000
-            
             # Get hyperpol times array for index calculation
-            hyperpol_times = self.action_potential_processor.modified_hyperpol_times
+            hyperpol_times = processor.modified_hyperpol_times
             if hyperpol_times is None or len(hyperpol_times) == 0:
                 return
                 
-            # Calculate the time span of the hyperpol data
-            time_span = hyperpol_times[-1] - hyperpol_times[0]
-            if time_span <= 0:
-                return
-                
-            # Calculate the corresponding indices (0-199 range)
-            start_idx = int((xmin_sec - hyperpol_times[0]) / time_span * (len(hyperpol_times) - 1))
-            end_idx = int((xmax_sec - hyperpol_times[0]) / time_span * (len(hyperpol_times) - 1))
+            # Convert milliseconds to seconds for calculation
+            xmin_sec = xmin / 1000
+            xmax_sec = xmax / 1000
             
-            # Ensure indices are within bounds
-            start_idx = max(0, min(start_idx, len(hyperpol_times) - 2))
-            end_idx = max(start_idx + 1, min(end_idx, len(hyperpol_times) - 1))
+            # Find the closest actual data points rather than interpolating
+            # This creates a "snapping" effect to the real data points
+            start_idx = 0
+            end_idx = len(hyperpol_times) - 1
+            
+            # Find closest point to xmin
+            min_dist = float('inf')
+            for i, t in enumerate(hyperpol_times):
+                dist = abs(t - xmin_sec)
+                if dist < min_dist:
+                    min_dist = dist
+                    start_idx = i
+                    
+            # Find closest point to xmax
+            min_dist = float('inf')
+            for i, t in enumerate(hyperpol_times):
+                dist = abs(t - xmax_sec)
+                if dist < min_dist:
+                    min_dist = dist
+                    end_idx = i
+            
+            # Ensure start_idx < end_idx and at least 1 point apart
+            if start_idx >= end_idx:
+                if start_idx == len(hyperpol_times) - 1:
+                    start_idx = max(0, len(hyperpol_times) - 2)
+                else:
+                    end_idx = min(start_idx + 1, len(hyperpol_times) - 1)
+            
+            # Update the span extents to the actual data point times
+            # This makes the span appear to "snap" to data points
+            self.hyperpol_span.extents = (
+                hyperpol_times[start_idx] * 1000, 
+                hyperpol_times[end_idx] * 1000
+            )
             
             # Update the sliders in the action potential tab
             if hasattr(self.action_potential_tab, 'hyperpol_start'):
@@ -608,7 +657,7 @@ class SignalAnalyzerApp:
             if hasattr(self.action_potential_tab, 'on_integration_interval_change'):
                 self.action_potential_tab.on_integration_interval_change()
             
-            app_logger.debug(f"Hyperpol range updated: {start_idx}-{end_idx}")
+            app_logger.debug(f"Hyperpol range snapped to points: {start_idx}-{end_idx}")
             
         except Exception as e:
             app_logger.error(f"Error updating hyperpol range: {str(e)}")
@@ -1397,12 +1446,22 @@ class SignalAnalyzerApp:
                             0 < end_idx <= len(hyperpol_times)):
                             # Set the initial position of the hyperpol span selector
                             try:
-                                self.hyperpol_span.extents = (
+                                # Calculate extents based on actual data points
+                                new_extents = (
                                     hyperpol_times[start_idx] * 1000, 
                                     hyperpol_times[end_idx - 1] * 1000
                                 )
+                                
+                                # Only update if the extents have changed from sliders
+                                # This prevents "jumpy" behavior when dragging
+                                if not hasattr(self, 'prev_hyperpol_extents') or self.prev_hyperpol_extents != new_extents:
+                                    self.hyperpol_span.extents = new_extents
+                                    self.prev_hyperpol_extents = new_extents
+                                    
                                 self.hyperpol_span.visible = True
                                 self.hyperpol_span.set_active(True)
+                                
+                                app_logger.debug(f"Hyperpol span positioned at: {start_idx}-{end_idx}")
                             except Exception as e:
                                 app_logger.error(f"Error setting hyperpol span extents: {str(e)}")
                     
@@ -1416,12 +1475,22 @@ class SignalAnalyzerApp:
                             0 < end_idx <= len(depol_times)):
                             # Set the initial position of the depol span selector
                             try:
-                                self.depol_span.extents = (
+                                # Calculate extents based on actual data points
+                                new_extents = (
                                     depol_times[start_idx] * 1000, 
                                     depol_times[end_idx - 1] * 1000
                                 )
+                                
+                                # Only update if the extents have changed from sliders
+                                # This prevents "jumpy" behavior when dragging
+                                if not hasattr(self, 'prev_depol_extents') or self.prev_depol_extents != new_extents:
+                                    self.depol_span.extents = new_extents
+                                    self.prev_depol_extents = new_extents
+                                    
                                 self.depol_span.visible = True
                                 self.depol_span.set_active(True)
+                                
+                                app_logger.debug(f"Depol span positioned at: {start_idx}-{end_idx}")
                             except Exception as e:
                                 app_logger.error(f"Error setting depol span extents: {str(e)}")
             else:
