@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from src.utils.logger import app_logger
 import numpy as np
+from src.gui.range_selection_utils import RangeSelectionManager
 
 class ActionPotentialTab:
     def __init__(self, parent, callback):
@@ -244,11 +245,61 @@ class ActionPotentialTab:
 
     def enable_range_sliders(self, enable):
         """Enable or disable range sliders."""
-        state = 'normal' if enable else 'disabled'
-        for slider_name in ['hyperpol_start_slider', 'hyperpol_end_slider',
-                        'depol_start_slider', 'depol_end_slider']:
-            if hasattr(self, slider_name):
-                getattr(self, slider_name).configure(state=state)
+        if hasattr(self, 'range_manager'):
+            self.range_manager.enable_controls(enable)
+        else:
+            # Fallback to the old way if range manager not available
+            state = 'normal' if enable else 'disabled'
+            for slider in [self.hyperpol_start_slider, self.hyperpol_end_slider,
+                        self.depol_start_slider, self.depol_end_slider]:
+                if hasattr(self, slider):
+                    slider.configure(state=state)
+
+    def get_results_dict(self):
+        """Get the current analysis results as a dictionary, including range manager integrals."""
+        results = {}
+        
+        # Extract values from StringVars
+        try:
+            results['integral_value'] = self.integral_result.get()
+            results['hyperpol_area'] = self.hyperpol_result.get()
+            results['depol_area'] = self.depol_result.get()
+            results['linear_capacitance'] = self.capacitance_result.get()
+            results['status'] = self.status_text.get()
+        except Exception as e:
+            app_logger.error(f"Error getting results: {str(e)}")
+        
+        # Include any additional results stored previously
+        if hasattr(self, '_analysis_results') and isinstance(self._analysis_results, dict):
+            results.update(self._analysis_results)
+        
+        # Add integrals from range manager
+        if hasattr(self, 'range_manager'):
+            results = self.update_results_with_integrals(results)
+        
+        return results
+
+    # Add this method to update results with integral values from range manager
+    def update_results_with_integrals(self, results):
+        """Update results dictionary with integral values from range manager."""
+        if not hasattr(self, 'range_manager'):
+            return results
+            
+        # Get current integrals from range manager
+        integrals = self.range_manager.get_current_integrals()
+        
+        # Update results
+        results['hyperpol_area'] = f"{integrals['hyperpol_integral']:.3f} pC"
+        results['depol_area'] = f"{integrals['depol_integral']:.3f} pC"
+        
+        # Calculate capacitance
+        if 'hyperpol_integral' in integrals and 'depol_integral' in integrals:
+            voltage_diff = abs(self.params.get('V2', 0) - self.params.get('V0', -80))
+            if voltage_diff > 0:
+                capacitance = abs(integrals['hyperpol_integral'] - integrals['depol_integral']) / voltage_diff
+                results['capacitance_nF'] = f"{capacitance:.3f} nF"
+        
+        return results
 
     def update_range_display(self):
         """Update the display of current integration ranges."""
@@ -298,22 +349,23 @@ class ActionPotentialTab:
                 'averaged_normalized_mode': 'line'
             }
 
+    # This method should replace the existing get_integration_ranges
     def get_integration_ranges(self):
-        """Get current integration ranges for both curves."""
-        try:
-            return {
-                'hyperpol': {
-                    'start': self.hyperpol_start.get(),
-                    'end': self.hyperpol_end.get()
-                },
-                'depol': {
-                    'start': self.depol_start.get(),
-                    'end': self.depol_end.get()
-                }
+        """Get current integration ranges from the range manager."""
+        if hasattr(self, 'range_manager'):
+            return self.range_manager.get_integration_ranges()
+        
+        # Fallback if range manager not available
+        return {
+            'hyperpol': {
+                'start': self.hyperpol_start.get() if hasattr(self, 'hyperpol_start') else 0,
+                'end': self.hyperpol_end.get() if hasattr(self, 'hyperpol_end') else 200
+            },
+            'depol': {
+                'start': self.depol_start.get() if hasattr(self, 'depol_start') else 0,
+                'end': self.depol_end.get() if hasattr(self, 'depol_end') else 200
             }
-        except Exception as e:
-            app_logger.error(f"Error getting integration ranges: {str(e)}")
-            return None
+        }
         
     def set_processor(self, processor):
         """Set a direct reference to the action_potential_processor."""
@@ -623,101 +675,17 @@ class ActionPotentialTab:
             raise
 
     def setup_integration_range_controls(self):
-        """Setup sliders for hyperpolarization and depolarization integration ranges."""
-        range_frame = ttk.LabelFrame(self.scrollable_frame, text="Integration Ranges")
-        range_frame.pack(fill='x', padx=5, pady=5)
-
-        # Hyperpolarization range
-        hyperpol_frame = ttk.LabelFrame(range_frame, text="Hyperpolarization")
-        hyperpol_frame.pack(fill='x', padx=5, pady=5)
-
-        # Start slider for hyperpol
-        hyperpol_start_frame = ttk.Frame(hyperpol_frame)
-        hyperpol_start_frame.pack(fill='x', padx=5, pady=2)
-        ttk.Label(hyperpol_start_frame, text="Start:").pack(side='left')
-        self.hyperpol_start_display = ttk.Label(hyperpol_start_frame, width=5)
-        self.hyperpol_start_display.pack(side='right')
-        
-        self.hyperpol_start = tk.IntVar(value=0)
-        self.hyperpol_start_slider = ttk.Scale(
-            hyperpol_frame, 
-            from_=0, 
-            to=199,
-            variable=self.hyperpol_start,
-            orient='horizontal',
-            command=lambda v: self.update_slider_display(v, self.hyperpol_start_display, 'hyperpol_start')
+        """Setup integration range controls using the RangeSelectionManager."""
+        # Create the range selection manager
+        self.range_manager = RangeSelectionManager(
+            self,
+            self.scrollable_frame,
+            self.on_integration_interval_change
         )
-        self.hyperpol_start_slider.pack(fill='x', padx=5)
-        self.hyperpol_start_slider.configure(state='disabled')  # Initially disabled
-
-        # End slider for hyperpol
-        hyperpol_end_frame = ttk.Frame(hyperpol_frame)
-        hyperpol_end_frame.pack(fill='x', padx=5, pady=2)
-        ttk.Label(hyperpol_end_frame, text="End:").pack(side='left')
-        self.hyperpol_end_display = ttk.Label(hyperpol_end_frame, width=5)
-        self.hyperpol_end_display.pack(side='right')
         
-        self.hyperpol_end = tk.IntVar(value=200)
-        self.hyperpol_end_slider = ttk.Scale(
-            hyperpol_frame, 
-            from_=1, 
-            to=200,
-            variable=self.hyperpol_end,
-            orient='horizontal',
-            command=lambda v: self.update_slider_display(v, self.hyperpol_end_display, 'hyperpol_end')
-        )
-        self.hyperpol_end_slider.pack(fill='x', padx=5)
-        self.hyperpol_end_slider.configure(state='disabled')  # Initially disabled
-
-        # Depolarization range
-        depol_frame = ttk.LabelFrame(range_frame, text="Depolarization")
-        depol_frame.pack(fill='x', padx=5, pady=5)
-
-        # Start slider for depol
-        depol_start_frame = ttk.Frame(depol_frame)
-        depol_start_frame.pack(fill='x', padx=5, pady=2)
-        ttk.Label(depol_start_frame, text="Start:").pack(side='left')
-        self.depol_start_display = ttk.Label(depol_start_frame, width=5)
-        self.depol_start_display.pack(side='right')
-        
-        self.depol_start = tk.IntVar(value=0)
-        self.depol_start_slider = ttk.Scale(
-            depol_frame, 
-            from_=0, 
-            to=199,
-            variable=self.depol_start,
-            orient='horizontal',
-            command=lambda v: self.update_slider_display(v, self.depol_start_display, 'depol_start')
-        )
-        self.depol_start_slider.pack(fill='x', padx=5)
-        self.depol_start_slider.configure(state='disabled')  # Initially disabled
-
-        # End slider for depol
-        depol_end_frame = ttk.Frame(depol_frame)
-        depol_end_frame.pack(fill='x', padx=5, pady=2)
-        ttk.Label(depol_end_frame, text="End:").pack(side='left')
-        self.depol_end_display = ttk.Label(depol_end_frame, width=5)
-        self.depol_end_display.pack(side='right')
-        
-        self.depol_end = tk.IntVar(value=200)
-        self.depol_end_slider = ttk.Scale(
-            depol_frame, 
-            from_=1, 
-            to=200,
-            variable=self.depol_end,
-            orient='horizontal',
-            command=lambda v: self.update_slider_display(v, self.depol_end_display, 'depol_end')
-        )
-        self.depol_end_slider.pack(fill='x', padx=5)
-        self.depol_end_slider.configure(state='disabled')  # Initially disabled
-
-        # Help text
-        ttk.Label(
-            range_frame,
-            text="Adjust sliders to set integration range for each curve (0.5ms per point)",
-            wraplength=250,
-            font=('TkDefaultFont', 8, 'italic')
-        ).pack(pady=5)
+        # Add a reference to our show_points variable
+        # So the range manager can access it for callbacks
+        self.range_manager.parent_show_points = self.show_points
 
     def setup_results_display(self):
         """Setup the results display section."""
