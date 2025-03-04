@@ -214,34 +214,70 @@ class ActionPotentialTab:
 
     # Add this to the ActionPotentialTab class's check_and_enable_points method
 
+    # ------------------------------------------
+    # action_potential_tab.py (partial snippet)
+    # ------------------------------------------
+
     def check_and_enable_points(self):
-        """Check for analysis existence before enabling points."""
+        """
+        If analysis is available, enable the purple curves, range sliders, and
+        ensure both the hyperpol and depol ranges are clearly visible.
+        """
         try:
-            # First try to use our direct processor reference
-            if hasattr(self, 'processor') and self.processor is not None:
-                processor = self.processor
-                has_hyperpol = (hasattr(processor, 'modified_hyperpol') and 
-                            processor.modified_hyperpol is not None and 
-                            len(processor.modified_hyperpol) > 0)
-                has_depol = (hasattr(processor, 'modified_depol') and 
-                        processor.modified_depol is not None and 
-                        len(processor.modified_depol) > 0)
+            # Check if we have valid purple curves
+            if (hasattr(self.processor, 'modified_hyperpol') and self.processor.modified_hyperpol is not None and
+                len(self.processor.modified_hyperpol) > 0 and
+                hasattr(self.processor, 'modified_depol') and self.processor.modified_depol is not None and
+                len(self.processor.modified_depol) > 0):
                 
-                if has_hyperpol and has_depol:
-                    self.modified_display_mode.set("all_points")
-                    self.enable_range_sliders(True)
-                    self.update_range_display()
-                    return
-            
-            # If nothing worked, disable the checkbox
-            self.show_points.set(False)
-            messagebox.showinfo(
-                "Analysis Required",
-                "Please run 'Analyze Signal' first to generate the purple curves."
-            )
+                # Make sure the display mode is set to show the purple "all_points"
+                self.modified_display_mode.set("all_points")
+
+                # Enable the range sliders
+                self.enable_range_sliders(True)
+
+                # Auto-set good default ranges if they are too narrow
+                if (self.range_manager.hyperpol_end.get() - self.range_manager.hyperpol_start.get()) < 10:
+                    self.range_manager.hyperpol_end.set(self.range_manager.hyperpol_start.get() + 200)
+
+                if (self.range_manager.depol_end.get() - self.range_manager.depol_start.get()) < 10:
+                    self.range_manager.depol_end.set(self.range_manager.depol_start.get() + 200)
+
+                # Force an immediate range update and plot redraw
+                self.range_manager.update_range_display()
+
+            else:
+                # If no purple curves, turn the checkbox off and warn
+                self.show_points.set(False)
+                messagebox.showinfo(
+                    "Analysis Required",
+                    "Please run 'Analyze Signal' first to generate the purple curves."
+                )
         except Exception as e:
-            app_logger.error(f"Error checking analysis state: {str(e)}")
             self.show_points.set(False)
+            app_logger.error(f"Error enabling points: {str(e)}")
+
+
+    def on_show_points_change(self):
+        """
+        When the "Enable Points & Regression" checkbox is toggled,
+        ensure both ranges (red + blue) appear immediately if enabled,
+        or hide/disable them if unchecked.
+        """
+        show_points = self.show_points.get()
+        if show_points:
+            # Turn on full "points" mode
+            self.check_and_enable_points()
+        else:
+            # Disable sliders
+            self.enable_range_sliders(False)
+        
+        # Trigger an update callback to redraw the plot with or without the ranges
+        params = self.get_parameters()
+        if 'display_options' in params:
+            params['display_options']['modified_mode'] = "all_points" if show_points else "line"
+        if self.update_callback:
+            self.update_callback(params)
 
     def enable_range_sliders(self, enable):
         """Enable or disable range sliders."""
@@ -409,80 +445,6 @@ class ActionPotentialTab:
                     self.check_and_enable_points()
         except Exception as e:
             app_logger.error(f"Error updating analysis state: {str(e)}")
-
-    def on_show_points_change(self):
-        """Handle toggling of range selection mode."""
-        show_points = self.show_points.get()
-        
-        # Check if we have processed data and purple curves
-        app = self.parent.master
-        has_purple_curves = False
-        
-        if hasattr(app, 'action_potential_processor') and app.action_potential_processor is not None:
-            processor = app.action_potential_processor
-            has_purple_curves = (
-                hasattr(processor, 'modified_hyperpol') and 
-                processor.modified_hyperpol is not None and
-                len(processor.modified_hyperpol) > 0 and
-                hasattr(processor, 'modified_depol') and 
-                processor.modified_depol is not None and
-                len(processor.modified_depol) > 0
-            )
-            app_logger.debug(f"Purple curves check - processor exists: True, has curves: {has_purple_curves}")
-        else:
-            app_logger.debug("No action potential processor found")
-            # Schedule a retry after a short delay
-            self.parent.after(100, lambda: self.retry_show_points(show_points))
-            return
-
-        if show_points and not has_purple_curves:
-            app_logger.debug("Showing points requested but no purple curves exist")
-            self.show_points.set(False)
-            messagebox.showinfo(
-                "Analysis Required",
-                "Please run 'Analyze Signal' first to generate the purple curves."
-            )
-            return
-
-        # Set to all_points mode for purple curves when enabling points
-        if show_points:
-            app_logger.debug("Enabling point selection mode")
-            self.modified_display_mode.set("all_points")
-            
-            # Force the params to update with this change
-            params = self.get_parameters()
-            params['display_options']['modified_mode'] = "all_points"
-            if self.update_callback:
-                # Force redraw with updated display mode
-                self.update_callback(params)
-            
-            # Enable sliders
-            for slider in [self.hyperpol_start_slider, self.hyperpol_end_slider,
-                        self.depol_start_slider, self.depol_end_slider]:
-                if hasattr(self, slider.__name__):
-                    slider.configure(state='normal')
-        else:
-            app_logger.debug("Disabling point selection mode")
-            # Don't change the display mode back to "line" automatically
-            # This allows keeping "all_points" mode while toggling the interactivity
-            
-            # Disable sliders
-            for slider in [self.hyperpol_start_slider, self.hyperpol_end_slider,
-                        self.depol_start_slider, self.depol_end_slider]:
-                if hasattr(self, slider.__name__):
-                    slider.configure(state='disabled')
-
-        # Toggle span selectors in main app
-        if hasattr(self.parent, 'master') and hasattr(self.parent.master, 'toggle_span_selectors'):
-            self.parent.master.toggle_span_selectors(show_points)
-
-        # Update display with current ranges
-        if hasattr(self, 'update_range_display'):
-            self.update_range_display()
-
-        # Update integration with current ranges
-        if hasattr(self, 'on_integration_interval_change'):
-            self.on_integration_interval_change()
 
     def retry_show_points(self, show_points):
         """Retry enabling show points after a short delay."""

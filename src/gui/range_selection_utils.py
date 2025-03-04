@@ -182,60 +182,89 @@ class RangeSelectionManager:
         self.integral_display.pack(fill='x', padx=2, pady=2)
 
     def update_slider_display(self, value, label, slider_type):
-        """Update display label for a slider and handle range validation with enhanced feedback."""
+        """Update display label for a slider with improved coordination between ranges."""
         try:
-            # Get raw value and round to nearest 5 for snap-to-grid
+            # Get raw value
             raw_val = int(float(value))
-            snapped_val = round(raw_val / 5) * 5
             
-            # If value changed due to snapping, show tooltip
-            if raw_val != snapped_val:
-                self.show_tooltip(f"Snapped to grid: {snapped_val}")
+            # Check if we should snap to grid
+            apply_snap = self.should_apply_snap_to_grid()
             
-            # Set the actual value (snapped)
-            val = snapped_val
+            # Apply snapping only if in the right mode
+            if apply_snap:
+                val = round(raw_val / 5) * 5
+            else:
+                val = raw_val
             
-            # Update the label
-            label.config(text=str(val))
+            # Update the label if provided
+            if label is not None:
+                label.config(text=str(val))
             
-            # If this is a start slider, ensure it's less than the corresponding end
-            if slider_type.endswith('_start'):
-                end_var = getattr(self, slider_type.replace('start', 'end'))
-                if val >= end_var.get():
-                    end_var.set(val + 5)  # Ensure 5-point minimum gap
-                    self.show_tooltip("End value adjusted to maintain valid range")
+            # Define min gap based on mode
+            min_gap = 5 if apply_snap else 1
+            
+            # Handle constraints differently based on slider type
+            if slider_type == 'hyperpol_start':
+                # Ensure hyperpol_start < hyperpol_end
+                if val >= self.hyperpol_end.get() - min_gap:
+                    # Adjust end to maintain gap
+                    new_end = val + min_gap
+                    self.hyperpol_end.set(new_end)
                     
-            # If this is an end slider, ensure it's greater than the corresponding start
-            elif slider_type.endswith('_end'):
-                start_var = getattr(self, slider_type.replace('end', 'start'))
-                if val <= start_var.get():
-                    start_var.set(val - 5)  # Ensure 5-point minimum gap
-                    self.show_tooltip("Start value adjusted to maintain valid range")
-            
-            # Prevent overlap between hyperpol and depol ranges
-            if slider_type == 'hyperpol_end' and hasattr(self, 'depol_start'):
-                if val >= self.depol_start.get():
-                    self.depol_start.set(val + 5)
-                    self.show_tooltip("Depolarization range adjusted to prevent overlap")
+            elif slider_type == 'hyperpol_end':
+                # Ensure hyperpol_end > hyperpol_start
+                if val <= self.hyperpol_start.get() + min_gap:
+                    # Adjust start to maintain gap
+                    new_start = val - min_gap
+                    if new_start >= 0:  # Don't go below 0
+                        self.hyperpol_start.set(new_start)
+                    else:
+                        # If we can't move start below 0, adjust end instead
+                        self.hyperpol_end.set(min_gap)
+                
+                # REMOVE THIS CONSTRAINT - Don't force depol to move when hyperpol changes
+                # if val >= self.depol_start.get() - min_gap:
+                #     new_depol_start = val + min_gap
+                #     self.depol_start.set(new_depol_start)
+                #     if new_depol_start >= self.depol_end.get() - min_gap:
+                #         new_depol_end = new_depol_start + min_gap
+                #         self.depol_end.set(new_depol_end)
                     
-            elif slider_type == 'depol_start' and hasattr(self, 'hyperpol_end'):
-                if val <= self.hyperpol_end.get():
-                    self.hyperpol_end.set(val - 5)
-                    self.show_tooltip("Hyperpolarization range adjusted to prevent overlap")
+            elif slider_type == 'depol_start':
+                # Ensure depol_start < depol_end
+                if val >= self.depol_end.get() - min_gap:
+                    # Adjust end to maintain gap
+                    new_end = val + min_gap
+                    self.depol_end.set(new_end)
+                
+                # REMOVE THIS CONSTRAINT - Don't force hyperpol to move when depol changes
+                # if val <= self.hyperpol_end.get() + min_gap:
+                #     new_hyperpol_end = val - min_gap
+                #     if new_hyperpol_end >= self.hyperpol_start.get() + min_gap:
+                #         self.hyperpol_end.set(new_hyperpol_end)
+                #     else:
+                #         new_val = self.hyperpol_end.get() + min_gap
+                #         self.depol_start.set(new_val)
+                #         val = new_val
                     
-            # Update the floating info display
-            self.update_range_display()
-            
-            # Calculate and show integral for the current range
-            self.calculate_range_integral()
-            
+            elif slider_type == 'depol_end':
+                # Ensure depol_end > depol_start
+                if val <= self.depol_start.get() + min_gap:
+                    # Adjust start to maintain gap
+                    new_start = val - min_gap
+                    self.depol_start.set(new_start)
+                
             # Update entry fields if available
             if slider_type in self.entry_fields:
                 entry = self.entry_fields[slider_type]
                 entry.delete(0, tk.END)
                 entry.insert(0, str(val))
             
-            # Trigger the callback for integration interval change
+            # Update range display and calculate integrals
+            self.update_range_display()
+            self.calculate_range_integral()
+            
+            # Trigger the callback
             self.trigger_update_callback()
             
         except Exception as e:
@@ -557,6 +586,121 @@ class RangeSelectionManager:
                 'integration_ranges': self.get_integration_ranges(),
                 'show_points': True if hasattr(self.parent, 'show_points') and self.parent.show_points.get() else False
             })
+
+    def add_range_visualizations(self, ax, processor):
+        """Add range visualizations to the given matplotlib axis with enhanced visibility."""
+        if processor is None or not hasattr(processor, 'modified_hyperpol_times'):
+            return False
+                
+        try:
+            # Get current ranges
+            ranges = self.get_integration_ranges()
+            
+            # Store marker references for later updates
+            if not hasattr(self, 'range_markers'):
+                self.range_markers = {
+                    'hyperpol': {'start': None, 'end': None, 'span': None},
+                    'depol': {'start': None, 'end': None, 'span': None}
+                }
+            
+            # Remove any existing markers
+            for range_type in ['hyperpol', 'depol']:
+                for key in ['start', 'end', 'span']:
+                    if self.range_markers[range_type][key] is not None:
+                        try:
+                            self.range_markers[range_type][key].remove()
+                        except:
+                            pass
+                        self.range_markers[range_type][key] = None
+            
+            # Define arrow properties
+            arrow_props = {
+                'hyperpol': {
+                    'start': dict(facecolor='blue', edgecolor='darkblue', width=3, headwidth=10, shrink=0.05),
+                    'end': dict(facecolor='darkblue', edgecolor='blue', width=3, headwidth=10, shrink=0.05)
+                },
+                'depol': {
+                    'start': dict(facecolor='red', edgecolor='darkred', width=3, headwidth=10, shrink=0.05),
+                    'end': dict(facecolor='darkred', edgecolor='red', width=3, headwidth=10, shrink=0.05)
+                }
+            }
+            
+            # Get y-axis limits for arrow placement
+            ymin, ymax = ax.get_ylim()
+            y_range = ymax - ymin
+            
+            # Process both range types separately
+            for range_type in ['hyperpol', 'depol']:
+                # Skip if range not provided
+                if range_type not in ranges:
+                    continue
+                    
+                # Get correct attributes based on range type
+                if range_type == 'hyperpol':
+                    times_attr = 'modified_hyperpol_times'
+                    color = 'blue'
+                    alpha = 0.2
+                    zorder = 5
+                else:  # depol
+                    times_attr = 'modified_depol_times'
+                    color = '#ff5555'  # Brighter red
+                    alpha = 0.25
+                    zorder = 6  # Higher than hyperpol for visibility
+                    
+                # Skip if times attribute doesn't exist or is empty
+                if not hasattr(processor, times_attr) or getattr(processor, times_attr) is None:
+                    continue
+                    
+                times = getattr(processor, times_attr)
+                if len(times) == 0:
+                    continue
+                    
+                # Extract range settings
+                range_data = ranges[range_type]
+                start_idx = range_data['start']
+                end_idx = range_data['end']
+                
+                # Make sure indices are valid
+                start_idx = min(max(0, start_idx), len(times)-1)
+                end_idx = min(max(start_idx + 1, end_idx), len(times))
+                
+                # Get time values in milliseconds
+                start_ms = times[start_idx] * 1000
+                end_ms = times[min(end_idx-1, len(times)-1)] * 1000
+                
+                # Add shaded region with increased visibility
+                self.range_markers[range_type]['span'] = ax.axvspan(
+                    start_ms, end_ms,
+                    color=color, 
+                    alpha=alpha,
+                    label=f'{range_type.capitalize()} Range',
+                    zorder=zorder
+                )
+                
+                # Add arrows at boundaries for additional visibility
+                arrow_y = ymax - y_range * 0.05
+                
+                self.range_markers[range_type]['start'] = ax.annotate(
+                    '', xy=(start_ms, arrow_y), xytext=(start_ms, arrow_y + y_range*0.1),
+                    arrowprops=arrow_props[range_type]['start'],
+                    annotation_clip=False,
+                    zorder=10
+                )
+                
+                self.range_markers[range_type]['end'] = ax.annotate(
+                    '', xy=(end_ms, arrow_y), xytext=(end_ms, arrow_y + y_range*0.1),
+                    arrowprops=arrow_props[range_type]['end'],
+                    annotation_clip=False,
+                    zorder=10
+                )
+                
+                app_logger.debug(f"Added {range_type} range visualization at {start_ms:.1f}-{end_ms:.1f}ms")
+            
+            return True
+                
+        except Exception as e:
+            app_logger.error(f"Error adding range visualizations: {str(e)}")
+            return False
 
     def enable_controls(self, enable=True):
         """Enable or disable all range selection controls."""
