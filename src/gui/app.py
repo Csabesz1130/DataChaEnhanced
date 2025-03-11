@@ -18,6 +18,7 @@ from src.analysis.action_potential import ActionPotentialProcessor
 from src.gui.window_manager import SignalWindowManager
 from src.utils.analysis_history_manager import AnalysisHistoryManager
 from src.gui.history_window import HistoryWindow
+from src.excel_export import add_excel_export_to_app
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -32,6 +33,9 @@ class SignalAnalyzerApp:
         self.current_filters = {}
         self.action_potential_processor = None
         self.current_file = None  # Track current file path
+
+        self.use_regression_hyperpol = tk.BooleanVar(value=False)
+        self.use_regression_depol = tk.BooleanVar(value=False)
         
         # Create main layout
         self.setup_main_layout()
@@ -47,6 +51,8 @@ class SignalAnalyzerApp:
         self.setup_plot()
         self.setup_plot_interaction()
         self.setup_tabs()
+
+        add_excel_export_to_app(self)
         
         app_logger.info("Application initialized successfully")
 
@@ -108,7 +114,7 @@ class SignalAnalyzerApp:
             text="View History",
             command=self.show_analysis_history
         ).pack(side='left', padx=2)
-        
+
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
         
         plots_frame = ttk.Frame(self.toolbar_frame)

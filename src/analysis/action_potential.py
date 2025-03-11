@@ -55,10 +55,10 @@ class ActionPotentialProcessor:
             if self.normalized_curve is not None:
                 total_norm = len(self.normalized_curve)
                 segments = [
-                    {"range": f"{n} - {n+200}", "type": "hyperpol"},
-                    {"range": f"{n+200} - {n+400}", "type": "depol"},
-                    {"range": f"{n+400} - {n+600}", "type": "hyperpol"},
-                    {"range": f"{n+600} - {n+800}", "type": "depol"}
+                    {"range": f"{n} - {n+199}", "type": "hyperpol"},
+                    {"range": f"{n+200} - {n+399}", "type": "depol"},
+                    {"range": f"{n+400} - {n+599}", "type": "hyperpol"},
+                    {"range": f"{n+600} - {n+799}", "type": "depol"}
                 ]
                 app_logger.info(f"\nDARK BLUE CURVE (Voltage-Normalized):")
                 app_logger.info(f"Total points: {total_norm}")
@@ -106,7 +106,7 @@ class ActionPotentialProcessor:
             if hasattr(self, 'modified_hyperpol'):
                 app_logger.info("\nPURPLE CURVE - Hyperpolarization:")
                 # Original orange segment
-                app_logger.info(f"Orange source points: {n+1000} - {n+1200}")
+                app_logger.info(f"Orange source points: {n+1000} - {n+1199}")
                 
                 if self.modified_hyperpol is not None:
                     hyp_start_ms = self.modified_hyperpol_times[0] * 1000
@@ -126,11 +126,11 @@ class ActionPotentialProcessor:
                     app_logger.info(f"Time range: {dep_start_ms:.2f} - {dep_end_ms:.2f} ms")
                     
             app_logger.info("\nPoint Relationships:")
-            app_logger.info(f"Dark blue curve: {n} - {n+800}")
+            app_logger.info(f"Dark blue curve: {n} - {n+799}")
             app_logger.info(f"Magenta curve: {len(self.average_curve)} pts")
             app_logger.info(f"Purple curve source segments:")
-            app_logger.info(f"  Depol: {n+800} - {n+1000}")
-            app_logger.info(f"  Hyperpol: {n+1000} - {n+1200}")
+            app_logger.info(f"  Depol: {n+800} - {n+999}")
+            app_logger.info(f"  Hyperpol: {n+1000} - {n+1199}")
                         
         except Exception as e:
             app_logger.error(f"Error printing curve relationships: {str(e)}")
@@ -200,8 +200,8 @@ class ActionPotentialProcessor:
         }
 
         expected_ranges = {
-            'hyperpol': (n + 1000, n + 1200),
-            'depol': (n + 800, n + 1000)
+            'hyperpol': (n + 1000, n + 1199),
+            'depol': (n + 800, n + 999)
         }
         
         app_logger.info("\nPoint Range Validation:")
@@ -375,9 +375,9 @@ class ActionPotentialProcessor:
 
             # Fixed segment indices
             depol_start = n + 800
-            depol_end = n + 1000
+            depol_end = n + 999
             hyperpol_start = n + 1000
-            hyperpol_end = n + 1200
+            hyperpol_end = n + 1199
 
             if len(self.orange_curve) < hyperpol_end:
                 app_logger.error(f"Orange curve too short ({len(self.orange_curve)} points)")
@@ -453,14 +453,14 @@ class ActionPotentialProcessor:
         n = self.get_segment_start()
         bounds = {
             'normalized': [
-                (n, n + 200),
-                (n + 200, n + 400),
-                (n + 400, n + 600),
-                (n + 600, n + 800)
+                (n, n + 199),
+                (n + 200, n + 399),
+                (n + 400, n + 599),
+                (n + 600, n + 799)
             ],
             'peaks': {
-                'depol': (n + 800, n + 1000),
-                'hyperpol': (n + 1000, n + 1200)
+                'depol': (n + 800, n + 999),
+                'hyperpol': (n + 1000, n + 1199)
             }
         }
         return bounds
@@ -551,10 +551,10 @@ class ActionPotentialProcessor:
 
             # Create segments based on starting point
             segments = [
-                {"start": n,      "end": n + 200, "is_hyperpol": True},
-                {"start": n+200,  "end": n + 400, "is_hyperpol": False},
-                {"start": n+400,  "end": n + 600, "is_hyperpol": True},
-                {"start": n+600,  "end": n + 800, "is_hyperpol": False}
+                {"start": n,      "end": n + 199, "is_hyperpol": True},
+                {"start": n+200,  "end": n + 399, "is_hyperpol": False},
+                {"start": n+400,  "end": n + 599, "is_hyperpol": True},
+                {"start": n+600,  "end": n + 799, "is_hyperpol": False}
             ]
             
             normalized_points = []
@@ -964,12 +964,12 @@ def integrate_curves_separately(self, ranges, method="direct", linreg_params=Non
             raise ValueError("No purple curves available. Run analysis first.")
 
         # Get hyperpolarization range
-        hyperpol_range = ranges.get('hyperpol', {'start': 0, 'end': 200})
+        hyperpol_range = ranges.get('hyperpol', {'start': 0, 'end': 199})
         hyperpol_start = hyperpol_range['start']
         hyperpol_end = hyperpol_range['end']
 
         # Get depolarization range
-        depol_range = ranges.get('depol', {'start': 0, 'end': 200})
+        depol_range = ranges.get('depol', {'start': 0, 'end': 199})
         depol_start = depol_range['start']
         depol_end = depol_range['end']
 
@@ -1034,12 +1034,12 @@ def integrate_curves_separately(self, ranges, method="direct", linreg_params=Non
         raise ValueError("No purple curves available. Run analysis first.")
 
     # Get hyperpolarization range
-    hyperpol_range = ranges.get('hyperpol', {'start': 0, 'end': 200})
+    hyperpol_range = ranges.get('hyperpol', {'start': 0, 'end': 199})
     hyperpol_start = hyperpol_range['start']
     hyperpol_end = hyperpol_range['end']
 
     # Get depolarization range
-    depol_range = ranges.get('depol', {'start': 0, 'end': 200})
+    depol_range = ranges.get('depol', {'start': 0, 'end': 199})
     depol_start = depol_range['start']
     depol_end = depol_range['end']
 
