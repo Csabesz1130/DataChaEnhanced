@@ -15,6 +15,14 @@ def clean_dist():
     if os.path.exists(spec_file):
         os.remove(spec_file)
 
+# Add to build.py
+def zip_application():
+    """Create a ZIP archive of the application"""
+    print("Creating ZIP archive...")
+    shutil.make_archive('dist/SignalAnalyzer', 'zip', 'dist/SignalAnalyzer')
+
+# Then call this in main() after copy_additional_files()
+
 def create_executable():
     """Create the executable using PyInstaller"""
     print("Creating executable...")
@@ -56,6 +64,8 @@ def main():
         clean_dist()
         create_executable()
         copy_additional_files()
+        # Call zip_application after copy_additional_files
+        zip_application()
         print("Build completed successfully!")
         return 0
     except Exception as e:

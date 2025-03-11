@@ -12,3 +12,6 @@ tkinter  # Usually comes with Python
 pytest>=6.0.0  # For testing
 black>=21.0.0  # For code formatting
 pylint>=2.8.0  # For code linting
+
+requests>=2.25.0
+packaging>=20.0
