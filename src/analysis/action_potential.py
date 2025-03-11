@@ -365,7 +365,7 @@ class ActionPotentialProcessor:
                 if self.average_curve is None:
                     return None, None, None, None
                 
-            # Default starting point
+            # Default starting point, first spiking point found + 1
             n = 35
 
             # Use custom starting point if provided
