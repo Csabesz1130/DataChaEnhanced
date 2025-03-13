@@ -251,7 +251,7 @@ class SignalAnalyzerApp:
         )
         
         # Initially hide it
-        self.span_selector.visible = False
+        self.span_selector.set_visible(False)
         
         # Setup interactive range span selectors
         self.setup_interactive_ranges()
@@ -513,8 +513,8 @@ class SignalAnalyzerApp:
         )
         
         # Initially hide them
-        self.hyperpol_span.visible = False
-        self.depol_span.visible = False
+        self.hyperpol_span.set_visible(False)
+        self.depol_span.set_visible(False)
         
         # Store previous extents to prevent unwanted movement
         self.prev_hyperpol_extents = None
@@ -800,10 +800,8 @@ class SignalAnalyzerApp:
             enable_spans = display_mode in ["line", "all_points"]
             
             # Update span selector visibility
-            self.hyperpol_span.visible = enable_spans
-            self.hyperpol_span.set_active(enable_spans)
-            self.depol_span.visible = enable_spans
-            self.depol_span.set_active(enable_spans)
+            self.hyperpol_span.set_visible(enable_spans)
+            self.depol_span.set_visible(enable_spans)
             
             # Update canvas
             self.canvas.draw_idle()
@@ -1429,7 +1427,7 @@ class SignalAnalyzerApp:
             enable_spans = show_points and active_mode
 
             if hasattr(self, 'span_selector'):
-                self.span_selector.visible = enable_spans
+                self.span_selector.set_visible(enable_spans)
                 self.span_selector.set_active(enable_spans)
                 app_logger.debug(f"Span selector visibility set to {enable_spans}")
 
@@ -1464,7 +1462,7 @@ class SignalAnalyzerApp:
                                     self.hyperpol_span.extents = new_extents
                                     self.prev_hyperpol_extents = new_extents
                                     
-                                self.hyperpol_span.visible = True
+                                self.hyperpol_span.set_visible(True)
                                 self.hyperpol_span.set_active(True)
                                 
                                 app_logger.debug(f"Hyperpol span positioned at: {start_idx}-{end_idx}")
@@ -1493,7 +1491,7 @@ class SignalAnalyzerApp:
                                     self.depol_span.extents = new_extents
                                     self.prev_depol_extents = new_extents
                                     
-                                self.depol_span.visible = True
+                                self.depol_span.set_visible(True)
                                 self.depol_span.set_active(True)
                                 
                                 app_logger.debug(f"Depol span positioned at: {start_idx}-{end_idx}")
@@ -1502,10 +1500,10 @@ class SignalAnalyzerApp:
             else:
                 # Disable span selectors when not in the right mode
                 if hasattr(self, 'hyperpol_span'):
-                    self.hyperpol_span.visible = False
+                    self.hyperpol_span.set_visible(False)
                     self.hyperpol_span.set_active(False)
                 if hasattr(self, 'depol_span'):
-                    self.depol_span.visible = False
+                    self.depol_span.set_visible(False)
                     self.depol_span.set_active(False)
                 
             app_logger.debug("Plot updated with all processed data and integration ranges")

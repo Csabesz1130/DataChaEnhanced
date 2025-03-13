@@ -512,6 +512,118 @@ class ActionPotentialProcessor:
             app_logger.error(f"Error in advanced_baseline_normalization: {str(e)}")
             raise
 
+    def detect_and_remove_periodic_spikes(self, data, times=None):
+        """
+        Detect and remove periodic spikes in the data that occur at regular intervals.
+        These spikes are an artifact and should be replaced with the previous point's value.
+        
+        Args:
+            data (np.array): The data array to process
+            times (np.array, optional): Corresponding time array
+            
+        Returns:
+            np.array: Processed data with spikes removed
+        """
+        try:
+            if data is None or len(data) < 200:
+                return data
+            
+            # Make a copy to avoid modifying the original data
+            processed_data = np.copy(data)
+            
+            # Step 1: Find potential spike candidates
+            # Calculate absolute difference between consecutive points
+            diffs = np.abs(np.diff(data))
+            
+            # Find outliers based on statistical properties
+            median_diff = np.median(diffs)
+            mad = np.median(np.abs(diffs - median_diff))  # Median Absolute Deviation
+            
+            # Use robust threshold for spike detection (10x MAD)
+            threshold = median_diff + 10 * mad
+            
+            # Find indices where differences exceed threshold
+            potential_spikes = np.where(diffs > threshold)[0] + 1  # +1 because diff gives indices of first point
+            
+            app_logger.debug(f"Found {len(potential_spikes)} potential spike candidates")
+            
+            if len(potential_spikes) < 2:
+                app_logger.info("No periodic spikes detected")
+                return processed_data
+                
+            # Step 2: Look for periodicity in spike locations
+            intervals = np.diff(potential_spikes)
+            
+            # Use the most common interval if it occurs at least twice
+            unique_intervals, counts = np.unique(intervals, return_counts=True)
+            common_intervals = unique_intervals[counts >= 2]
+            
+            if len(common_intervals) == 0:
+                app_logger.info("No periodic spikes detected")
+                return processed_data
+                
+            # Sort by count to find the most common interval
+            interval_counts = [(interval, counts[unique_intervals == interval][0]) 
+                            for interval in common_intervals]
+            interval_counts.sort(key=lambda x: x[1], reverse=True)
+            
+            period = interval_counts[0][0]
+            
+            app_logger.info(f"Detected periodic spikes with interval of {period} points")
+            
+            if period < 100 or period > 300:
+                app_logger.warning(f"Suspicious period detected: {period}. Expected ~200.")
+            
+            # Step 3: Identify the starting position based on periodicity
+            # Find consecutive spikes that match the period
+            for i in range(len(potential_spikes) - 1):
+                if potential_spikes[i+1] - potential_spikes[i] == period:
+                    starting_pos = potential_spikes[i] % period
+                    break
+            else:
+                # If no consecutive matches found, use the position of the largest spike
+                largest_spike_idx = np.argmax(diffs)
+                starting_pos = (largest_spike_idx + 1) % period
+            
+            app_logger.info(f"Detected spike pattern starting at position {starting_pos}")
+            
+            # Step 4: Replace all spikes in the identified pattern
+            # Find all positions matching the pattern
+            pattern_positions = np.array([starting_pos + period * i for i in range((len(data) - starting_pos) // period + 1)])
+            pattern_positions = pattern_positions[pattern_positions < len(data)]
+            
+            # Verify these are actually spikes by checking against threshold
+            valid_positions = []
+            for pos in pattern_positions:
+                if pos > 0 and pos < len(data):
+                    if abs(data[pos] - data[pos-1]) > threshold:
+                        valid_positions.append(pos)
+            
+            app_logger.info(f"Replacing {len(valid_positions)} spikes at positions: {valid_positions[:5]}{'...' if len(valid_positions)>5 else ''}")
+            
+            # Replace spike values with the previous point value
+            for pos in valid_positions:
+                if pos > 0:  # Ensure we're not at the first point
+                    # Store the original value for logging
+                    original_value = processed_data[pos]
+                    # Replace with previous point
+                    processed_data[pos] = processed_data[pos-1]
+                    app_logger.debug(f"Replaced spike at position {pos}: {original_value:.2f} → {processed_data[pos]:.2f}")
+            
+            # Store detected pattern for later use
+            self.spike_pattern = {
+                'starting_pos': starting_pos,
+                'period': period,
+                'positions': valid_positions
+            }
+            
+            return processed_data
+            
+        except Exception as e:
+            app_logger.error(f"Error in spike detection/removal: {str(e)}")
+            # Return original data if there was an error
+            return data
+
     def generate_orange_curve(self):
         """Generate decimated curve by taking one average point per 50 points."""
         try:

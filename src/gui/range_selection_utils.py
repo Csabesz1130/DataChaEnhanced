@@ -718,7 +718,11 @@ class RangeSelectionManager:
             'hyperpol_integral': 0.0,
             'depol_integral': 0.0
         }
-    
+
+    def should_apply_snap_to_grid(self):
+        """Check if snapping to grid should be applied."""
+        return True  # Mindig alkalmazzuk a rácshoz igazítást
+
     # Add these methods to the RangeSelectionManager class in range_selection_utils.py
 
 def create_custom_slider_with_handle(self, parent_frame, label_text, variable, min_val, max_val, slider_type, color):
