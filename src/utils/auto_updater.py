@@ -35,6 +35,11 @@ class AutoUpdater:
             release_info = response.json()
             latest_version = release_info["tag_name"].lstrip("v")
             
+            # Skip version check if latest_version is not a valid semantic version
+            if latest_version == "main":
+                app_logger.info("Latest version is 'main', skipping version check")
+                return False, None, None
+            
             # Compare versions
             if version.parse(latest_version) > version.parse(self.current_version):
                 app_logger.info(f"Update available: {latest_version}")
