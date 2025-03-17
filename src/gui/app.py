@@ -917,6 +917,15 @@ class SignalAnalyzerApp:
             # PASS THE PROCESSOR REFERENCE DIRECTLY to avoid lookup issues
             if hasattr(self.action_potential_tab, 'set_processor'):
                 self.action_potential_tab.set_processor(self.action_potential_processor)
+
+            # --- ADD HISTORY ENTRY HERE ---
+            # If we have a history manager and no errors, store the analysis results.
+            if self.history_manager:
+                self.history_manager.add_entry(
+                    filename=self.current_file,
+                    results=results,
+                    analysis_type="manual"
+                )
             
             app_logger.info("Action potential analysis completed successfully")
 
