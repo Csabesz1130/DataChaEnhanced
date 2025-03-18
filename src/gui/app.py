@@ -85,6 +85,7 @@ class SignalAnalyzerApp:
 
     def setup_toolbar(self):
         """Setup the toolbar with file operations"""
+        # File operations frame
         file_frame = ttk.Frame(self.toolbar_frame)
         file_frame.pack(side='left', fill='x')
         
@@ -117,6 +118,7 @@ class SignalAnalyzerApp:
 
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
         
+        # Plots frame
         plots_frame = ttk.Frame(self.toolbar_frame)
         plots_frame.pack(side='left', fill='x')
         
@@ -127,6 +129,18 @@ class SignalAnalyzerApp:
         )
         self.separate_plots_btn.pack(side='left', padx=2)
         
+        # Updates frame
+        updates_frame = ttk.Frame(self.toolbar_frame)
+        updates_frame.pack(side='left', padx=5)
+        
+        # Add Check for Updates button
+        ttk.Button(
+            updates_frame,
+            text="Check for Updates",
+            command=self.check_for_updates
+        ).pack(side='left', padx=2)
+        
+        # Create the plot menu
         self.plot_menu = tk.Menu(self.master, tearoff=0)
         self.plot_menu.add_command(
             label="Baseline Correction",
@@ -146,9 +160,30 @@ class SignalAnalyzerApp:
             command=self.window_manager.close_all_windows
         )
         
+        # Create the menu bar if it doesn't exist
+        if not hasattr(self, 'menu_bar'):
+            self.menu_bar = tk.Menu(self.master)
+            self.master.config(menu=self.menu_bar)
+            
+            # Add Help menu
+            help_menu = tk.Menu(self.menu_bar, tearoff=0)
+            self.menu_bar.add_cascade(label="Help", menu=help_menu)
+            
+            # Add Check for Updates option
+            help_menu.add_command(label="Check for Updates", command=self.check_for_updates)
+        
+        # Status label
         self.status_var = tk.StringVar(value="No data loaded")
         self.status_label = ttk.Label(self.toolbar_frame, textvariable=self.status_var)
         self.status_label.pack(side='right', padx=5)
+
+    def check_for_updates(self):
+        """Manually check for updates"""
+        if hasattr(self, 'updater'):
+            self.updater.silent = False  # Force showing dialogs for manual check
+            self.updater.start_update_process()
+        else:
+            messagebox.showinfo("Updates", "Update system not initialized")
 
     def show_plot_menu(self, event=None):
         """Show the plot selection menu below the Separate Plots button"""

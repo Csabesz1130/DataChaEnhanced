@@ -3,6 +3,7 @@ from scipy import signal
 from src.utils.logger import app_logger
 import csv
 from scipy.signal import savgol_filter
+from src.analysis.spike_removal import remove_periodic_spikes, process_curves_in_processor, apply_correct_segments
 
 class ActionPotentialProcessor:
     def __init__(self, data, time_data, params=None):
