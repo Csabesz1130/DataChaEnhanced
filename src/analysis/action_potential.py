@@ -385,7 +385,7 @@ class ActionPotentialProcessor:
 
     def remove_spikes_from_curve(self, curve_data):
         """
-        Remove spikes from any curve data.
+        Remove periodic spikes occurring at exactly 200-point intervals.
         
         Args:
             curve_data: NumPy array containing the curve data
@@ -394,45 +394,56 @@ class ActionPotentialProcessor:
             NumPy array with spikes removed
         """
         # Check for valid input
-        if curve_data is None or len(curve_data) == 0:
+        if curve_data is None or len(curve_data) < 201:  # Need enough points for pattern
             return curve_data
             
         try:
-            # Calculate first derivative (rate of change)
-            diffs = np.diff(curve_data)
-            
-            # Calculate statistics for spike detection
-            mean_diff = np.mean(diffs)
-            std_diff = np.std(diffs)
-            
-            # Find extreme changes (spikes)
-            spike_threshold = 4 * std_diff  # Adjust sensitivity here
-            spike_indices = np.where(np.abs(diffs - mean_diff) > spike_threshold)[0]
-            
-            # If no spikes found, return original data
-            if len(spike_indices) == 0:
-                app_logger.info("No spikes detected in curve data")
-                return curve_data
-                
-            # Create a copy of the data for correction
+            # Make a copy for correction
             corrected_data = np.copy(curve_data)
             
-            # Process each spike
-            for idx in spike_indices:
-                # Define a small window around the spike
-                start_idx = max(0, idx - 2)
-                end_idx = min(len(curve_data) - 1, idx + 3)
+            # STEP 1: Find the first spike using the rate-of-change method
+            diffs = np.diff(curve_data)
+            mean_diff = np.mean(diffs)
+            std_diff = np.std(diffs)
+            spike_threshold = 4 * std_diff
+            potential_first_spikes = np.where(np.abs(diffs - mean_diff) > spike_threshold)[0]
+            
+            # If we found potential first spikes
+            if len(potential_first_spikes) > 0:
+                # Use the earliest detected spike as our reference
+                first_spike_idx = potential_first_spikes[0]
+                app_logger.info(f"First spike detected at position {first_spike_idx}")
                 
-                # Replace spike with interpolated value from neighbors
-                if idx > 0 and idx < len(curve_data) - 1:
-                    # Use linear interpolation from surrounding points
-                    corrected_data[idx] = (curve_data[idx-1] + curve_data[idx+1]) / 2
-                    
-            app_logger.info(f"Removed {len(spike_indices)} spikes from curve data")
-            return corrected_data
+                # STEP 2: Generate the periodic spike positions at 200-point intervals
+                spike_positions = []
+                current_pos = first_spike_idx
+                
+                # Add the first spike position
+                spike_positions.append(current_pos)
+                
+                # Generate periodic spike positions at 200-point intervals
+                while current_pos + 200 < len(curve_data):
+                    current_pos += 200
+                    spike_positions.append(current_pos)
+                
+                # STEP 3: Correct all spike positions
+                for idx in spike_positions:
+                    if 0 < idx < len(curve_data) - 1:  # Ensure we can interpolate
+                        # Use linear interpolation from surrounding points
+                        corrected_data[idx] = (curve_data[idx-1] + curve_data[idx+1]) / 2
+                        # Optional: smooth a small window around the spike for better transition
+                        if idx > 1 and idx < len(curve_data) - 2:
+                            corrected_data[idx-1] = (curve_data[idx-2] + corrected_data[idx]) / 2
+                            corrected_data[idx+1] = (corrected_data[idx] + curve_data[idx+2]) / 2
+                
+                app_logger.info(f"Removed {len(spike_positions)} periodic spikes at 200-point intervals")
+                return corrected_data
+            else:
+                app_logger.info("No initial spike detected, returning original data")
+                return curve_data
             
         except Exception as e:
-            app_logger.error(f"Error removing spikes from curve: {str(e)}")
+            app_logger.error(f"Error removing periodic spikes: {str(e)}")
             # In case of error, return the original data
             return curve_data
 
