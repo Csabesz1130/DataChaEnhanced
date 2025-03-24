@@ -19,6 +19,7 @@ from src.gui.window_manager import SignalWindowManager
 from src.utils.analysis_history_manager import AnalysisHistoryManager
 from src.gui.history_window import HistoryWindow
 from src.excel_export import add_excel_export_to_app
+from src.gui.direct_spike_removal import remove_spikes_from_processor
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -82,6 +83,28 @@ class SignalAnalyzerApp:
         
         self.notebook = ttk.Notebook(self.control_frame)
         self.notebook.pack(fill='both', expand=True)
+
+    def debug_processor(self):
+        """Debug the processor status"""
+        try:
+            # Basic processor status checks
+            has_processor = hasattr(self, 'action_potential_processor')
+            processor_valid = has_processor and self.action_potential_processor is not None
+            
+            # Build diagnostic message
+            message = f"Processor exists: {has_processor}\n"
+            message += f"Processor is valid: {processor_valid}\n"
+            
+            if processor_valid:
+                processor = self.action_potential_processor
+                message += f"Has orange_curve: {hasattr(processor, 'orange_curve')}\n"
+                message += f"Has modified_hyperpol: {hasattr(processor, 'modified_hyperpol')}\n"
+                message += f"Has modified_depol: {hasattr(processor, 'modified_depol')}\n"
+            
+            # Show diagnostic
+            messagebox.showinfo("Processor Debug", message)
+        except Exception as e:
+            messagebox.showerror("Debug Error", str(e))
 
     def setup_toolbar(self):
         """Setup the toolbar with file operations"""
@@ -176,6 +199,12 @@ class SignalAnalyzerApp:
         self.status_var = tk.StringVar(value="No data loaded")
         self.status_label = ttk.Label(self.toolbar_frame, textvariable=self.status_var)
         self.status_label.pack(side='right', padx=5)
+
+        # In the setup_toolbar method of SignalAnalyzerApp
+        debug_button = ttk.Button(self.toolbar_frame, 
+                                text="Debug Processor",
+                                command=self.debug_processor)
+        debug_button.pack(side='left', padx=2)
 
     def check_for_updates(self):
         """Manually check for updates"""
@@ -336,6 +365,48 @@ class SignalAnalyzerApp:
                     self.depol_span.set_active(False)
                     
                 self.canvas.draw_idle()
+
+    # Add this method to the SignalAnalyzerApp class in app.py
+
+    def on_remove_spikes(self):
+        """
+        Remove spikes from the current action_potential_processor.
+        Then re-run analysis or update plot to reflect changes.
+        """
+        try:
+            # Check if processor exists
+            if not hasattr(self, 'action_potential_processor') or self.action_potential_processor is None:
+                messagebox.showwarning(
+                    "No Processor", 
+                    "Please load data and run analysis first."
+                )
+                return
+            
+            # Check if processor has necessary data
+            processor = self.action_potential_processor
+            if not hasattr(processor, 'orange_curve') or processor.orange_curve is None:
+                messagebox.showwarning(
+                    "No Data", 
+                    "The processor doesn't have any curve data to process."
+                )
+                return
+            
+            # Execute spike removal
+            remove_spikes_from_processor(processor)
+            print(f"Processed spike removal on processor: {processor}")
+            
+            # Refresh the analysis with empty parameters to update the plot
+            self.on_action_potential_analysis({})
+            
+            # Show success message
+            messagebox.showinfo("Spike Removal", "Spikes removed successfully.")
+            
+        except Exception as e:
+            import traceback
+            print(f"Error in on_remove_spikes: {str(e)}")
+            print(traceback.format_exc())
+            messagebox.showerror("Error", f"Failed to remove spikes: {str(e)}")
+
 
     def plot_regression_lines(self, data, times, interval, color='purple', alpha=0.7):
         """Plot regression line for a given segment of data with improved visibility."""

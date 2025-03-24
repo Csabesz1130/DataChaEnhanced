@@ -3,7 +3,7 @@ from tkinter import ttk, messagebox
 from src.utils.logger import app_logger
 import numpy as np
 from src.gui.range_selection_utils import RangeSelectionManager
-
+from src.gui.direct_spike_removal import remove_spikes_from_processor
 class ActionPotentialTab:
     def __init__(self, parent, callback):
         """Initialize the action potential analysis tab."""
@@ -38,6 +38,7 @@ class ActionPotentialTab:
         
         # Setup all UI components in correct order
         self.setup_results_display()  # First, setup results display
+        self.setup_spike_removal_controls()
         self.setup_parameter_controls()
         self.setup_normalization_points()
         self.setup_integration_range_controls()  # Add integration range controls
@@ -59,6 +60,65 @@ class ActionPotentialTab:
         width = max(260, self.frame.winfo_width() - 25)
         self.canvas.configure(width=width)
         self.canvas.itemconfig('window', width=width)
+
+    def setup_spike_removal_controls(self):
+        spike_frame = ttk.LabelFrame(self.scrollable_frame, text="Spike Removal")
+        spike_frame.pack(fill='x', padx=5, pady=5)
+
+        # Optional label/description
+        ttk.Label(
+            spike_frame,
+            text="Eliminate periodic spikes at (n + 200*i) from all curves.",
+            wraplength=250,
+            font=('TkDefaultFont', 8, 'italic')
+        ).pack(pady=2)
+
+        remove_button = ttk.Button(
+            spike_frame,
+            text="Remove Spikes",
+            command=self.on_remove_spikes_click
+        )
+        remove_button.pack(pady=5)
+
+    def on_remove_spikes_click(self):
+        """Handler for the 'Remove Spikes' button."""
+        try:
+            app_logger.debug("Remove spikes button clicked")
+            
+            # Get the processor from the main app
+            app = self.parent.master  # The main SignalAnalyzerApp instance
+            
+            # First try to get the processor from the direct reference (most reliable)
+            processor = getattr(self, 'processor', None)
+            
+            # If not available, try getting it from the app
+            if processor is None:
+                processor = getattr(app, 'action_potential_processor', None)
+                
+            # Check if processor exists and has necessary data
+            if (not processor or 
+                not hasattr(processor, 'orange_curve') or 
+                processor.orange_curve is None):
+                
+                app_logger.warning("No valid processor available for spike removal")
+                messagebox.showwarning(
+                    "No Processor",
+                    "Please load data and run analysis first."
+                )
+                return
+
+            # Remove spikes from all curves
+            remove_spikes_from_processor(processor)
+            app_logger.info("Spikes removed from signal data")
+
+            # Re-run analysis with empty parameters to update plots
+            app.on_action_potential_analysis({})
+            
+            messagebox.showinfo("Spike Removal", "Spikes removed successfully.")
+
+        except Exception as e:
+            app_logger.error(f"Error removing spikes: {str(e)}")
+            messagebox.showerror("Error", f"Failed to remove spikes: {str(e)}")
 
     def _on_mousewheel(self, event):
         """Handle mouse wheel scrolling"""
@@ -224,39 +284,65 @@ class ActionPotentialTab:
         ensure both the hyperpol and depol ranges are clearly visible.
         """
         try:
+            # First try using the direct processor reference
+            processor = getattr(self, 'processor', None)
+            
+            # If not available, try getting it from the app
+            if processor is None:
+                app = self.parent.master
+                processor = getattr(app, 'action_potential_processor', None)
+            
             # Check if we have valid purple curves
-            if (hasattr(self.processor, 'modified_hyperpol') and self.processor.modified_hyperpol is not None and
-                len(self.processor.modified_hyperpol) > 0 and
-                hasattr(self.processor, 'modified_depol') and self.processor.modified_depol is not None and
-                len(self.processor.modified_depol) > 0):
+            if (processor is not None and 
+                hasattr(processor, 'modified_hyperpol') and processor.modified_hyperpol is not None and
+                len(processor.modified_hyperpol) > 0 and
+                hasattr(processor, 'modified_depol') and processor.modified_depol is not None and
+                len(processor.modified_depol) > 0):
                 
                 # Make sure the display mode is set to show the purple "all_points"
                 self.modified_display_mode.set("all_points")
 
                 # Enable the range sliders
-                self.enable_range_sliders(True)
+                if hasattr(self, 'range_manager'):
+                    self.range_manager.enable_controls(True)
+                    
+                    # Auto-set good default ranges if they are too narrow
+                    if (self.range_manager.hyperpol_end.get() - self.range_manager.hyperpol_start.get()) < 10:
+                        self.range_manager.hyperpol_start.set(0)
+                        self.range_manager.hyperpol_end.set(200)
 
-                # Auto-set good default ranges if they are too narrow
-                if (self.range_manager.hyperpol_end.get() - self.range_manager.hyperpol_start.get()) < 10:
-                    self.range_manager.hyperpol_end.set(self.range_manager.hyperpol_start.get() + 200)
+                    if (self.range_manager.depol_end.get() - self.range_manager.depol_start.get()) < 10:
+                        self.range_manager.depol_start.set(0)
+                        self.range_manager.depol_end.set(200)
 
-                if (self.range_manager.depol_end.get() - self.range_manager.depol_start.get()) < 10:
-                    self.range_manager.depol_end.set(self.range_manager.depol_start.get() + 200)
-
-                # Force an immediate range update and plot redraw
-                self.range_manager.update_range_display()
+                    # Force an immediate range update and plot redraw
+                    self.range_manager.update_range_display()
+                    if hasattr(self.range_manager, 'calculate_range_integral'):
+                        self.range_manager.calculate_range_integral()
+                        
+                    # Store the processor reference in range manager too
+                    self.range_manager.processor = processor
+                
+                app_logger.debug("Points & regression enabled - purple curves verified")
+                return True
 
             else:
                 # If no purple curves, turn the checkbox off and warn
                 self.show_points.set(False)
+                if hasattr(self, 'range_manager'):
+                    self.range_manager.enable_controls(False)
+                    
+                app_logger.warning("No purple curves available for points & regression")
                 messagebox.showinfo(
                     "Analysis Required",
                     "Please run 'Analyze Signal' first to generate the purple curves."
                 )
+                return False
+                
         except Exception as e:
             self.show_points.set(False)
             app_logger.error(f"Error enabling points: {str(e)}")
-
+            return False
 
     def on_show_points_change(self):
         """
@@ -411,6 +497,7 @@ class ActionPotentialTab:
             
             # Now enable the UI if the processor is valid
             if processor is not None:
+                # Check if processor has purple curves
                 has_purple_curves = (
                     hasattr(processor, 'modified_hyperpol') and 
                     processor.modified_hyperpol is not None and
@@ -423,15 +510,26 @@ class ActionPotentialTab:
                 if has_purple_curves:
                     # Enable the UI
                     self.enable_points_ui()
-                    app_logger.debug("Points UI enabled - processor reference received")
+                    app_logger.debug("Points UI enabled - processor reference received with purple curves")
                 else:
                     app_logger.debug("Processor received but no purple curves found")
                     self.disable_points_ui()
                     
+                # Pass processor reference to range manager if it exists
+                if hasattr(self, 'range_manager'):
+                    self.range_manager.processor = processor
+                    app_logger.debug("Processor reference passed to range manager")
+            else:
+                self.disable_points_ui()
+                app_logger.debug("Null processor reference received - UI disabled")
+                        
             app_logger.debug(f"Processor reference set: {processor is not None}")
+            return True
+            
         except Exception as e:
             app_logger.error(f"Error setting processor reference: {str(e)}")
             self.disable_points_ui()
+            return False
 
     def update_analysis_state(self):
         """Update UI state based on analysis existence."""
@@ -695,6 +793,175 @@ class ActionPotentialTab:
         )
         self.progress.pack(fill='x', pady=2)
         ttk.Label(progress_frame, textvariable=self.status_text).pack(anchor='w')
+
+    def on_remove_spikes_click(self):
+        """
+        Handle the "Remove Spikes" button click with robust processor access.
+        
+        This method has been fixed to properly locate the action_potential_processor
+        regardless of where it's stored in the application hierarchy.
+        
+        This version is compatible with the correct function signature for
+        remove_spikes_from_processor.
+        """
+        app_logger.info("=== Starting Spike Removal Process ===")
+        
+        # Find the processor using multiple search strategies
+        processor = None
+        processor_location = "unknown"
+        
+        # Strategy 1: Check for processor attribute directly
+        if hasattr(self, 'processor') and self.processor is not None:
+            processor = self.processor
+            processor_location = "self.processor"
+            app_logger.debug("Found processor in self.processor")
+        
+        # Strategy 2: Direct access from self
+        elif hasattr(self, 'action_potential_processor') and self.action_potential_processor is not None:
+            processor = self.action_potential_processor
+            processor_location = "self.action_potential_processor"
+            app_logger.debug("Found processor in self.action_potential_processor")
+        
+        # Strategy 3: Access from parent app
+        elif hasattr(self, 'parent') and hasattr(self.parent, 'master'):
+            app = self.parent.master
+            if hasattr(app, 'action_potential_processor') and app.action_potential_processor is not None:
+                processor = app.action_potential_processor
+                processor_location = "self.parent.master.action_potential_processor"
+                app_logger.debug("Found processor in parent.master")
+        
+        # Strategy 4: Look for processor reference in attributes
+        if processor is None:
+            for attr_name in dir(self):
+                if attr_name.endswith('processor'):
+                    attr = getattr(self, attr_name)
+                    if attr is not None and hasattr(attr, 'orange_curve'):
+                        processor = attr
+                        processor_location = f"self.{attr_name}"
+                        app_logger.debug(f"Found processor in self.{attr_name}")
+                        break
+        
+        # Strategy 5: Check if we have a params dict that might have processor
+        if processor is None and hasattr(self, 'params') and isinstance(self.params, dict):
+            if 'processor' in self.params and self.params['processor'] is not None:
+                processor = self.params['processor']
+                processor_location = "self.params['processor']"
+                app_logger.debug("Found processor in params dict")
+        
+        # Additional debug information about application state
+        app_logger.debug(f"ACTION POTENTIAL PROCESSOR SEARCH:")
+        app_logger.debug(f"  Has self.processor: {hasattr(self, 'processor')}")
+        app_logger.debug(f"  Has self.action_potential_processor: {hasattr(self, 'action_potential_processor')}")
+        if hasattr(self, 'parent') and hasattr(self.parent, 'master'):
+            app_logger.debug(f"  Has parent.master.action_potential_processor: {hasattr(self.parent.master, 'action_potential_processor')}")
+        app_logger.debug(f"  Processor found: {processor is not None}")
+        app_logger.debug(f"  Location: {processor_location}")
+        
+        # Check if we found a processor
+        if processor is None:
+            messagebox.showinfo("Information", "Please run analysis first")
+            app_logger.warning("Cannot remove spikes: No data processed yet")
+            return
+        
+        # Verify processor has required data
+        if not hasattr(processor, 'orange_curve') or processor.orange_curve is None:
+            messagebox.showinfo("Information", "No curve data available. Please run analysis first.")
+            app_logger.warning("Cannot remove spikes: No curve data in processor")
+            return
+        
+        try:
+            # Step 1: Apply adaptive spike removal algorithm
+            from src.gui.direct_spike_removal import remove_spikes_from_processor
+            success, results = remove_spikes_from_processor(processor)
+            
+            if not success:
+                error_msg = results.get("error", "Unknown error during spike removal")
+                messagebox.showerror("Error", f"Failed to remove spikes: {error_msg}")
+                app_logger.error(f"Spike removal failed: {error_msg}")
+                return
+            
+            total_replaced = results.get("total_replaced", 0)
+            if total_replaced == 0:
+                messagebox.showinfo("Information", "No problematic spikes were detected")
+                app_logger.info("No spikes detected that meet removal criteria")
+                return
+            
+            # Step 2: Update the display using multiple strategies
+            app_logger.info(f"Successfully removed {total_replaced} spikes. Updating display...")
+            
+            update_successful = False
+            
+            # Find a suitable update method - try the most common method names
+            update_methods = [
+                # Method name, object, whether it's a replot method
+                ('update_plot', self, False),
+                ('update_action_potential_plot', self, False),
+                ('update_plot_with_processed_data', self, False),
+                ('on_action_potential_analysis', self, True),
+                ('refresh_plot', self, False),
+                ('redraw_plot', self, False),
+                ('plot_action_potential', self, False),
+                ('draw_action_potential', self, False),
+                
+                # Check parent methods
+                ('update_plot', self.parent, False),
+                ('refresh_plot', self.parent, False)
+            ]
+            
+            # Try each method until one works
+            for method_name, obj, is_replot in update_methods:
+                if hasattr(obj, method_name) and callable(getattr(obj, method_name)):
+                    try:
+                        method = getattr(obj, method_name)
+                        app_logger.debug(f"Trying update method: {obj.__class__.__name__}.{method_name}")
+                        
+                        # Different approach based on whether this is a replot method
+                        if is_replot and hasattr(self, 'params'):
+                            # This is a method that reruns the whole analysis
+                            # Pass the current parameters to keep settings
+                            if isinstance(self.params, dict):
+                                method(self.params)
+                            else:
+                                # Fall back to empty dict
+                                method({})
+                        else:
+                            # This is a simple update method, try without args first
+                            try:
+                                method()
+                            except TypeError:
+                                # If that fails, try with processor
+                                method(processor=processor)
+                        
+                        update_successful = True
+                        app_logger.info(f"Successfully updated plot using {obj.__class__.__name__}.{method_name}")
+                        break
+                    except Exception as e:
+                        app_logger.debug(f"Update method {method_name} failed: {str(e)}")
+            
+            # If we found a processor but couldn't update, try direct canvas update
+            if not update_successful and hasattr(self, 'canvas') and self.canvas is not None:
+                try:
+                    app_logger.debug("Trying direct canvas update")
+                    self.canvas.draw()  # Force immediate redraw
+                    update_successful = True
+                    app_logger.info("Successfully updated using canvas.draw()")
+                except Exception as e:
+                    app_logger.debug(f"Canvas update failed: {str(e)}")
+            
+            # Inform user of the result
+            if update_successful:
+                messagebox.showinfo("Success", f"Successfully removed {total_replaced} spikes")
+                app_logger.info("=== Spike Removal Process Completed Successfully ===")
+            else:
+                message = (f"Spikes were successfully removed ({total_replaced} total), "
+                        f"but the plot couldn't be automatically updated.\n\n"
+                        f"Please click 'Run Analysis' again to see the cleaned data.")
+                messagebox.showwarning("Partial Success", message)
+                app_logger.warning("Spikes removed but plot update failed")
+        
+        except Exception as e:
+            app_logger.error(f"Error in spike removal process: {str(e)}", exc_info=True)
+            messagebox.showerror("Error", f"An error occurred during spike removal: {str(e)}")
 
     def update_results(self, results):
         """Update displayed results with proper formatting."""

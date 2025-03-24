@@ -322,23 +322,32 @@ class RangeSelectionManager:
         )
 
     def calculate_range_integral(self):
-        """Calculate and display the integral for the current ranges."""
+        """
+        Calculate and display the integral for the current ranges.
+        Uses the local processor reference if available.
+        """
         if not hasattr(self, 'integral_display'):
             return
+
+        # First try getting processor from direct reference
+        processor = getattr(self, 'processor', None)
+        
+        # If not available, try getting from parent class
+        if processor is None and hasattr(self, 'parent'):
+            processor = getattr(self.parent, 'processor', None)
             
-        # Get the action potential processor from the parent app
-        app = self.parent.parent.master
-        if not hasattr(app, 'action_potential_processor') or app.action_potential_processor is None:
-            self.integral_display.config(text="Run analysis first to see integrals")
-            return
+        # If still not available, try getting from app through parent
+        if processor is None and hasattr(self, 'parent') and hasattr(self.parent, 'parent'):
+            app = self.parent.parent.master
+            processor = getattr(app, 'action_potential_processor', None)
         
-        processor = app.action_potential_processor
-        
-        # Check if we have the necessary curves
-        if (not hasattr(processor, 'modified_hyperpol') or 
+        # Check if we have a valid processor with necessary data
+        if (processor is None or 
+            not hasattr(processor, 'modified_hyperpol') or 
             not hasattr(processor, 'modified_depol') or
             processor.modified_hyperpol is None or
             processor.modified_depol is None):
+            
             self.integral_display.config(text="No purple curves available")
             return
         
@@ -377,23 +386,37 @@ class RangeSelectionManager:
                 else:
                     depol_integral = 0
                 
-                # Update display with precise formatting
+                # Calculate the capacitance if available
+                capacitance_text = ""
+                if hasattr(processor, 'params'):
+                    voltage_diff = abs(processor.params.get('V2', 0) - processor.params.get('V0', -80))
+                    if voltage_diff > 0:
+                        capacitance = abs(hyperpol_integral - depol_integral) / voltage_diff
+                        capacitance_text = f"\nCapacitance: {capacitance:.3f} nF"
+                
+                # Update display with more precision and formatting
                 self.integral_display.config(
-                    text=f"Hyperpol integral: {hyperpol_integral:.3f} pC\n"
+                    text=(f"Hyperpol integral: {hyperpol_integral:.3f} pC\n"
                         f"Depol integral: {depol_integral:.3f} pC"
+                        f"{capacitance_text}")
                 )
                 
                 # Store results for later access
                 self.current_integrals = {
                     'hyperpol_integral': hyperpol_integral,
-                    'depol_integral': depol_integral
+                    'depol_integral': depol_integral,
+                    'voltage_diff': voltage_diff if 'voltage_diff' in locals() else 0,
+                    'capacitance': capacitance if 'capacitance' in locals() else 0
                 }
+                
+                return self.current_integrals
             else:
                 self.integral_display.config(text="Range indices out of bounds")
         
         except Exception as e:
             app_logger.error(f"Error calculating range integrals: {str(e)}")
             self.integral_display.config(text=f"Error calculating integrals")
+            return None
 
     def setup_keyboard_navigation(self, hyperpol_frame, depol_frame):
         """Set up keyboard navigation and direct entry fields for precise slider adjustments."""
