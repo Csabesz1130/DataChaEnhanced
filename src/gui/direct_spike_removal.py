@@ -1,6 +1,6 @@
 """
-Adaptive spike removal utility for the Signal Analyzer application.
-This version is compatible with the existing function signature.
+Enhanced spike removal utility with higher sensitivity.
+Use this version if you need to detect subtler spikes.
 """
 
 import numpy as np
@@ -9,10 +9,8 @@ from src.utils.logger import app_logger
 
 def remove_spikes_from_processor(processor):
     """
-    Adaptively detect and remove extreme outlier spikes from action potential curves.
-    
-    This function analyzes each curve to find abrupt transient spikes that occur
-    at voltage step transitions, regardless of their specific indices.
+    Adaptively detect and remove spikes from action potential curves.
+    This version uses more sensitive thresholds to detect subtler spikes.
     
     Args:
         processor: The ActionPotentialProcessor object containing the curves
@@ -44,11 +42,12 @@ def remove_spikes_from_processor(processor):
                 if hasattr(processor, time_attr) and getattr(processor, time_attr) is not None:
                     time_array = getattr(processor, time_attr)
                 
-                # Detect and replace spikes in this curve
+                # Detect and replace spikes in this curve with more sensitive settings
                 replaced_count, modified_curve = detect_and_replace_spikes(
                     curve, 
                     time_array=time_array, 
-                    curve_name=curve_name
+                    curve_name=curve_name,
+                    sensitivity='high'  # Use high sensitivity mode
                 )
                 
                 # Update the processor's curve with the modified one
@@ -70,18 +69,35 @@ def remove_spikes_from_processor(processor):
         app_logger.error(f"Error removing spikes: {str(e)}")
         return False, {"error": str(e)}
 
-def detect_and_replace_spikes(curve, time_array=None, curve_name="unknown"):
+def detect_and_replace_spikes(curve, time_array=None, curve_name="unknown", sensitivity='medium'):
     """
-    Detect and replace spikes in a single curve using an adaptive algorithm.
+    Detect and replace spikes with adjustable sensitivity.
     
     Args:
         curve: numpy array containing the curve data
         time_array: optional corresponding time points
         curve_name: name of the curve for logging
+        sensitivity: 'low', 'medium', or 'high' to adjust detection thresholds
         
     Returns:
         tuple: (count of replaced points, modified curve)
     """
+    # Set thresholds based on sensitivity level
+    if sensitivity == 'high':
+        # Highly sensitive thresholds - will detect more subtle spikes
+        rate_change_threshold = 4.0  # standard deviations (was 8)
+        value_outlier_threshold = 4.0  # standard deviations (was 10)
+        neighbor_diff_threshold = 3.0  # standard deviations (was 5)
+    elif sensitivity == 'low':
+        # Conservative thresholds - fewer false positives
+        rate_change_threshold = 10.0
+        value_outlier_threshold = 12.0
+        neighbor_diff_threshold = 8.0
+    else:  # 'medium' (default)
+        rate_change_threshold = 8.0
+        value_outlier_threshold = 10.0
+        neighbor_diff_threshold = 5.0
+    
     # Make a copy to avoid modifying the input
     cleaned_curve = np.copy(curve)
     replaced_count = 0
@@ -92,19 +108,16 @@ def detect_and_replace_spikes(curve, time_array=None, curve_name="unknown"):
         global_std = np.std(curve)
         
         # Method 1: Detect spikes using first-derivative (rate of change)
-        # This effectively identifies very abrupt changes that are characteristic of spikes
         diff = np.abs(np.diff(curve))
         median_diff = np.median(diff) 
         std_diff = np.std(diff)
         
         # Find spike candidates where rate of change is exceptionally high
-        # Using 8 standard deviations as a very conservative threshold
-        spike_candidates = np.where(diff > (median_diff + 8 * std_diff))[0] + 1
+        spike_candidates = np.where(diff > (median_diff + rate_change_threshold * std_diff))[0] + 1
         
         # Method 2: Find points that are extreme outliers in value
-        # This catches spikes that are far from the normal range of the signal
         diff_from_median = np.abs(curve - global_median)
-        value_outliers = np.where(diff_from_median > 10 * global_std)[0]
+        value_outliers = np.where(diff_from_median > value_outlier_threshold * global_std)[0]
         
         # Combine both methods for final spike detection
         all_candidates = np.unique(np.concatenate((spike_candidates, value_outliers)))
@@ -125,8 +138,8 @@ def detect_and_replace_spikes(curve, time_array=None, curve_name="unknown"):
             
             # Point is a spike if it's far from both neighbors and they are closer to each other
             neighbor_diff = abs(prev_point - next_point)
-            if (diff_prev > 5 * std_diff and 
-                diff_next > 5 * std_diff and 
+            if (diff_prev > neighbor_diff_threshold * std_diff and 
+                diff_next > neighbor_diff_threshold * std_diff and 
                 neighbor_diff < max(diff_prev, diff_next) * 0.5):
                 
                 # Replace with previous point (most effective for these specific spikes)
@@ -166,7 +179,7 @@ def detect_and_replace_spikes(curve, time_array=None, curve_name="unknown"):
                             diff_prev = abs(current_point - prev_point)
                             diff_next = abs(current_point - next_point)
                             
-                            if diff_prev > 5 * global_std and diff_next > 5 * global_std:
+                            if diff_prev > neighbor_diff_threshold * global_std and diff_next > neighbor_diff_threshold * global_std:
                                 # Replace with previous point
                                 old_value = cleaned_curve[i]
                                 cleaned_curve[i] = prev_point

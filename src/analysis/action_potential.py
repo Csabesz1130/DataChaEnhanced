@@ -255,7 +255,8 @@ class ActionPotentialProcessor:
             # Initial processing steps
             self.baseline_correction_initial()
             self.advanced_baseline_normalization()
-            self.generate_orange_curve()
+            #self.generate_orange_curve()
+            self.process_orange_curve_with_spike_removal()
             self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
             self.average_curve, self.average_curve_times = self.calculate_segment_average()
             
@@ -356,6 +357,87 @@ class ActionPotentialProcessor:
         for _ in range(passes):
             smoothed = savgol_filter(smoothed, window_size, polyorder=2)
         return smoothed
+    
+    def process_orange_curve_with_spike_removal(self):
+        """
+        Process the orange curve with integrated spike removal.
+        This ensures all derived curves (purple, etc.) will be free from spikes.
+        """
+        try:
+            app_logger.info("Processing orange curve with integrated spike removal")
+            
+            # First generate the orange curve normally
+            self.generate_orange_curve()
+            
+            # Check if orange curve was successfully generated
+            if self.orange_curve is None or len(self.orange_curve) == 0:
+                app_logger.warning("Orange curve generation failed, skipping spike removal")
+                return
+                
+            # Apply spike removal directly to the orange curve
+            self.orange_curve = self.remove_spikes_from_curve(self.orange_curve)
+            
+            app_logger.info("Spike removal integrated into orange curve processing")
+            
+        except Exception as e:
+            app_logger.error(f"Error in orange curve spike removal: {str(e)}")
+            raise
+
+    def remove_spikes_from_curve(self, curve_data):
+        """
+        Remove spikes from any curve data.
+        
+        Args:
+            curve_data: NumPy array containing the curve data
+            
+        Returns:
+            NumPy array with spikes removed
+        """
+        # Check for valid input
+        if curve_data is None or len(curve_data) == 0:
+            return curve_data
+            
+        try:
+            # Calculate first derivative (rate of change)
+            diffs = np.diff(curve_data)
+            
+            # Calculate statistics for spike detection
+            mean_diff = np.mean(diffs)
+            std_diff = np.std(diffs)
+            
+            # Find extreme changes (spikes)
+            spike_threshold = 4 * std_diff  # Adjust sensitivity here
+            spike_indices = np.where(np.abs(diffs - mean_diff) > spike_threshold)[0]
+            
+            # If no spikes found, return original data
+            if len(spike_indices) == 0:
+                app_logger.info("No spikes detected in curve data")
+                return curve_data
+                
+            # Create a copy of the data for correction
+            corrected_data = np.copy(curve_data)
+            
+            # Process each spike
+            for idx in spike_indices:
+                # Define a small window around the spike
+                start_idx = max(0, idx - 2)
+                end_idx = min(len(curve_data) - 1, idx + 3)
+                
+                # Replace spike with interpolated value from neighbors
+                if idx > 0 and idx < len(curve_data) - 1:
+                    # Use linear interpolation from surrounding points
+                    corrected_data[idx] = (curve_data[idx-1] + curve_data[idx+1]) / 2
+                    
+            app_logger.info(f"Removed {len(spike_indices)} spikes from curve data")
+            return corrected_data
+            
+        except Exception as e:
+            app_logger.error(f"Error removing spikes from curve: {str(e)}")
+            # In case of error, return the original data
+            return curve_data
+
+    # To use this, you need to modify how the orange curve is processed
+    # by replacing the call to generate_orange_curve() with process_orange_curve_with_spike_removal()
         
     def apply_average_to_peaks(self):
         """Apply average to peaks with smooth segment transitions."""
@@ -1196,6 +1278,7 @@ def integrate_curves_separately(self, ranges, method="direct", linreg_params=Non
             f"Cap={capacitance:.6f} nF"
         )
     }
+
 
 
 
