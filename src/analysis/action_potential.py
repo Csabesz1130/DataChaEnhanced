@@ -430,11 +430,11 @@ class ActionPotentialProcessor:
                 for idx in spike_positions:
                     if 0 < idx < len(curve_data) - 1:  # Ensure we can interpolate
                         # Use linear interpolation from surrounding points
-                        corrected_data[idx] = (curve_data[idx-1] + curve_data[idx+1]) / 2
+                        corrected_data[idx] = curve_data[idx-1] 
                         # Optional: smooth a small window around the spike for better transition
                         if idx > 1 and idx < len(curve_data) - 2:
-                            corrected_data[idx-1] = (curve_data[idx-2] + corrected_data[idx]) / 2
-                            corrected_data[idx+1] = (corrected_data[idx] + curve_data[idx+2]) / 2
+                            corrected_data[idx-1] = curve_data[idx-2] 
+                            corrected_data[idx+1] = corrected_data[idx]
                 
                 app_logger.info(f"Removed {len(spike_positions)} periodic spikes at 200-point intervals")
                 return corrected_data
