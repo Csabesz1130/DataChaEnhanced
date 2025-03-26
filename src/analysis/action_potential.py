@@ -773,8 +773,8 @@ class ActionPotentialProcessor:
                     app_logger.warning(f"Segment {start_idx+1}-{end_idx+1} out of range.")
                     continue
                     
-                selected_points = self.orange_curve[start_idx:end_idx]
-                selected_times = self.orange_curve_times[start_idx:end_idx]
+                selected_points = self.orange_curve[start_idx:end_idx+1]
+                selected_times = self.orange_curve_times[start_idx:end_idx+1]
                 voltage_step = -20.0 if seg["is_hyperpol"] else 20.0
                 segment_norm = selected_points / voltage_step
                 normalized_points.extend(segment_norm)
