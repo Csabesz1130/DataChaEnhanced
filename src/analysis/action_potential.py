@@ -823,8 +823,8 @@ class ActionPotentialProcessor:
                 start = max(0, peak - window_before)
                 end = min(len(self.processed_data), peak + window_after)
                 if end - start == window_before + window_after:
-                    cycle = self.processed_data[start:end]
-                    cycle_time = self.time_data[start:end] - self.time_data[start]
+                    cycle = self.processed_data[start:end+1]
+                    cycle_time = self.time_data[start:end+1] - self.time_data[start]
                     self.cycles.append(cycle)
                     self.cycle_times.append(cycle_time)
                     self.cycle_indices.append((start, end))

@@ -419,8 +419,8 @@ class SignalAnalyzerApp:
                 return
 
             # Extract data for regression
-            x = times[start_idx:end_idx]
-            y = data[start_idx:end_idx]
+            x = times[start_idx:end_idx+1]
+            y = data[start_idx:end_idx+1]
             
             # Scatter points in selection range
             self.ax.scatter(x * 1000, y, 
@@ -1193,12 +1193,12 @@ class SignalAnalyzerApp:
             if view_params.get('use_interval', False):
                 start_idx = np.searchsorted(self.time_data, view_params['t_min'])
                 end_idx = np.searchsorted(self.time_data, view_params['t_max'])
-                plot_time = self.time_data[start_idx:end_idx]
-                plot_data = self.data[start_idx:end_idx]
+                plot_time = self.time_data[start_idx:end_idx+1]
+                plot_data = self.data[start_idx:end_idx+1]
                 if self.filtered_data is not None:
-                    plot_filtered = self.filtered_data[start_idx:end_idx]
+                    plot_filtered = self.filtered_data[start_idx:end_idx+1]
                 if hasattr(self, 'processed_data') and self.processed_data is not None:
-                    plot_processed = self.processed_data[start_idx:end_idx]
+                    plot_processed = self.processed_data[start_idx:end_idx+1]
             else:
                 plot_time = self.time_data
                 plot_data = self.data

@@ -1,0 +1,288 @@
+"""
+Point counter utility module for the Signal Analyzer application.
+Provides functionality to track and display cursor position on multiple curves.
+"""
+
+import numpy as np
+from matplotlib.text import Text
+from src.utils.logger import app_logger
+
+class CurvePointTracker:
+    """
+    Tracks cursor position on multiple curves and displays point information.
+    Supports normalized (blue), averaged (magenta), and purple curves.
+    """
+    
+    def __init__(self, figure, ax):
+        """
+        Initialize the curve point tracker.
+        
+        Args:
+            figure: Matplotlib figure
+            ax: Matplotlib axes
+        """
+        self.fig = figure
+        self.ax = ax
+        self.annotations = {}
+        self.curve_data = {
+            'orange': {'data': None, 'times': None, 'visible': False},
+            'blue': {'data': None, 'times': None, 'visible': False},
+            'magenta': {'data': None, 'times': None, 'visible': False},
+            'purple_hyperpol': {'data': None, 'times': None, 'visible': False},
+            'purple_depol': {'data': None, 'times': None, 'visible': False}
+        }
+        self.show_points = False
+        self.last_cursor_pos = None
+        
+        # Text position offsets for each curve to prevent overlap
+        self.offsets = {
+            'orange': (10, 10),
+            'blue': (10, 30),
+            'magenta': (10, 50),
+            'purple_hyperpol': (10, 70),
+            'purple_depol': (10, 90)
+        }
+        
+        # Color mapping for annotation text
+        self.colors = {
+            'orange': 'orange',
+            'blue': 'blue',
+            'magenta': 'magenta',
+            'purple_hyperpol': 'purple',
+            'purple_depol': 'darkviolet'
+        }
+        
+        # Setup event connections
+        self._connect()
+        
+    def _connect(self):
+        """Connect to matplotlib event callbacks"""
+        self.cid_move = self.fig.canvas.mpl_connect('motion_notify_event', self._on_mouse_move)
+        self.cid_figure = self.fig.canvas.mpl_connect('figure_leave_event', self._on_figure_leave)
+    
+    def _disconnect(self):
+        """Disconnect from matplotlib event callbacks"""
+        self.fig.canvas.mpl_disconnect(self.cid_move)
+        self.fig.canvas.mpl_disconnect(self.cid_figure)
+    
+    def set_curve_data(self, curve_type, data, times=None, visible=True):
+        """
+        Set data for a specific curve type.
+        
+        Args:
+            curve_type: Type of curve ('orange', 'blue', 'magenta', 'purple_hyperpol', 'purple_depol')
+            data: Array of y-values
+            times: Array of x-values (timestamps)
+            visible: Whether the curve is visible
+        """
+        if curve_type in self.curve_data:
+            self.curve_data[curve_type]['data'] = data
+            self.curve_data[curve_type]['times'] = times
+            self.curve_data[curve_type]['visible'] = visible
+            app_logger.debug(f"Set {curve_type} curve data with {len(data) if data is not None else 0} points")
+    
+    def set_show_points(self, show):
+        """
+        Set whether to show points.
+        
+        Args:
+            show: Boolean flag to show or hide points
+        """
+        self.show_points = show
+        
+        # Clear annotations if points are hidden
+        if not show:
+            self.clear_annotations()
+    
+    def clear_annotations(self):
+        """Remove all point annotations"""
+        for ann in self.annotations.values():
+            if ann is not None:
+                ann.remove()
+        self.annotations = {}
+        self.fig.canvas.draw_idle()
+    
+    def _get_nearest_point(self, x, y, curve_type):
+        """
+        Find the nearest point on a curve to the cursor position.
+        
+        Args:
+            x: Cursor x-position
+            y: Cursor y-position
+            curve_type: Type of curve
+            
+        Returns:
+            Tuple of (index, distance, x_val, y_val) or None if no point found
+        """
+        curve_data = self.curve_data[curve_type]
+        if curve_data['data'] is None or not curve_data['visible']:
+            return None
+            
+        data = curve_data['data']
+        times = curve_data['times']
+        
+        if times is None:
+            # If no times provided, use indices
+            times = np.arange(len(data))
+        
+        # Convert axes coordinates to data coordinates
+        data_x, data_y = self.ax.transData.inverted().transform((x, y))
+        
+        # Find closest point by x-value first
+        idx = np.abs(times - data_x).argmin()
+        
+        # Check if point is close enough (within 5% of the axis range)
+        x_range = np.max(times) - np.min(times)
+        y_range = np.max(data) - np.min(data)
+        
+        x_tolerance = 0.02 * x_range
+        y_tolerance = 0.05 * y_range
+        
+        x_distance = abs(times[idx] - data_x)
+        y_distance = abs(data[idx] - data_y)
+        
+        if x_distance <= x_tolerance and y_distance <= y_tolerance:
+            return (idx, np.sqrt(x_distance**2 + y_distance**2), times[idx], data[idx])
+        
+        return None
+    
+    def _get_corresponding_orange_point(self, curve_type, point_idx):
+        """
+        Get the corresponding orange curve point index.
+        
+        Args:
+            curve_type: Type of curve
+            point_idx: Index of the point on the curve
+            
+        Returns:
+            Corresponding orange point index or None
+        """
+        # Return None if orange curve data is not available
+        if self.curve_data['orange']['data'] is None:
+            return None
+            
+        # For normalized (blue) curve, the corresponding index is direct
+        if curve_type == 'blue':
+            # Ensure the index is within range of orange curve
+            if point_idx < len(self.curve_data['orange']['data']):
+                return point_idx
+        
+        # For averaged (magenta) curve, calculate scaled index
+        elif curve_type == 'magenta':
+            # We need to map the magenta index to original data
+            # This is an approximation - in real implementation, you might 
+            # need a more accurate mapping based on your data structure
+            orange_len = len(self.curve_data['orange']['data'])
+            magenta_len = len(self.curve_data[curve_type]['data'])
+            
+            if magenta_len > 0 and orange_len > 0:
+                # Scale the index proportionally
+                scaled_idx = int(point_idx * orange_len / magenta_len)
+                return min(scaled_idx, orange_len - 1)
+        
+        # For purple curves, use domain knowledge to map indices
+        elif curve_type in ['purple_hyperpol', 'purple_depol']:
+            # This would depend on your specific implementation
+            # For instance, if purple curves are extracted segments,
+            # you might have stored start/end indices
+            processor = getattr(self.ax.figure.canvas.manager.window, 'action_potential_processor', None)
+            
+            if processor is not None:
+                if curve_type == 'purple_hyperpol' and hasattr(processor, 'hyperpol_indices'):
+                    start_idx = processor.hyperpol_indices[0]
+                    return start_idx + point_idx
+                
+                elif curve_type == 'purple_depol' and hasattr(processor, 'depol_indices'):
+                    start_idx = processor.depol_indices[0]
+                    return start_idx + point_idx
+        
+        return None
+    
+    def _on_mouse_move(self, event):
+        """
+        Handle mouse movement events.
+        
+        Args:
+            event: Matplotlib motion event
+        """
+        if not event.inaxes or not self.show_points or event.inaxes != self.ax:
+            return
+            
+        # Store cursor position
+        self.last_cursor_pos = (event.x, event.y)
+        
+        # Process each curve type
+        for curve_type in self.curve_data:
+            # Skip if curve is not visible
+            if not self.curve_data[curve_type]['visible']:
+                if curve_type in self.annotations and self.annotations[curve_type] is not None:
+                    self.annotations[curve_type].remove()
+                    self.annotations[curve_type] = None
+                continue
+                
+            # Get nearest point
+            nearest = self._get_nearest_point(event.x, event.y, curve_type)
+            
+            if nearest is not None:
+                # Get point information
+                idx, dist, x_val, y_val = nearest
+                
+                # Get corresponding orange point
+                orange_idx = self._get_corresponding_orange_point(curve_type, idx)
+                
+                # Create annotation text with orange point reference
+                color_name = curve_type.split('_')[0].capitalize()
+                if '_' in curve_type:
+                    color_name += f" {curve_type.split('_')[1].capitalize()}"
+                
+                if orange_idx is not None:
+                    text = f"{color_name} point: {idx} [Orange: {orange_idx}]"
+                else:
+                    text = f"{color_name} point: {idx} [No Orange ref]"
+                
+                # Add or update annotation
+                if curve_type in self.annotations and self.annotations[curve_type] is not None:
+                    self.annotations[curve_type].set_text(text)
+                    self.annotations[curve_type].set_position((x_val, y_val))
+                else:
+                    offset_x, offset_y = self.offsets[curve_type]
+                    self.annotations[curve_type] = self.ax.annotate(
+                        text, xy=(x_val, y_val),
+                        xytext=(offset_x, offset_y),
+                        textcoords='offset points',
+                        color=self.colors[curve_type],
+                        bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
+                        arrowprops=dict(arrowstyle="->", color=self.colors[curve_type])
+                    )
+            elif curve_type in self.annotations and self.annotations[curve_type] is not None:
+                self.annotations[curve_type].remove()
+                self.annotations[curve_type] = None
+        
+        # Redraw canvas
+        self.fig.canvas.draw_idle()
+    
+    def _on_figure_leave(self, event):
+        """
+        Handle mouse leaving the figure.
+        
+        Args:
+            event: Matplotlib figure leave event
+        """
+        self.clear_annotations()
+        self.last_cursor_pos = None
+
+    def update_annotations(self):
+        """
+        Update annotations based on last cursor position.
+        Use this when curve data changes but cursor hasn't moved.
+        """
+        if self.last_cursor_pos is not None and self.show_points:
+            # Create a mock event
+            class MockEvent:
+                def __init__(self, x, y, inaxes):
+                    self.x = x
+                    self.y = y
+                    self.inaxes = inaxes
+            
+            mock_event = MockEvent(self.last_cursor_pos[0], self.last_cursor_pos[1], self.ax)
+            self._on_mouse_move(mock_event)
