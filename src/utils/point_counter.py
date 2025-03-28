@@ -13,16 +13,18 @@ class CurvePointTracker:
     Supports normalized (blue), averaged (magenta), and purple curves.
     """
     
-    def __init__(self, figure, ax):
+    def __init__(self, figure, ax, status_var=None):
         """
         Initialize the curve point tracker.
         
         Args:
             figure: Matplotlib figure
             ax: Matplotlib axes
+            status_var: Optional Tkinter StringVar for status display
         """
         self.fig = figure
         self.ax = ax
+        self.status_var = status_var  # New parameter for status bar
         self.annotations = {}
         self.curve_data = {
             'orange': {'data': None, 'times': None, 'visible': False},
@@ -33,6 +35,8 @@ class CurvePointTracker:
         }
         self.show_points = False
         self.last_cursor_pos = None
+        self.current_time = 0
+        self.current_value = 0
         
         # Text position offsets for each curve to prevent overlap
         self.offsets = {
@@ -50,6 +54,15 @@ class CurvePointTracker:
             'magenta': 'magenta',
             'purple_hyperpol': 'purple',
             'purple_depol': 'darkviolet'
+        }
+        
+        # Display names for the curves
+        self.curve_names = {
+            'orange': 'Orange',
+            'blue': 'Blue',
+            'magenta': 'Magenta',
+            'purple_hyperpol': 'Purple Hyperpol',
+            'purple_depol': 'Purple Depol'
         }
         
         # Setup event connections
@@ -93,6 +106,8 @@ class CurvePointTracker:
         # Clear annotations if points are hidden
         if not show:
             self.clear_annotations()
+            if self.status_var:
+                self._clear_status_display()
     
     def clear_annotations(self):
         """Remove all point annotations"""
@@ -102,9 +117,15 @@ class CurvePointTracker:
         self.annotations = {}
         self.fig.canvas.draw_idle()
     
+    def _clear_status_display(self):
+        """Clear the status display"""
+        if self.status_var:
+            self.status_var.set("")
+    
     def _get_nearest_point(self, x, y, curve_type):
         """
         Find the nearest point on a curve to the cursor position.
+        Enhanced version with better threshold logic.
         
         Args:
             x: Cursor x-position
@@ -131,18 +152,25 @@ class CurvePointTracker:
         # Find closest point by x-value first
         idx = np.abs(times - data_x).argmin()
         
-        # Check if point is close enough (within 5% of the axis range)
-        x_range = np.max(times) - np.min(times)
-        y_range = np.max(data) - np.min(data)
-        
-        x_tolerance = 0.02 * x_range
-        y_tolerance = 0.05 * y_range
-        
+        # Calculate distance to point
         x_distance = abs(times[idx] - data_x)
         y_distance = abs(data[idx] - data_y)
         
-        if x_distance <= x_tolerance and y_distance <= y_tolerance:
-            return (idx, np.sqrt(x_distance**2 + y_distance**2), times[idx], data[idx])
+        # Get axis ranges for proper distance scaling
+        x_range = np.max(times) - np.min(times)
+        y_range = np.max(data) - np.min(data)
+        
+        # Scale distances by axis ranges for proper weighting
+        # This makes the threshold more robust regardless of units
+        scaled_x_distance = x_distance / (x_range * 0.05)  # 5% of x-range
+        scaled_y_distance = y_distance / (y_range * 0.1)   # 10% of y-range
+        
+        # Use weighted distance - prioritize x-distance with 2:1 ratio
+        weighted_distance = np.sqrt((2 * scaled_x_distance)**2 + scaled_y_distance**2)
+        
+        # Return the point if it's close enough (distance < 1.0 means within threshold)
+        if weighted_distance < 1.0:
+            return (idx, weighted_distance, times[idx], data[idx])
         
         return None
     
@@ -201,17 +229,66 @@ class CurvePointTracker:
     def _on_mouse_move(self, event):
         """
         Handle mouse movement events.
+        Enhanced to update both annotations and status bar.
         
         Args:
             event: Matplotlib motion event
         """
         if not event.inaxes or not self.show_points or event.inaxes != self.ax:
+            # Clear status bar if cursor is not over the plot
+            if self.status_var:
+                self._clear_status_display()
             return
             
-        # Store cursor position
+        # Store cursor position and data values
         self.last_cursor_pos = (event.x, event.y)
+        self.current_time = event.xdata
+        self.current_value = event.ydata
         
-        # Process each curve type
+        # For status bar: Find the closest point across all curves
+        closest_curve = None
+        closest_info = None
+        min_distance = float('inf')
+        
+        # Define the order of priority for curves (in case of ties)
+        curve_priority = ['orange', 'blue', 'magenta', 'purple_hyperpol', 'purple_depol']
+        
+        # First, check each curve and collect all points within threshold
+        candidate_points = []
+        
+        for curve_type in curve_priority:
+            if self.curve_data[curve_type]['visible']:
+                point_info = self._get_nearest_point(event.x, event.y, curve_type)
+                
+                if point_info is not None:
+                    idx, distance, x_val, y_val = point_info
+                    candidate_points.append({
+                        'curve_type': curve_type,
+                        'distance': distance,
+                        'index': idx,
+                        'x_val': x_val,
+                        'y_val': y_val
+                    })
+        
+        # If we have candidate points, find the closest one for status bar
+        if candidate_points:
+            # Sort by distance
+            candidate_points.sort(key=lambda p: p['distance'])
+            
+            # Get the closest point
+            closest = candidate_points[0]
+            closest_curve = closest['curve_type']
+            closest_info = {
+                'index': closest['index'],
+                'x_val': closest['x_val'],
+                'y_val': closest['y_val']
+            }
+        
+        # Update status bar based on closest point
+        if self.status_var and closest_curve is not None and closest_info is not None:
+            self._update_status_for_curve(closest_curve, closest_info)
+        
+        # Process each curve type for annotations (original behavior)
         for curve_type in self.curve_data:
             # Skip if curve is not visible
             if not self.curve_data[curve_type]['visible']:
@@ -261,6 +338,53 @@ class CurvePointTracker:
         # Redraw canvas
         self.fig.canvas.draw_idle()
     
+    def _update_status_for_curve(self, curve_type, point_info):
+        """
+        Update status display for a specific curve.
+        
+        Args:
+            curve_type: Type of curve
+            point_info: Dictionary with point information
+        """
+        if not self.status_var:
+            return
+            
+        try:
+            # Get time and current value at cursor position
+            time_str = f"Time: {self.current_time:.1f} ms"
+            current_str = f"Current: {self.current_value:.1f} pA"
+            
+            # Get point information
+            curve_name = self.curve_names[curve_type]
+            point_idx = point_info['index']
+            
+            # Create the point display text - ensure it matches the expected format
+            point_str = f"{curve_name} Point: {point_idx}"
+            
+            # Add orange reference for non-orange curves
+            if curve_type != 'orange':
+                orange_idx = self._get_corresponding_orange_point(curve_type, point_idx)
+                if orange_idx is not None:
+                    # Use the exact format requested: "Orange Point: X" 
+                    point_str += f" (Orange Point: {orange_idx})"
+                else:
+                    point_str += " (No Orange ref)"
+            
+            # Combine all parts
+            status_text = f"{time_str}, {current_str}, {point_str}"
+            self.status_var.set(status_text)
+            
+        except Exception as e:
+            app_logger.error(f"Error updating status: {str(e)}")
+            # Fallback to basic status
+            self._update_basic_status()
+    
+    def _update_basic_status(self):
+        """Update status bar with just time and current value"""
+        if self.status_var:
+            status_text = f"Time: {self.current_time:.1f} ms, Current: {self.current_value:.1f} pA"
+            self.status_var.set(status_text)
+    
     def _on_figure_leave(self, event):
         """
         Handle mouse leaving the figure.
@@ -269,6 +393,8 @@ class CurvePointTracker:
             event: Matplotlib figure leave event
         """
         self.clear_annotations()
+        if self.status_var:
+            self._clear_status_display()
         self.last_cursor_pos = None
 
     def update_annotations(self):

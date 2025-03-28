@@ -465,21 +465,23 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error plotting regression line: {str(e)}")
 
     def setup_plot(self):
-        """Setup the matplotlib plot area with cursor tracking."""
+        """Setup the matplotlib plot area with point tracking"""
+        # Create figure and canvas
         self.fig = Figure(figsize=(10, 6), dpi=100)
         self.ax = self.fig.add_subplot(111)
         
+        # Create canvas and navigation toolbar
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill='both', expand=True)
         
+        # Add navigation toolbar
         self.toolbar = NavigationToolbar2Tk(self.canvas, self.plot_frame)
         self.toolbar.update()
         
-        self.cursor_label = ttk.Label(self.plot_frame, text="")
-        self.cursor_label.pack(side='bottom', fill='x')
-        
-        self.canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+        # Initialize point tracker with status bar variable
+        from src.utils.point_counter import CurvePointTracker
+        self.point_tracker = CurvePointTracker(self.fig, self.ax, self.point_status_var)
 
     def setup_tabs(self):
         """Setup the control tabs"""
