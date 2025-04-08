@@ -4,6 +4,9 @@ from src.utils.logger import app_logger
 import numpy as np
 from src.gui.range_selection_utils import RangeSelectionManager
 from src.gui.direct_spike_removal import remove_spikes_from_processor
+import os, time
+print(f"action_potential_tab.py last modified: {time.ctime(os.path.getmtime(__file__))}")
+
 class ActionPotentialTab:
     def __init__(self, parent, callback):
         """Initialize the action potential analysis tab."""
@@ -346,24 +349,46 @@ class ActionPotentialTab:
 
     def on_show_points_change(self):
         """
-        When the "Enable Points & Regression" checkbox is toggled,
-        ensure both ranges (red + blue) appear immediately if enabled,
-        or hide/disable them if unchecked.
+        Handle changes to show_points checkbox - only affects annotations
+        and regression features, not basic point tracking.
         """
+        # Get current state
         show_points = self.show_points.get()
-        if show_points:
-            # Turn on full "points" mode
-            self.check_and_enable_points()
-        else:
-            # Disable sliders
-            self.enable_range_sliders(False)
+        app_logger.info(f"Show points toggled: {show_points}")
         
-        # Trigger an update callback to redraw the plot with or without the ranges
-        params = self.get_parameters()
-        if 'display_options' in params:
-            params['display_options']['modified_mode'] = "all_points" if show_points else "line"
+        # Get main app reference
+        app = self.parent.master
+        
+        # Send update with integration ranges
+        ranges = {}
+        if hasattr(self, 'range_manager'):
+            ranges = self.range_manager.get_integration_ranges()
+            # Enable/disable range sliders
+            self.range_manager.enable_controls(show_points)
+        
+        # Build params for update
+        params = {
+            'integration_ranges': ranges,
+            'show_points': show_points,  # This now only controls visual elements like spans
+            'visibility_update': True
+        }
+        
+        # Call update callback
         if self.update_callback:
             self.update_callback(params)
+        
+        # Toggle annotation display mode only
+        if hasattr(app, 'point_tracker'):
+            app.point_tracker.show_annotations = show_points
+        
+        # Set display mode to points when annotations are enabled
+        if show_points:
+            self.modified_display_mode.set("all_points")
+            self.average_display_mode.set("all_points")
+        
+        # Update span selectors if needed
+        if hasattr(app, 'toggle_span_selectors'):
+            app.toggle_span_selectors(show_points)
 
     def enable_range_sliders(self, enable):
         """Enable or disable range sliders."""

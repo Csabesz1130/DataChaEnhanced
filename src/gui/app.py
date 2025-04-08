@@ -58,31 +58,109 @@ class SignalAnalyzerApp:
         app_logger.info("Application initialized successfully")
 
     def setup_main_layout(self):
-        """Setup the main application layout with resizable panes"""
+        """Setup the main application layout with status bar"""
+        # Create main frames
         self.toolbar_frame = ttk.Frame(self.master)
         self.toolbar_frame.pack(fill='x', padx=5, pady=5)
         
+        # Create main container for plot and controls
         self.main_container = ttk.PanedWindow(self.master, orient='horizontal')
         self.main_container.pack(fill='both', expand=True, padx=5, pady=5)
         
-        total_width = self.master.winfo_screenwidth()
-        plot_width = int(total_width * 0.7)
-        control_width = int(total_width * 0.3)
+        # Create frames for plot and controls
+        self.plot_frame = ttk.Frame(self.main_container)
+        self.control_frame = ttk.Frame(self.main_container)
         
-        self.plot_frame = ttk.Frame(self.main_container, width=plot_width)
-        self.control_frame = ttk.Frame(self.main_container, width=control_width)
+        # Add frames to PanedWindow
+        self.main_container.add(self.plot_frame, weight=3)
+        self.main_container.add(self.control_frame, weight=1)
         
-        self.main_container.add(self.plot_frame, weight=70)
-        self.main_container.add(self.control_frame, weight=30)
+        # Create status bar at the bottom
+        self.status_bar_frame = ttk.Frame(self.master, relief=tk.SUNKEN, border=1)
+        self.status_bar_frame.pack(side='bottom', fill='x')
         
-        self.plot_frame.pack_propagate(False)
-        self.control_frame.pack_propagate(False)
+        # Status bar style
+        self.style = ttk.Style()
+        self.style.configure(
+            "StatusBar.TLabel", 
+            font=('Consolas', 9),  # Fixed-width font
+            background="#f0f0f0",  # Light gray background
+            foreground="#000000",  # Black text
+            padding=(5, 2)         # Padding
+        )
         
-        self.plot_frame.configure(width=400)
-        self.control_frame.configure(width=300)
+        # Status variable for point tracking
+        self.point_status_var = tk.StringVar(value="No data loaded")
         
-        self.notebook = ttk.Notebook(self.control_frame)
-        self.notebook.pack(fill='both', expand=True)
+        # Create status label with fixed width font for better alignment
+        self.point_status_label = ttk.Label(
+            self.status_bar_frame, 
+            textvariable=self.point_status_var,
+            style="StatusBar.TLabel"
+        )
+        self.point_status_label.pack(fill='x', expand=True, anchor='w')
+
+    def debug_point_tracking(self):
+        """Debug the point tracking system and force-enable it if needed."""
+        try:
+            # Check point tracker status
+            has_tracker = hasattr(self, 'point_tracker')
+            
+            # Build diagnostic message with relevant information
+            message = f"Point Tracker Status:\n"
+            message += f"- Point tracker exists: {has_tracker}\n"
+            
+            if has_tracker:
+                # Check show_points flag
+                message += f"- Show points enabled: {self.point_tracker.show_points}\n"
+                
+                # Count curves with data
+                active_curves = 0
+                for curve_type, curve_data in self.point_tracker.curve_data.items():
+                    has_data = curve_data['data'] is not None and len(curve_data['data']) > 0
+                    is_visible = curve_data['visible']
+                    message += f"- {curve_type} curve: {'✓' if has_data else '✗'} (visible: {is_visible})\n"
+                    if has_data and is_visible:
+                        active_curves += 1
+                
+                message += f"- Active curves: {active_curves}\n"
+                
+            # Check processor status
+            processor_exists = hasattr(self, 'action_potential_processor')
+            processor_valid = processor_exists and self.action_potential_processor is not None
+            
+            # Check show_points setting in UI
+            has_ui_control = hasattr(self.action_potential_tab, 'show_points')
+            ui_points_enabled = has_ui_control and self.action_potential_tab.show_points.get()
+            
+            message += f"- Processor exists: {processor_exists}\n"
+            message += f"- UI show_points control: {has_ui_control} (value: {ui_points_enabled if has_ui_control else 'N/A'})\n"
+            
+            # Show diagnostic
+            from tkinter import messagebox
+            result = messagebox.askyesno("Point Tracking Debug", message + "\n\nWould you like to force-enable point tracking?")
+            
+            # Force-enable if requested
+            if result:
+                if has_tracker:
+                    # Enable point tracking
+                    self.point_tracker.set_show_points(True)
+                    
+                    # Update UI control if it exists
+                    if has_ui_control:
+                        self.action_potential_tab.show_points.set(True)
+                    
+                    # Refresh curve data
+                    if processor_valid:
+                        self.update_point_tracking(True)
+                        
+                    messagebox.showinfo("Point Tracking", "Point tracking has been force-enabled.")
+                else:
+                    messagebox.showerror("Error", "Cannot enable point tracking - tracker not initialized.")
+            
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Debug Error", f"Error diagnosing point tracking: {str(e)}")
 
     def debug_processor(self):
         """Debug the processor status"""
@@ -253,6 +331,76 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error showing history window: {str(e)}")
             messagebox.showerror("Error", f"Failed to show history: {str(e)}")
+
+    def on_show_points_toggle(self):
+        """Handle toggling of point display in status bar"""
+        show_points = self.show_points.get()
+        app_logger.debug(f"Show points toggled: {show_points}")
+        
+        # Pass the setting to the main application
+        params = self.get_parameters()
+        params['show_points'] = show_points
+        params['visibility_update'] = True  # Flag as visibility update only
+        
+        # Call callback with updated parameters
+        self.update_callback(params)
+        
+        # Explicitly update the point tracker if we can access it directly
+        try:
+            # Get the main app reference
+            app = self.parent.master
+            if hasattr(app, 'point_tracker'):
+                app.point_tracker.set_show_points(show_points)
+                app_logger.debug(f"Directly updated point tracker show_points to {show_points}")
+        except Exception as e:
+            app_logger.error(f"Error updating point tracker directly: {str(e)}")
+
+    def update_point_tracking(self, enable_annotations=False):
+        """
+        Update point tracking data and optionally enable annotations.
+        Point tracking itself is always enabled.
+        """
+        if not hasattr(self, 'point_tracker'):
+            return
+            
+        app_logger.debug(f"Updating point tracking (annotations: {enable_annotations})")
+        
+        # Set annotation visibility flag - point tracking itself is always enabled
+        self.point_tracker.show_annotations = enable_annotations
+        
+        # Get processor for data
+        processor = getattr(self, 'action_potential_processor', None)
+        if processor is None:
+            app_logger.warning("No processor available for point tracking")
+            return
+        
+        # Set all curve data if available
+        if hasattr(processor, 'orange_curve') and processor.orange_curve is not None:
+            self.point_tracker.curve_data['orange']['data'] = processor.orange_curve
+            self.point_tracker.curve_data['orange']['times'] = getattr(processor, 'orange_curve_times', None)
+        
+        if hasattr(processor, 'normalized_curve') and processor.normalized_curve is not None:
+            self.point_tracker.curve_data['blue']['data'] = processor.normalized_curve
+            self.point_tracker.curve_data['blue']['times'] = getattr(processor, 'normalized_curve_times', None)
+        
+        if hasattr(processor, 'average_curve') and processor.average_curve is not None:
+            self.point_tracker.curve_data['magenta']['data'] = processor.average_curve
+            self.point_tracker.curve_data['magenta']['times'] = getattr(processor, 'average_curve_times', None)
+        
+        if hasattr(processor, 'modified_hyperpol') and processor.modified_hyperpol is not None:
+            self.point_tracker.curve_data['purple_hyperpol']['data'] = processor.modified_hyperpol
+            self.point_tracker.curve_data['purple_hyperpol']['times'] = getattr(processor, 'modified_hyperpol_times', None)
+        
+        if hasattr(processor, 'modified_depol') and processor.modified_depol is not None:
+            self.point_tracker.curve_data['purple_depol']['data'] = processor.modified_depol
+            self.point_tracker.curve_data['purple_depol']['times'] = getattr(processor, 'modified_depol_times', None)
+        
+        # Always ensure event connections are active
+        self.point_tracker._connect()
+        
+        # Clear annotations if they're being disabled
+        if not enable_annotations:
+            self.point_tracker.clear_annotations()
 
     def setup_plot_interaction(self):
         """Setup interactive plot selection and regression visualization."""
@@ -485,21 +633,82 @@ class SignalAnalyzerApp:
 
     def setup_tabs(self):
         """Setup the control tabs"""
+        # Create notebook for tabs
+        self.notebook = ttk.Notebook(self.control_frame)
+        self.notebook.pack(fill='both', expand=True)
+        
+        # Create tabs
         self.filter_tab = FilterTab(self.notebook, self.on_filter_change)
         self.analysis_tab = AnalysisTab(self.notebook, self.on_analysis_update)
         self.view_tab = ViewTab(self.notebook, self.on_view_change)
         self.action_potential_tab = ActionPotentialTab(self.notebook, self.on_action_potential_analysis)
         
+        # Add tabs to notebook
         self.notebook.add(self.filter_tab.frame, text='Filters')
         self.notebook.add(self.analysis_tab.frame, text='Analysis')
         self.notebook.add(self.view_tab.frame, text='View')
         self.notebook.add(self.action_potential_tab.frame, text='Action Potential')
 
 
+    
+    def reset_point_tracker(self):
+        """
+        Completely reset the point tracker when loading new data or changing views.
+        """
+        if not hasattr(self, 'point_tracker'):
+            return
+            
+        app_logger.debug("Resetting point tracker")
+        
+        try:
+            # Clear all annotations and hide points
+            self.point_tracker.clear_annotations()
+            self.point_tracker._clear_status_display()
+            
+            # Reset curve data
+            for curve_type in self.point_tracker.curve_data:
+                self.point_tracker.curve_data[curve_type] = {
+                    'data': None, 
+                    'times': None, 
+                    'visible': False
+                }
+            
+            # Reset other state variables
+            self.point_tracker.last_cursor_pos = None
+            self.point_tracker.current_time = 0
+            self.point_tracker.current_value = 0
+            
+            # Reconnect event handlers (in case they got disconnected)
+            self.point_tracker._connect()
+            
+            # Update point tracking based on current show_points setting
+            if hasattr(self.action_potential_tab, 'show_points'):
+                show_points = self.action_potential_tab.show_points.get()
+                self.point_tracker.set_show_points(show_points)
+                
+                if show_points and hasattr(self, 'action_potential_processor'):
+                    # Refresh curve data from processor
+                    self.update_point_tracking(show_points)
+            
+            app_logger.info("Point tracker reset successfully")
+            
+        except Exception as e:
+            app_logger.error(f"Error resetting point tracker: {str(e)}")
+
     def _find_closest_point(self, x_ms, y_pA):
-        """Find closest orange point when in All Points mode."""
-        if (not hasattr(self, 'orange_curve_times') or 
-            self.orange_curve_times is None or 
+        """
+        Find closest orange point when in All Points mode with improved precision.
+        
+        Args:
+            x_ms: X coordinate in milliseconds
+            y_pA: Y coordinate in picoamperes
+            
+        Returns:
+            Tuple of (point_number, point_time) or (None, None) if no point found
+        """
+        # Check if we have orange curve data and are in all_points mode
+        if (not hasattr(self, 'orange_curve') or self.orange_curve is None or 
+            not hasattr(self, 'orange_curve_times') or self.orange_curve_times is None or 
             not hasattr(self.action_potential_tab, 'average_display_mode') or
             self.action_potential_tab.average_display_mode.get() != "all_points"):
             return None, None
@@ -507,20 +716,29 @@ class SignalAnalyzerApp:
         # Convert x_ms from milliseconds to seconds for comparison
         x_sec = x_ms / 1000.0
         
-        # Find closest point index
+        # Find closest point index with vectorized operations
         diffs = np.abs(self.orange_curve_times - x_sec)
         closest_idx = np.argmin(diffs)
+        min_diff = diffs[closest_idx]
         
-        # Use 0.0002 seconds threshold (0.2ms)
-        if diffs[closest_idx] > 0.0002:
-            return None, None
-            
-        # Check amplitude is close enough (within 20 pA)
-        if abs(self.orange_curve[closest_idx] - y_pA) > 20:
-            return None, None
-            
-        point_number = closest_idx + 1
-        return point_number, self.orange_curve_times[closest_idx]
+        # Use adaptive thresholds based on data range
+        x_range = np.max(self.orange_curve_times) - np.min(self.orange_curve_times)
+        y_range = np.max(self.orange_curve) - np.min(self.orange_curve)
+        
+        # Scale thresholds based on data ranges (more generous)
+        time_threshold = max(0.0005, 0.01 * x_range)  # 1% of time range or at least 0.5ms
+        amp_threshold = max(10.0, 0.05 * y_range)     # 5% of amplitude range or at least 10 pA
+        
+        # Log detection details for debugging
+        app_logger.debug(f"Point search: x={x_sec:.5f}s, closest={self.orange_curve_times[closest_idx]:.5f}s, diff={min_diff:.5f}/{time_threshold:.5f}")
+        app_logger.debug(f"Amplitude: y={y_pA:.1f}, closest={self.orange_curve[closest_idx]:.1f}, diff={abs(self.orange_curve[closest_idx] - y_pA):.1f}/{amp_threshold:.1f}")
+        
+        # Check if closest point is within thresholds
+        if min_diff <= time_threshold and abs(self.orange_curve[closest_idx] - y_pA) <= amp_threshold:
+            point_number = closest_idx + 1  # 1-based indexing for display
+            return point_number, self.orange_curve_times[closest_idx]
+        
+        return None, None
 
     def on_mouse_move(self, event):
         """Handle cursor movement and point detection."""
@@ -923,6 +1141,11 @@ class SignalAnalyzerApp:
         """
         Handle action potential analysis or display updates from the ActionPotentialTab.
         """
+        # Add version tracking for debugging
+        import os, time
+        func_version = "1.0.1"  # Increment when modifying
+        app_logger.debug(f"Running on_action_potential_analysis version {func_version}")
+        
         # Handle visibility-only updates
         if isinstance(params, dict) and params.get('visibility_update', False):
             if hasattr(self, 'processed_data') and self.processed_data is not None:
@@ -1034,6 +1257,13 @@ class SignalAnalyzerApp:
                     results=results,
                     analysis_type="manual"
                 )
+            
+            # NEW CODE: Update point tracking with latest processor data
+            # This ensures point tracking always works regardless of checkbox state
+            if hasattr(self, 'point_tracker'):
+                app_logger.debug("Updating point tracker with latest processor data")
+                # Update without enabling annotations (just data tracking)
+                self.update_point_tracking(False)
             
             app_logger.info("Action potential analysis completed successfully")
 
