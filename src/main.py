@@ -1,6 +1,8 @@
+# src/main.py
 import tkinter as tk
-from .gui.app import SignalAnalyzerApp  # Fixed import
-from .utils.logger import app_logger
+from src.gui.app import SignalAnalyzerApp  
+from src.utils.logger import app_logger
+from src.utils.auto_updater import AutoUpdater
 
 def main():
     try:
@@ -16,6 +18,13 @@ def main():
         
         # Create and start application
         app = SignalAnalyzerApp(root)
+        
+        # Initialize and start auto-updater
+        updater = AutoUpdater(root)
+        updater.start_update_process()
+        
+        # Store updater reference in the app
+        app.updater = updater
         
         # Start main event loop
         root.mainloop()

@@ -1,0 +1,249 @@
+# =============================================================================
+# SIGNAL ANALYZER - COMPREHENSIVE .gitignore
+# =============================================================================
+
+# Current user-specific
+.qodo/
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# =============================================================================
+# PYTHON PACKAGE FILES (What you accidentally committed)
+# =============================================================================
+
+# Wheel files
+*.whl
+
+# Python packages and site-packages
+site-packages/
+Lib/
+Scripts/
+Include/
+pyvenv.cfg
+
+# Specific packages that appeared in your repo
+scipy*/
+scipy-*/
+numpy*/
+numpy-*/
+matplotlib*/
+matplotlib-*/
+pandas*/
+pandas-*/
+PIL*/
+Pillow*/
+Pillow-*/
+PyQt*/
+PyWavelets*/
+mypy*/
+mypy-*/
+typing_extensions*/
+typing_extensions-*/
+black*/
+black-*/
+setuptools*/
+setuptools-*/
+pip*/
+pip-*/
+
+# Any .cp* files (compiled Python extensions)
+*.cp*.so
+*.cp*.pyd
+*.cp311-win_amd64.pyd
+*.cp311-win32.pyd
+
+# =============================================================================
+# BUILD AND RELEASE ARTIFACTS
+# =============================================================================
+
+# Build directories
+build/
+dist/
+*.egg-info/
+
+# PyInstaller build files
+*.spec
+
+# Release files and packages
+releases/
+*.zip
+*.tar.gz
+*.exe
+*.msi
+*.dmg
+*.pkg
+
+# Temporary build files
+temp/
+tmp/
+
+# =============================================================================
+# IDE AND EDITOR FILES
+# =============================================================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# OPERATING SYSTEM FILES
+# =============================================================================
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =============================================================================
+# APPLICATION-SPECIFIC
+# =============================================================================
+
+# Configuration files with secrets
+config.ini
+settings.ini
+secrets.json
+credentials.json
+release_config.ini
+
+# Log files
+*.log
+logs/
+
+# Cache directories
+.cache/
+cache/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Test output
+test_output/
+test_results/
+
+# Virtual environment indicators
+venv*/
+env*/
+.venv*/
+.env*/
+ENV*/
+virtualenv*/
+
+# Conda environments
+.conda/
+miniconda*/
+anaconda*/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Archive files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip

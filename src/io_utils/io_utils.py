@@ -84,54 +84,81 @@ class ATFHandler:
             app_logger.error("No data loaded. Call load_atf() first.")
             raise ValueError("No data loaded. Call load_atf() first.")
 
-        # Print actual data shape and headers for debugging
-        app_logger.debug(f"Data shape: {self.data.shape}")
-        app_logger.debug(f"Available headers: {self.headers}")
-        app_logger.debug(f"Current signal map: {self.signal_map}")
-
-        # Handle trace columns
-        if column_name.startswith('#'):
-            trace_num = column_name[1:]
-            trace_key = f"Trace_{trace_num}"
-            
-            if trace_key in self.signal_map:
-                column_idx = self.signal_map[trace_key]
-                app_logger.debug(f"Found trace {trace_num} at index {column_idx}")
-                return self.data[:, column_idx]
-            else:
-                # If not found in signal map, try to find in raw data
-                for i, header in enumerate(self.headers):
-                    if 'Im' in header or 'I_MTest' in header:
-                        app_logger.debug(f"Found alternative trace data at index {i}")
-                        return self.data[:, i]
-                        
-                app_logger.error(f"Trace {trace_num} not found in signal map or raw data")
-                raise ValueError(f"Trace {trace_num} not found in signal map or raw data")
-
-        # Handle time column
-        if column_name.lower() == 'time':
-            app_logger.debug("Generating time data")
-            # Use the first column as time or generate time data
-            time_data = np.arange(len(self.data)) * 0.0001  # Assuming 0.1ms sampling rate
-            return time_data
-
-        # Handle other named columns
         try:
-            # Clean up column name for comparison
-            clean_name = column_name.replace('"', '')
-            for i, header in enumerate(self.headers):
-                if clean_name in header.replace('"', ''):
-                    if i < self.data.shape[1]:
-                        app_logger.debug(f"Found column {clean_name} at index {i}")
-                        return self.data[:, i]
+            # Special handling for time column
+            if column_name.lower() == 'time':
+                # Find time data or generate it based on sampling rate
+                time_col = next((i for i, h in enumerate(self.headers) if 'time' in h), None)
+                if time_col is not None:
+                    time_data = self.data[:, time_col]
+                    app_logger.info("Using time data from file")
+                else:
+                    #Generate time data based on sampling rate
+                    sampling_interval = self.get_sampling_rate() # in seconds
+                    time_data = np.arange(len(self.data))
+                    time_data = time_data * sampling_interval
+                    app_logger.info(f"Generated time data with interval: {sampling_interval} mikros")
+                return time_data  # Time data in seconds
+            
+
+            # Handle trace columns
+            if column_name.startswith('#'):
+                trace_num = column_name[1:]
+                trace_key = f"Trace_{trace_num}"
                 
-            app_logger.error(f"Column '{column_name}' not found")
-            raise ValueError(f"Column '{column_name}' not found")
+                if trace_key in self.signal_map:
+                    column_idx = self.signal_map[trace_key]
+                    app_logger.debug(f"Found trace {trace_num} at index {column_idx}")
+                    return self.data[:, column_idx]  # Current data in pA
+                else:
+                    # If not found in signal map, try to find in raw data
+                    for i, header in enumerate(self.headers):
+                        if 'Im' in header or 'I_MTest' in header:
+                            app_logger.debug(f"Found current trace data at index {i}")
+                            return self.data[:, i]  # Current data in pA
+                    
+                    app_logger.error(f"Trace {trace_num} not found in signal map or raw data")
+                    raise ValueError(f"Trace {trace_num} not found in signal map or raw data")
+
+            # Handle other named columns
+            try:
+                # Clean up column name for comparison
+                clean_name = column_name.replace('"', '')
+                for i, header in enumerate(self.headers):
+                    if clean_name in header.replace('"', ''):
+                        if i < self.data.shape[1]:
+                            app_logger.debug(f"Found column {clean_name} at index {i}")
+                            return self.data[:, i]
+                    
+                app_logger.error(f"Column '{column_name}' not found")
+                raise ValueError(f"Column '{column_name}' not found")
+                    
+            except ValueError as e:
+                app_logger.error(f"Error accessing column: {str(e)}")
+                raise
                 
-        except ValueError as e:
-            app_logger.error(f"Error accessing column: {str(e)}")
+        except Exception as e:
+            app_logger.error(f"Error getting column: {str(e)}")
             raise
 
     def get_sampling_rate(self):
-        """Get the sampling rate from the file or use default"""
-        return 0.0001  # 0.1ms in seconds
+        """Get the sampling rate from the file or use default of 100 µs (10kHz)"""
+        try:
+            # Try to find sampling rate in header information
+            for header in self.headers:
+                if 'SampleInterval=' in header:
+                    # Extract sampling interval in seconds
+                    interval = float(header.split('=')[1].strip())
+                    app_logger.info(f"Found sampling interval in file: {interval*1e6} µs")
+                    return interval  # Return interval in seconds
+            
+            # Default fallback (100 µs = 0.0001s = 10kHz)
+            default_interval = 1e-5  # 100 µs in seconds
+            app_logger.info(f"Using default sampling interval: 100 µs")
+            return default_interval  # Return default interval in seconds
+            
+        except Exception as e:
+            app_logger.error(f"Error getting sampling rate: {str(e)}")
+            default_interval = 1e-5  # 100 µs in seconds
+            app_logger.warning(f"Error occurred, using default sampling interval: 100 µs")
+            return default_interval
