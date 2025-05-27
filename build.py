@@ -18,7 +18,7 @@ class SignalAnalyzerBuilder:
         
     def clean_previous_builds(self):
         """Clean previous build artifacts"""
-        print("🧹 Cleaning previous builds...")
+        print(">> Cleaning previous builds...")
         paths_to_clean = [self.build_dir, self.dist_dir]
         
         for path in paths_to_clean:
@@ -34,7 +34,7 @@ class SignalAnalyzerBuilder:
 
     def ensure_assets_exist(self):
         """Create assets directory and default icon if they don't exist"""
-        print("📁 Ensuring assets exist...")
+        print(">> Ensuring assets exist...")
         
         if not self.assets_dir.exists():
             self.assets_dir.mkdir()
@@ -106,19 +106,19 @@ class SignalAnalyzerBuilder:
         }
         
         version_file = self.project_root / "version_info.json"
-        with open(version_file, 'w') as f:
+        with open(version_file, 'w', encoding='utf-8') as f:
             json.dump(version_info, f, indent=2)
         
         return version_info
 
     def create_executable(self):
         """Create the executable using PyInstaller with comprehensive settings"""
-        print("🔨 Creating executable...")
+        print(">> Creating executable...")
         
         # Ensure run.py exists
         run_script = self.project_root / "run.py"
         if not run_script.exists():
-            print("❌ run.py not found!")
+            print("ERROR: run.py not found!")
             return False
         
         # Get icon path
@@ -161,23 +161,23 @@ class SignalAnalyzerBuilder:
             "--exclude-module=PyQt6",
         ])
         
-        print(f"   Running PyInstaller with args: {' '.join(args[:5])}...")
+        print(f"   Running PyInstaller with main args: {args[:5]}")
         
         try:
             run(args)
-            print("✅ Executable created successfully!")
+            print("SUCCESS: Executable created successfully!")
             return True
         except Exception as e:
-            print(f"❌ Error creating executable: {e}")
+            print(f"ERROR: Creating executable failed: {e}")
             return False
 
     def copy_additional_files(self):
         """Copy additional required files to the dist directory"""
-        print("📋 Copying additional files...")
+        print(">> Copying additional files...")
         
         exe_dir = self.dist_dir / 'SignalAnalyzer'
         if not exe_dir.exists():
-            print("❌ Executable directory not found!")
+            print("ERROR: Executable directory not found!")
             return False
         
         # Copy version info
@@ -197,7 +197,7 @@ class SignalAnalyzerBuilder:
         
         # Create a simple user guide
         user_guide = exe_dir / "User_Guide.txt"
-        with open(user_guide, 'w') as f:
+        with open(user_guide, 'w', encoding='utf-8') as f:
             f.write("""Signal Analyzer - User Guide
 =============================
 
@@ -222,11 +222,11 @@ Version: {version}
 
     def create_installer_package(self):
         """Create a ZIP package for easy distribution"""
-        print("📦 Creating distribution package...")
+        print(">> Creating distribution package...")
         
         exe_dir = self.dist_dir / 'SignalAnalyzer'
         if not exe_dir.exists():
-            print("❌ Executable directory not found!")
+            print("ERROR: Executable directory not found!")
             return None
         
         # Create ZIP file
@@ -241,18 +241,18 @@ Version: {version}
                     arcname = file_path.relative_to(exe_dir)
                     zipf.write(file_path, arcname)
         
-        print(f"✅ Package created: {zip_path}")
+        print(f"SUCCESS: Package created: {zip_path}")
         print(f"   Size: {zip_path.stat().st_size / (1024*1024):.1f} MB")
         
         return zip_path
 
     def test_executable(self):
         """Test if the executable runs"""
-        print("🧪 Testing executable...")
+        print(">> Testing executable...")
         
         exe_path = self.dist_dir / 'SignalAnalyzer' / 'SignalAnalyzer.exe'
         if not exe_path.exists():
-            print("❌ Executable not found!")
+            print("ERROR: Executable not found!")
             return False
         
         try:
@@ -265,26 +265,26 @@ Version: {version}
             try:
                 stdout, stderr = process.communicate(timeout=5)
                 if process.returncode == 0:
-                    print("✅ Executable test passed!")
+                    print("SUCCESS: Executable test passed!")
                     return True
                 else:
-                    print(f"⚠️  Executable returned code: {process.returncode}")
+                    print(f"WARNING: Executable returned code: {process.returncode}")
                     if stderr:
                         print(f"   Error: {stderr.decode()}")
                     return False
             except subprocess.TimeoutExpired:
                 # If it's still running after 5 seconds, it probably started successfully
                 process.terminate()
-                print("✅ Executable appears to be running successfully!")
+                print("SUCCESS: Executable appears to be running successfully!")
                 return True
                 
         except Exception as e:
-            print(f"❌ Error testing executable: {e}")
+            print(f"ERROR: Testing executable failed: {e}")
             return False
 
     def build(self):
         """Main build process"""
-        print("🚀 Starting Signal Analyzer build process...")
+        print(">> Starting Signal Analyzer build process...")
         print("=" * 50)
         
         try:
@@ -301,21 +301,21 @@ Version: {version}
             
             # Step 4: Test executable
             if not self.test_executable():
-                print("⚠️  Executable test failed, but build may still work")
+                print("WARNING: Executable test failed, but build may still work")
             
             # Step 5: Create distribution package
             zip_path = self.create_installer_package()
             
             print("=" * 50)
-            print("🎉 Build completed successfully!")
-            print(f"📁 Executable location: {self.dist_dir / 'SignalAnalyzer'}")
+            print("SUCCESS: Build completed successfully!")
+            print(f">> Executable location: {self.dist_dir / 'SignalAnalyzer'}")
             if zip_path:
-                print(f"📦 Distribution package: {zip_path}")
+                print(f">> Distribution package: {zip_path}")
             
             return True
             
         except Exception as e:
-            print(f"❌ Build failed: {e}")
+            print(f"ERROR: Build failed: {e}")
             return False
 
 def main():
@@ -323,10 +323,10 @@ def main():
     success = builder.build()
     
     if success:
-        print("\n✅ Build process completed successfully!")
+        print("\nSUCCESS: Build process completed successfully!")
         print("You can now distribute the SignalAnalyzer folder or ZIP file.")
     else:
-        print("\n❌ Build process failed!")
+        print("\nERROR: Build process failed!")
         sys.exit(1)
 
 if __name__ == "__main__":
