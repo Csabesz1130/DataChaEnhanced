@@ -44,7 +44,6 @@ class SignalAnalyzerBuilder:
         icon_path = self.assets_dir / "icon.ico"
         if not icon_path.exists():
             print("   Creating default icon...")
-            # Create a simple ICO file (you can replace this with a proper icon)
             try:
                 from PIL import Image, ImageDraw
                 # Create a simple 32x32 icon
@@ -91,6 +90,25 @@ class SignalAnalyzerBuilder:
             'PIL',
             'PIL.Image',
             'PIL.ImageDraw',
+            
+            # Your application modules - CRITICAL ADDITION
+            'src',
+            'src.main',
+            'src.gui',
+            'src.gui.app',
+            'src.gui.filter_tab',
+            'src.gui.analysis_tab',
+            'src.gui.view_tab',
+            'src.gui.action_potential_tab',
+            'src.gui.window_manager',
+            'src.io_utils',
+            'src.io_utils.io_utils',
+            'src.filtering',
+            'src.filtering.filtering',
+            'src.utils',
+            'src.utils.logger',
+            'src.analysis',
+            'src.analysis.action_potential',
         ]
         
         return hidden_imports
@@ -98,7 +116,7 @@ class SignalAnalyzerBuilder:
     def create_version_info(self):
         """Create version info for the executable"""
         version_info = {
-            "version": "1.0.0",
+            "version": "1.0.2",
             "build_date": datetime.now().isoformat(),
             "description": "Signal Analyzer - Advanced Signal Processing Tool",
             "company": "Signal Analysis Lab",
@@ -136,32 +154,42 @@ class SignalAnalyzerBuilder:
             "--clean",  # Clean cache
             f"--distpath={self.dist_dir}",
             f"--workpath={self.build_dir}",
+            "--noconfirm",  # Don't ask for confirmation
         ]
         
         # Add icon if available
         if icon_path and icon_path.exists():
             args.append(f"--icon={icon_path}")
         
-        # Add data files
+        # CRITICAL: Add entire src directory as data
+        if self.src_dir.exists():
+            args.append(f"--add-data={self.src_dir};src")
+            print(f"   Added source directory: {self.src_dir}")
+        
+        # Add assets directory
         if self.assets_dir.exists():
             args.append(f"--add-data={self.assets_dir};assets")
         
-        # Add source path
+        # Add source path - CRITICAL for imports
         args.append(f"--paths={self.src_dir}")
+        args.append(f"--paths={self.project_root}")
         
-        # Add hidden imports
+        # Add hidden imports - INCLUDING ALL YOUR MODULES
         for import_name in self.get_all_hidden_imports():
             args.append(f"--hidden-import={import_name}")
         
         # Additional options for better compatibility
         args.extend([
-            "--noupx",  # Don't use UPX compression (can cause issues)
-            "--exclude-module=PIL.ImageQt",  # Exclude problematic modules
+            "--noupx",  # Don't use UPX compression
+            "--exclude-module=PIL.ImageQt",
             "--exclude-module=PyQt5",
             "--exclude-module=PyQt6",
+            "--collect-all=src",  # CRITICAL: Collect all submodules from src
         ])
         
-        print(f"   Running PyInstaller with main args: {args[:5]}")
+        print(f"   Running PyInstaller...")
+        print(f"   Main script: {run_script}")
+        print(f"   Source directory: {self.src_dir}")
         
         try:
             run(args)
@@ -214,7 +242,7 @@ Build Date: {build_date}
 Version: {version}
 """.format(
     build_date=datetime.now().strftime("%Y-%m-%d %H:%M"),
-    version="1.0.0"
+    version="1.0.2"
 ))
         print(f"   Created: {user_guide.name}")
         
@@ -231,7 +259,7 @@ Version: {version}
         
         # Create ZIP file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        zip_name = f"SignalAnalyzer_v1.0.0_{timestamp}.zip"
+        zip_name = f"SignalAnalyzer_v1.0.2_{timestamp}.zip"
         zip_path = self.dist_dir / zip_name
         
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
