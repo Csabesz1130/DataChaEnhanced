@@ -55,7 +55,7 @@ jobs:
         Get-ChildItem -Recurse dist/
         
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # FIXED: Updated from v3 to v4
       with:
         name: signal-analyzer-windows
         path: dist/SignalAnalyzer_*.zip
@@ -90,6 +90,6 @@ jobs:
           ### For Teachers
           This is the latest stable version for classroom use. All students can download and run this version directly.
           
-          **Build Date:** ${{ github.event.inputs.version && github.run_id || github.sha }}
+          **Build Date:** ${{ github.run_id }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
