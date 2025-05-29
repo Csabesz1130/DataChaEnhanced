@@ -20,6 +20,7 @@ from src.utils.analysis_history_manager import AnalysisHistoryManager
 from src.gui.history_window import HistoryWindow
 from src.excel_export import add_excel_export_to_app
 from src.gui.direct_spike_removal import remove_spikes_from_processor
+from src.gui.simplified_set_exporter import add_set_export_to_toolbar
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -191,11 +192,11 @@ class SignalAnalyzerApp:
         file_frame.pack(side='left', fill='x')
         
         ttk.Button(file_frame, text="Load Data", 
-                command=self.load_data).pack(side='left', padx=2)
+                   command=self.load_data).pack(side='left', padx=2)
         ttk.Button(file_frame, text="Export Data", 
-                command=self.export_data).pack(side='left', padx=2)
+                   command=self.export_data).pack(side='left', padx=2)
         ttk.Button(file_frame, text="Export Figure", 
-                command=self.export_figure).pack(side='left', padx=2)
+                   command=self.export_figure).pack(side='left', padx=2)
         
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
 
@@ -216,6 +217,9 @@ class SignalAnalyzerApp:
             text="View History",
             command=self.show_analysis_history
         ).pack(side='left', padx=2)
+
+        # Add the new "Export Sets" button HERE, to the export_frame
+        self.set_export_button = add_set_export_to_toolbar(self, export_frame) # <--- ADD THIS LINE
 
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
         
@@ -280,8 +284,8 @@ class SignalAnalyzerApp:
 
         # In the setup_toolbar method of SignalAnalyzerApp
         debug_button = ttk.Button(self.toolbar_frame, 
-                                text="Debug Processor",
-                                command=self.debug_processor)
+                                  text="Debug Processor",
+                                  command=self.debug_processor)
         debug_button.pack(side='left', padx=2)
 
     def check_for_updates(self):
