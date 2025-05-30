@@ -21,6 +21,7 @@ from src.gui.history_window import HistoryWindow
 from src.excel_export import add_excel_export_to_app
 from src.gui.direct_spike_removal import remove_spikes_from_processor
 from src.gui.simplified_set_exporter import add_set_export_to_toolbar
+from src.gui.batch_set_exporter import add_set_export_to_toolbar
 
 class SignalAnalyzerApp:
     def __init__(self, master):

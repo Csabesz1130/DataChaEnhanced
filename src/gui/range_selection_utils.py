@@ -39,6 +39,17 @@ class RangeSelectionManager:
         # Setup the UI components
         self.setup_range_controls()
         
+    def should_apply_snap_to_grid(self):
+        """
+        Determine if snap-to-grid should be applied.
+        
+        Returns:
+            bool: True if snap-to-grid should be applied, False otherwise
+        """
+        # For now, always snap to grid for consistent behavior
+        # You can later add a checkbox control to let users toggle this
+        return True
+        
     def setup_range_controls(self):
         """Setup sliders for hyperpolarization and depolarization integration ranges with enhanced feedback."""
         range_frame = ttk.LabelFrame(self.frame, text="Integration Ranges")
@@ -221,14 +232,6 @@ class RangeSelectionManager:
                     else:
                         # If we can't move start below 0, adjust end instead
                         self.hyperpol_end.set(min_gap)
-                
-                # REMOVE THIS CONSTRAINT - Don't force depol to move when hyperpol changes
-                # if val >= self.depol_start.get() - min_gap:
-                #     new_depol_start = val + min_gap
-                #     self.depol_start.set(new_depol_start)
-                #     if new_depol_start >= self.depol_end.get() - min_gap:
-                #         new_depol_end = new_depol_start + min_gap
-                #         self.depol_end.set(new_depol_end)
                     
             elif slider_type == 'depol_start':
                 # Ensure depol_start < depol_end
@@ -236,16 +239,6 @@ class RangeSelectionManager:
                     # Adjust end to maintain gap
                     new_end = val + min_gap
                     self.depol_end.set(new_end)
-                
-                # REMOVE THIS CONSTRAINT - Don't force hyperpol to move when depol changes
-                # if val <= self.hyperpol_end.get() + min_gap:
-                #     new_hyperpol_end = val - min_gap
-                #     if new_hyperpol_end >= self.hyperpol_start.get() + min_gap:
-                #         self.hyperpol_end.set(new_hyperpol_end)
-                #     else:
-                #         new_val = self.hyperpol_end.get() + min_gap
-                #         self.depol_start.set(new_val)
-                #         val = new_val
                     
             elif slider_type == 'depol_end':
                 # Ensure depol_end > depol_start
@@ -741,186 +734,3 @@ class RangeSelectionManager:
             'hyperpol_integral': 0.0,
             'depol_integral': 0.0
         }
-
-    def should_apply_snap_to_grid(self):
-        """Check if snapping to grid should be applied."""
-        return True  # Mindig alkalmazzuk a rácshoz igazítást
-
-    # Add these methods to the RangeSelectionManager class in range_selection_utils.py
-
-def create_custom_slider_with_handle(self, parent_frame, label_text, variable, min_val, max_val, slider_type, color):
-    """Create a custom slider with a handle and color coding."""
-    # Create container frame for the slider and handle
-    container = ttk.Frame(parent_frame)
-    container.pack(fill='x', padx=5, pady=5)
-    
-    # Add label and value display
-    label_frame = ttk.Frame(container)
-    label_frame.pack(fill='x', pady=2)
-    
-    ttk.Label(label_frame, text=label_text).pack(side='left')
-    display_label = ttk.Label(label_frame, width=5, background=color)
-    display_label.pack(side='right')
-    
-    # Create slider frame with handle indicator
-    slider_frame = ttk.Frame(container)
-    slider_frame.pack(fill='x', pady=2)
-    
-    # Create the actual slider
-    slider = ttk.Scale(
-        slider_frame, 
-        from_=min_val, 
-        to=max_val,
-        variable=variable,
-        orient='horizontal',
-        command=lambda v: self.update_slider_display(v, display_label, slider_type)
-    )
-    slider.pack(fill='x', side='left', expand=True)
-    
-    # Create handle button that follows the slider
-    handle_image = self.create_handle_image(color)
-    handle_button = ttk.Button(
-        slider_frame, 
-        image=handle_image,
-        style=f"{color}.TButton",
-        width=3
-    )
-    handle_button.image = handle_image  # Keep reference to prevent garbage collection
-    handle_button.pack(side='left', padx=0)
-    
-    # Bind the button to move the slider
-    handle_button.bind("<Button-1>", lambda e: self.start_drag(slider, slider_type))
-    handle_button.bind("<B1-Motion>", lambda e: self.drag_slider(e, slider, slider_type))
-    
-    # Configure slider style based on color
-    if hasattr(self, 'style'):
-        slider.configure(style=f"{color}.Horizontal.TScale")
-    
-    # Store reference to the handle button for positioning updates
-    setattr(self, f"{slider_type}_handle", handle_button)
-    
-    # Update display label
-    self.update_slider_display(variable.get(), display_label, slider_type)
-    
-    return slider, display_label
-
-def create_handle_image(self, color):
-    """Create a colored handle image for the slider."""
-    # Create a PhotoImage for the handle
-    handle = tk.PhotoImage(width=15, height=20)
-    
-    # Map color names to RGB
-    color_map = {
-        'blue': '#4287f5',
-        'darkblue': '#1c56c5',
-        'red': '#f54242',
-        'darkred': '#c51c1c'
-    }
-    
-    # Get actual color code
-    fill_color = color_map.get(color, color)
-    
-    # Draw a simple handle shape (arrow pointing down)
-    for x in range(15):
-        for y in range(20):
-            # Draw triangle/arrow shape
-            if (x >= 7-y//2 and x <= 7+y//2 and y < 10) or (3 <= x <= 11 and 10 <= y < 20):
-                handle.put(fill_color, (x, y))
-    
-    return handle
-
-def setup_styled_sliders(self):
-    """Set up custom styles for sliders."""
-    self.style = ttk.Style()
-    
-    # Create blue hyperpolarization slider style
-    self.style.configure(
-        "blue.Horizontal.TScale",
-        troughcolor="#d1e0ff",  # Light blue
-        background="#4287f5",   # Medium blue
-        bordercolor="#1c56c5"   # Dark blue
-    )
-    
-    # Create blue button style
-    self.style.configure(
-        "blue.TButton",
-        background="#4287f5",
-        relief="raised"
-    )
-    
-    # Create red depolarization slider style
-    self.style.configure(
-        "red.Horizontal.TScale",
-        troughcolor="#ffd1d1",  # Light red
-        background="#f54242",   # Medium red
-        bordercolor="#c51c1c"   # Dark red
-    )
-    
-    # Create red button style
-    self.style.configure(
-        "red.TButton",
-        background="#f54242",
-        relief="raised"
-    )
-
-def start_drag(self, slider, slider_type):
-    """Start dragging a slider handle."""
-    # Store the slider being dragged
-    self.current_drag = {
-        'slider': slider,
-        'type': slider_type
-    }
-
-def drag_slider(self, event, slider, slider_type):
-    """Handle dragging of slider handle."""
-    if not hasattr(self, 'current_drag'):
-        return
-        
-    # Calculate new slider value based on mouse position
-    x = event.x_root
-    slider_width = slider.winfo_width()
-    slider_x = slider.winfo_rootx()
-    
-    # Calculate relative position (0 to 1)
-    relative_pos = max(0, min(1, (x - slider_x) / slider_width))
-    
-    # Convert to slider value
-    min_val = float(slider.cget('from'))
-    max_val = float(slider.cget('to'))
-    new_val = min_val + relative_pos * (max_val - min_val)
-    
-    # Apply snapping to grid of 5
-    snapped_val = round(new_val / 5) * 5
-    
-    # Update slider value
-    slider_var = getattr(self, slider_type)
-    slider_var.set(snapped_val)
-    
-    # Get the corresponding display label
-    label_name = f"{slider_type}_display"
-    if hasattr(self, label_name):
-        label = getattr(self, label_name)
-        # Update display
-        self.update_slider_display(snapped_val, label, slider_type)
-
-def update_handle_positions(self):
-    """Update the positions of all handle buttons to match slider values."""
-    for slider_type in ['hyperpol_start', 'hyperpol_end', 'depol_start', 'depol_end']:
-        handle_name = f"{slider_type}_handle"
-        slider_name = f"{slider_type}_slider"
-        
-        if hasattr(self, handle_name) and hasattr(self, slider_name):
-            handle = getattr(self, handle_name)
-            slider = getattr(self, slider_name)
-            
-            # Calculate handle position based on slider value
-            slider_var = getattr(self, slider_type)
-            value = slider_var.get()
-            min_val = float(slider.cget('from'))
-            max_val = float(slider.cget('to'))
-            
-            # Calculate relative position
-            if max_val > min_val:
-                relative_pos = (value - min_val) / (max_val - min_val)
-                # Update handle position
-                handle.place(relx=relative_pos, rely=0.5, anchor='center')
