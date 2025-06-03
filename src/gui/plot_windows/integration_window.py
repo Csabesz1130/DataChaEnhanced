@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
-from scipy.integrate import simps, trapz
+from scipy.integrate import simpson
 from src.utils.logger import app_logger
 from .plot_window_base import PlotWindowBase
 
@@ -143,17 +143,17 @@ class IntegrationWindow(PlotWindowBase):
             # Calculate integral in proper units
             if self.integration_method.get() == "simps":
                 # Simpson's integration using real time intervals
-                integral = simps(y, t)
+                integral = simpson(y, t)
                 if self.show_cumulative.get():
                     self.integral_data = np.array([
-                        simps(y[:i+1], t[:i+1]) for i in range(len(t))
+                        simpson(y[:i+1], t[:i+1]) for i in range(len(t))
                     ])
             else:  # trapz
                 # Trapezoidal integration using real time intervals
-                integral = trapz(y, t)
+                integral = np.trapz(y, t)
                 if self.show_cumulative.get():
                     self.integral_data = np.array([
-                        trapz(y[:i+1], t[:i+1]) for i in range(len(t))
+                        np.trapz(y[:i+1], t[:i+1]) for i in range(len(t))
                     ])
             
             # Update results with proper time units
