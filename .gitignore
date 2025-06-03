@@ -247,11 +247,3 @@ anaconda*/
 *.rar
 *.tar
 *.zip
-
-
-venv/
-__pycache__/
-*.pyc
-*.pyo
-.env
-.venv
