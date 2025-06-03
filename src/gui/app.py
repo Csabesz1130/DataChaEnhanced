@@ -22,6 +22,7 @@ from src.excel_export import add_excel_export_to_app
 from src.gui.direct_spike_removal import remove_spikes_from_processor
 from src.gui.simplified_set_exporter import add_set_export_to_toolbar
 from src.gui.batch_set_exporter import add_set_export_to_toolbar
+from src.gui.multi_file_analysis import add_multi_file_analysis_to_toolbar
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -221,6 +222,9 @@ class SignalAnalyzerApp:
 
         # Add the new "Export Sets" button HERE, to the export_frame
         self.set_export_button = add_set_export_to_toolbar(self, export_frame) # <--- ADD THIS LINE
+
+        # Add Multi-File Analysis button
+        self.multi_file_button = add_multi_file_analysis_to_toolbar(self, export_frame)
 
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
         
