@@ -78,7 +78,7 @@ class FileSlot:
             self.clear()
             return False
     
-    def process_file(self, voltage=-50):
+    def process_file(self, voltage=-50, parent_history_manager=None):
         """Process the loaded file with FULL action potential analysis pipeline"""
         if not self.is_loaded:
             return False
@@ -149,6 +149,18 @@ class FileSlot:
                     # Calculate integrals
                     self._calculate_integrals()
                     
+                    # ADD TO HISTORY if history manager is available
+                    if parent_history_manager and hasattr(parent_history_manager, 'add_entry'):
+                        try:
+                            parent_history_manager.add_entry(
+                                filename=self.filepath,
+                                results=self.results,
+                                analysis_type="multi-file"
+                            )
+                            app_logger.info(f"Added {self.filename} to history from multi-file analysis")
+                        except Exception as e:
+                            app_logger.error(f"Failed to add {self.filename} to history: {str(e)}")
+                    
                     self.is_processed = True
                     app_logger.info(f"Processed file {self.filename} with full pipeline")
                     return True
@@ -183,12 +195,27 @@ class FileSlot:
             depol_times = self.modified_depol_times[depol_start:depol_end]
             depol_integral = np.trapz(depol_data, x=depol_times * 1000)
             
-            # Store results
+            # Calculate total and other metrics (same format as main app)
+            total_integral = hyperpol_integral + depol_integral
+            voltage = self.processor.params.get('V2', 0)
+            
+            # Calculate capacitance (same formula as main app)
+            if voltage != 0:
+                capacitance_nF = abs(total_integral / voltage) * 1000  # Convert to nF
+            else:
+                capacitance_nF = 0
+            
+            # Store results in same format as main app history
             self.results = {
-                'hyperpol_integral': hyperpol_integral,
+                'integral_value': f"{total_integral:.2f} pC",
+                'hyperpol_area': f"{hyperpol_integral:.2f} pC", 
+                'depol_area': f"{depol_integral:.2f} pC",
+                'capacitance_nF': f"{capacitance_nF:.2f} nF",
+                'v2_voltage': f"{voltage} mV",
+                'hyperpol_integral': hyperpol_integral,  # Numeric values for calculations
                 'depol_integral': depol_integral,
-                'total_integral': hyperpol_integral + depol_integral,
-                'voltage': self.processor.params.get('V2', 0)
+                'total_integral': total_integral,
+                'voltage': voltage
             }
             
         except Exception as e:
@@ -389,9 +416,23 @@ class MultiFileAnalysisWindow:
         
         self.results_tree.pack(fill='x', pady=5)
         
+        # Button frame
+        button_frame = ttk.Frame(results_frame)
+        button_frame.pack(fill='x', pady=5)
+        
         # Export button
-        ttk.Button(results_frame, text="Export Results to CSV", 
-                  command=self.export_results).pack(pady=5)
+        ttk.Button(button_frame, text="Export Results to CSV", 
+                  command=self.export_results).pack(side='left', padx=5)
+        
+        # View main app history button
+        ttk.Button(button_frame, text="View Main App History", 
+                  command=self.view_main_history).pack(side='left', padx=5)
+        
+        # Info label
+        info_label = ttk.Label(results_frame, 
+                              text="ℹ️ Processed files are automatically added to the main application's history",
+                              font=('TkDefaultFont', 8, 'italic'))
+        info_label.pack(pady=2)
     
     def select_slot(self, slot_number):
         """Select a specific file slot"""
@@ -482,12 +523,23 @@ class MultiFileAnalysisWindow:
             messagebox.showerror("Error", "Invalid voltage value")
             return
         
-        if slot.process_file(voltage):
+        # Pass history manager to the process function
+        history_manager = getattr(self.parent_app, 'history_manager', None)
+        
+        if slot.process_file(voltage, history_manager):
             self.update_slot_buttons()
             self.update_file_info()
             self.update_plot()
             self.update_results_table()
-            messagebox.showinfo("Success", f"File processed successfully")
+            
+            # Check if actually added to history
+            if history_manager:
+                messagebox.showinfo("Success", 
+                    f"File processed successfully!\n\n"
+                    f"✓ Added to main application history\n"
+                    f"✓ Results: {slot.results.get('integral_value', 'N/A')}")
+            else:
+                messagebox.showinfo("Success", f"File processed successfully")
         else:
             messagebox.showerror("Error", "Failed to process file")
     
@@ -499,10 +551,13 @@ class MultiFileAnalysisWindow:
             messagebox.showerror("Error", "Invalid voltage value")
             return
         
+        # Get history manager from parent app
+        history_manager = getattr(self.parent_app, 'history_manager', None)
+        
         processed_count = 0
         for slot in self.file_slots:
             if slot.is_loaded and not slot.is_processed:
-                if slot.process_file(voltage):
+                if slot.process_file(voltage, history_manager):
                     processed_count += 1
         
         self.update_slot_buttons()
@@ -510,7 +565,15 @@ class MultiFileAnalysisWindow:
         self.update_plot()
         self.update_results_table()
         
-        messagebox.showinfo("Complete", f"Processed {processed_count} files")
+        # Enhanced success message
+        if history_manager and processed_count > 0:
+            messagebox.showinfo("Complete", 
+                f"Processing Complete!\n\n"
+                f"✓ Processed {processed_count} files\n"
+                f"✓ All results added to main application history\n"
+                f"✓ Use 'View Main App History' to see all entries")
+        else:
+            messagebox.showinfo("Complete", f"Processed {processed_count} files")
     
     def update_plot(self):
         """Update the analysis plot with FULL processing visualization"""
@@ -647,7 +710,7 @@ class MultiFileAnalysisWindow:
                         f"{slot.results.get('hyperpol_integral', 0):.2f}",
                         f"{slot.results.get('depol_integral', 0):.2f}",
                         f"{slot.results.get('total_integral', 0):.2f}",
-                        "Processed"
+                        "Processed ✓"
                     )
                 else:
                     values = (
@@ -660,6 +723,17 @@ class MultiFileAnalysisWindow:
                         "Loaded"
                     )
                 self.results_tree.insert('', 'end', values=values)
+    
+    def view_main_history(self):
+        """Open the main application's history window"""
+        try:
+            if hasattr(self.parent_app, 'show_analysis_history'):
+                self.parent_app.show_analysis_history()
+            else:
+                messagebox.showinfo("Info", "History feature not available in main application")
+        except Exception as e:
+            app_logger.error(f"Error opening main app history: {str(e)}")
+            messagebox.showerror("Error", f"Failed to open history: {str(e)}")
     
     def export_results(self):
         """Export results to CSV"""
@@ -682,8 +756,9 @@ class MultiFileAnalysisWindow:
             try:
                 with open(filepath, 'w', newline='') as csvfile:
                     writer = csv.writer(csvfile)
-                    writer.writerow(['Slot', 'Filename', 'Voltage_mV', 'Hyperpol_Integral_pC', 
-                                   'Depol_Integral_pC', 'Total_Integral_pC'])
+                    # Enhanced CSV export with same format as main app history
+                    writer.writerow(['Slot', 'Filename', 'Voltage_mV', 'Integral_Value', 
+                                   'Hyperpol_Area', 'Depol_Area', 'Capacitance_nF', 'Analysis_Type'])
                     
                     for i, slot in enumerate(self.file_slots):
                         if slot.is_processed:
@@ -691,9 +766,11 @@ class MultiFileAnalysisWindow:
                                 i + 1,
                                 slot.filename,
                                 slot.results.get('voltage', 0),
-                                slot.results.get('hyperpol_integral', 0),
-                                slot.results.get('depol_integral', 0),
-                                slot.results.get('total_integral', 0)
+                                slot.results.get('integral_value', f"{slot.results.get('total_integral', 0):.2f} pC"),
+                                slot.results.get('hyperpol_area', f"{slot.results.get('hyperpol_integral', 0):.2f} pC"),
+                                slot.results.get('depol_area', f"{slot.results.get('depol_integral', 0):.2f} pC"),
+                                slot.results.get('capacitance_nF', 'N/A'),
+                                'multi-file'
                             ])
                 
                 messagebox.showinfo("Success", f"Results exported to {filepath}")
