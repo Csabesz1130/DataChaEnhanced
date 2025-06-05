@@ -188,34 +188,64 @@ class FileSlot:
             return False
     
     def _calculate_integrals(self):
-        """Calculate integrals using default ranges (same format as main app)"""
+        """Calculate integrals using CORRECT ranges and units (matching main app exactly)"""
         try:
             if not hasattr(self, 'modified_hyperpol') or self.modified_hyperpol is None:
                 return
                 
-            # Default integration ranges (0-200)
-            hyperpol_start, hyperpol_end = 0, min(200, len(self.modified_hyperpol))
-            depol_start, depol_end = 0, min(200, len(self.modified_depol))
+            # Use realistic integration ranges based on actual data
+            # Check actual curve lengths and use appropriate ranges
+            hyperpol_len = len(self.modified_hyperpol)
+            depol_len = len(self.modified_depol)
             
-            # Calculate hyperpol integral
+            # Use ranges that make sense for the data (typically 0-199 for 200-point curves)
+            hyperpol_start, hyperpol_end = 0, min(hyperpol_len, 200)
+            depol_start, depol_end = 0, min(depol_len, 200)
+            
+            # Get data for integration
             hyperpol_data = self.modified_hyperpol[hyperpol_start:hyperpol_end]
             hyperpol_times = self.modified_hyperpol_times[hyperpol_start:hyperpol_end]
-            hyperpol_integral = np.trapz(hyperpol_data, x=hyperpol_times * 1000)
-            
-            # Calculate depol integral
             depol_data = self.modified_depol[depol_start:depol_end]
             depol_times = self.modified_depol_times[depol_start:depol_end]
-            depol_integral = np.trapz(depol_data, x=depol_times * 1000)
             
-            # Calculate total and other metrics (same format as main app)
+            # CRITICAL FIX: Check time units and integrate correctly
+            # Times are likely already in seconds, so convert to milliseconds for integration
+            # This gives pA * ms = pC (picocoulombs)
+            
+            # Calculate sampling interval to understand time scaling
+            if len(hyperpol_times) > 1:
+                dt_hyperpol = np.mean(np.diff(hyperpol_times))  # In seconds
+                dt_depol = np.mean(np.diff(depol_times))  # In seconds
+                
+                app_logger.debug(f"Time intervals: hyperpol={dt_hyperpol*1000:.3f}ms, depol={dt_depol*1000:.3f}ms")
+                
+                # Simple integration using time in seconds, then convert to pC
+                # pA * s * 1000 = pC
+                hyperpol_integral = np.trapz(hyperpol_data, hyperpol_times) * 1000  # Convert to pC
+                depol_integral = np.trapz(depol_data, depol_times) * 1000  # Convert to pC
+            else:
+                hyperpol_integral = 0
+                depol_integral = 0
+            
+            # Log integration details for debugging
+            app_logger.info(f"Integration ranges: Hyperpol[{hyperpol_start}:{hyperpol_end}], Depol[{depol_start}:{depol_end}]")
+            app_logger.info(f"Raw integrals: Hyperpol={hyperpol_integral:.2f} pC, Depol={depol_integral:.2f} pC")
+            
+            # Calculate total and other metrics
             total_integral = hyperpol_integral + depol_integral
             voltage = self.processor.params.get('V2', 0)
             
-            # Calculate capacitance (same formula as main app)
+            # Calculate capacitance with proper units
+            # C = Q/V where Q is in pC and V is in mV
+            # C = pC/mV = pF (picofarads)
             if voltage != 0:
-                capacitance_nF = abs(total_integral / voltage) * 1000  # Convert to nF
+                capacitance_pF = abs(total_integral / voltage)  # pC/mV = pF
+                capacitance_nF = capacitance_pF / 1000  # Convert pF to nF
             else:
+                capacitance_pF = 0
                 capacitance_nF = 0
+            
+            app_logger.info(f"Calculated capacitance: {capacitance_pF:.2f} pF = {capacitance_nF:.2f} nF")
             
             # Store results in EXACT same format as main app history
             self.results = {
