@@ -1,11 +1,13 @@
 """
-Enhanced Multi-File Analysis Feature - Full processing pipeline like main app
+Complete Multi-File Analysis Feature - Full integration with main app
 Location: src/gui/multi_file_analysis.py
 
-This module now provides the same comprehensive analysis as the main Signal Analyzer:
-- All processing curves (orange, blue, magenta, purple)
-- Same display options and controls
-- Full action potential processing pipeline
+Features:
+- Full processing pipeline matching main app
+- History integration that actually works
+- Integral value displays
+- Point tracker functionality
+- Memory-efficient implementation
 """
 
 import tkinter as tk
@@ -149,17 +151,27 @@ class FileSlot:
                     # Calculate integrals
                     self._calculate_integrals()
                     
-                    # ADD TO HISTORY if history manager is available
-                    if parent_history_manager and hasattr(parent_history_manager, 'add_entry'):
+                    # ADD TO HISTORY with proper error handling
+                    if parent_history_manager:
                         try:
+                            # Ensure we have the required fields for history
+                            history_results = {
+                                'integral_value': self.results.get('integral_value', '0.00 pC'),
+                                'hyperpol_area': self.results.get('hyperpol_area', '0.00 pC'),
+                                'depol_area': self.results.get('depol_area', '0.00 pC'),
+                                'capacitance_nF': self.results.get('capacitance_nF', '0.00 nF'),
+                                'v2_voltage': self.results.get('v2_voltage', f'{voltage} mV')
+                            }
+                            
                             parent_history_manager.add_entry(
                                 filename=self.filepath,
-                                results=self.results,
+                                results=history_results,
                                 analysis_type="multi-file"
                             )
-                            app_logger.info(f"Added {self.filename} to history from multi-file analysis")
+                            app_logger.info(f"Successfully added {self.filename} to history from multi-file analysis")
                         except Exception as e:
                             app_logger.error(f"Failed to add {self.filename} to history: {str(e)}")
+                            # Continue processing even if history fails
                     
                     self.is_processed = True
                     app_logger.info(f"Processed file {self.filename} with full pipeline")
@@ -176,7 +188,7 @@ class FileSlot:
             return False
     
     def _calculate_integrals(self):
-        """Calculate integrals using default ranges"""
+        """Calculate integrals using default ranges (same format as main app)"""
         try:
             if not hasattr(self, 'modified_hyperpol') or self.modified_hyperpol is None:
                 return
@@ -205,7 +217,7 @@ class FileSlot:
             else:
                 capacitance_nF = 0
             
-            # Store results in same format as main app history
+            # Store results in EXACT same format as main app history
             self.results = {
                 'integral_value': f"{total_integral:.2f} pC",
                 'hyperpol_area': f"{hyperpol_integral:.2f} pC", 
@@ -248,13 +260,13 @@ class FileSlot:
 
 
 class MultiFileAnalysisWindow:
-    """Main window for multi-file analysis"""
+    """Main window for multi-file analysis with complete feature set"""
     
     def __init__(self, parent_app):
         self.parent_app = parent_app
         self.window = tk.Toplevel(parent_app.master)
         self.window.title("Multi-File Analysis - Up to 10 Files")
-        self.window.geometry("1600x1000")
+        self.window.geometry("1600x1200")
         
         # Initialize file slots
         self.file_slots = [FileSlot(i) for i in range(10)]
@@ -271,6 +283,10 @@ class MultiFileAnalysisWindow:
             'show_modified': tk.BooleanVar(value=True)
         }
         
+        # Initialize point tracker
+        self.point_tracker = None
+        self.point_status_var = tk.StringVar(value="No data loaded")
+        
         # Setup UI
         self.setup_ui()
         
@@ -282,6 +298,7 @@ class MultiFileAnalysisWindow:
         self.create_file_management_frame()
         self.create_display_options_frame()
         self.create_analysis_frame()
+        self.create_results_display_frame()
         self.create_results_frame()
         
     def create_file_management_frame(self):
@@ -373,7 +390,7 @@ class MultiFileAnalysisWindow:
                        command=self.update_plot).pack(side='left', padx=10)
     
     def create_analysis_frame(self):
-        """Create analysis visualization frame"""
+        """Create analysis visualization frame with point tracking"""
         analysis_frame = ttk.LabelFrame(self.window, text="Analysis Visualization", padding="5")
         analysis_frame.pack(fill='both', expand=True, padx=5, pady=5)
         
@@ -400,10 +417,119 @@ class MultiFileAnalysisWindow:
                        value="compare", command=self.update_plot).pack(side='left')
         ttk.Radiobutton(view_frame, text="Purple Curves Only", variable=self.view_mode, 
                        value="purple", command=self.update_plot).pack(side='left')
+        
+        # Point tracking status
+        status_frame = ttk.Frame(view_frame)
+        status_frame.pack(side='right', padx=10)
+        
+        # Status bar for point tracking
+        status_label = ttk.Label(status_frame, textvariable=self.point_status_var,
+                               font=('Consolas', 9), relief=tk.SUNKEN, padding=5)
+        status_label.pack()
+        
+        # Initialize point tracker
+        self.setup_point_tracker()
+    
+    def setup_point_tracker(self):
+        """Setup point tracker for the multi-file analysis"""
+        try:
+            from src.utils.point_counter import CurvePointTracker
+            self.point_tracker = CurvePointTracker(self.fig, self.ax, self.point_status_var)
+            app_logger.info("Point tracker initialized for multi-file analysis")
+        except Exception as e:
+            app_logger.error(f"Failed to initialize point tracker: {str(e)}")
+            self.point_tracker = None
+    
+    def update_point_tracker_data(self, slot):
+        """Update point tracker with current slot data"""
+        if not self.point_tracker or not slot.is_processed:
+            return
+            
+        try:
+            # Clear previous data
+            for curve_type in self.point_tracker.curve_data:
+                self.point_tracker.curve_data[curve_type] = {
+                    'data': None, 
+                    'times': None, 
+                    'visible': False
+                }
+            
+            # Set current slot data
+            if slot.orange_curve is not None:
+                self.point_tracker.curve_data['orange']['data'] = slot.orange_curve
+                self.point_tracker.curve_data['orange']['times'] = slot.orange_curve_times
+                self.point_tracker.curve_data['orange']['visible'] = self.display_options['show_average'].get()
+            
+            if slot.normalized_curve is not None:
+                self.point_tracker.curve_data['blue']['data'] = slot.normalized_curve
+                self.point_tracker.curve_data['blue']['times'] = slot.normalized_curve_times
+                self.point_tracker.curve_data['blue']['visible'] = self.display_options['show_normalized'].get()
+            
+            if slot.average_curve is not None:
+                self.point_tracker.curve_data['magenta']['data'] = slot.average_curve
+                self.point_tracker.curve_data['magenta']['times'] = slot.average_curve_times
+                self.point_tracker.curve_data['magenta']['visible'] = self.display_options['show_averaged_normalized'].get()
+            
+            if slot.modified_hyperpol is not None:
+                self.point_tracker.curve_data['purple_hyperpol']['data'] = slot.modified_hyperpol
+                self.point_tracker.curve_data['purple_hyperpol']['times'] = slot.modified_hyperpol_times
+                self.point_tracker.curve_data['purple_hyperpol']['visible'] = self.display_options['show_modified'].get()
+            
+            if slot.modified_depol is not None:
+                self.point_tracker.curve_data['purple_depol']['data'] = slot.modified_depol
+                self.point_tracker.curve_data['purple_depol']['times'] = slot.modified_depol_times
+                self.point_tracker.curve_data['purple_depol']['visible'] = self.display_options['show_modified'].get()
+            
+            # Always ensure event connections are active
+            self.point_tracker._connect()
+            
+        except Exception as e:
+            app_logger.error(f"Error updating point tracker data: {str(e)}")
+    
+    def create_results_display_frame(self):
+        """Create results display frame showing current file integrals"""
+        results_display_frame = ttk.LabelFrame(self.window, text="Current File Results", padding="5")
+        results_display_frame.pack(fill='x', padx=5, pady=5)
+        
+        # Create results display
+        self.results_display_frame = ttk.Frame(results_display_frame)
+        self.results_display_frame.pack(fill='x')
+        
+        # Initialize result variables
+        self.current_integral_var = tk.StringVar(value="Total Integral: No data")
+        self.current_hyperpol_var = tk.StringVar(value="Hyperpol: No data")
+        self.current_depol_var = tk.StringVar(value="Depol: No data")
+        self.current_capacitance_var = tk.StringVar(value="Capacitance: No data")
+        
+        # Create result labels
+        results_grid = ttk.Frame(self.results_display_frame)
+        results_grid.pack(fill='x')
+        
+        ttk.Label(results_grid, textvariable=self.current_integral_var,
+                 font=('TkDefaultFont', 10, 'bold')).grid(row=0, column=0, sticky='w', padx=10)
+        ttk.Label(results_grid, textvariable=self.current_capacitance_var,
+                 font=('TkDefaultFont', 10, 'bold')).grid(row=0, column=1, sticky='w', padx=10)
+        ttk.Label(results_grid, textvariable=self.current_hyperpol_var,
+                 font=('TkDefaultFont', 9)).grid(row=1, column=0, sticky='w', padx=10)
+        ttk.Label(results_grid, textvariable=self.current_depol_var,
+                 font=('TkDefaultFont', 9)).grid(row=1, column=1, sticky='w', padx=10)
+    
+    def update_results_display(self, slot):
+        """Update the results display for current slot"""
+        if slot.is_processed and slot.results:
+            self.current_integral_var.set(f"Total Integral: {slot.results.get('integral_value', 'N/A')}")
+            self.current_hyperpol_var.set(f"Hyperpol: {slot.results.get('hyperpol_area', 'N/A')}")
+            self.current_depol_var.set(f"Depol: {slot.results.get('depol_area', 'N/A')}")
+            self.current_capacitance_var.set(f"Capacitance: {slot.results.get('capacitance_nF', 'N/A')}")
+        else:
+            self.current_integral_var.set("Total Integral: No data")
+            self.current_hyperpol_var.set("Hyperpol: No data")
+            self.current_depol_var.set("Depol: No data")
+            self.current_capacitance_var.set("Capacitance: No data")
     
     def create_results_frame(self):
         """Create results summary frame"""
-        results_frame = ttk.LabelFrame(self.window, text="Results Summary", padding="5")
+        results_frame = ttk.LabelFrame(self.window, text="All Files Summary", padding="5")
         results_frame.pack(fill='x', padx=5, pady=5)
         
         # Results table
@@ -428,31 +554,64 @@ class MultiFileAnalysisWindow:
         ttk.Button(button_frame, text="View Main App History", 
                   command=self.view_main_history).pack(side='left', padx=5)
         
+        # Force refresh history button
+        ttk.Button(button_frame, text="Refresh History Integration", 
+                  command=self.force_refresh_history).pack(side='left', padx=5)
+        
         # Info label
         info_label = ttk.Label(results_frame, 
                               text="ℹ️ Processed files are automatically added to the main application's history",
                               font=('TkDefaultFont', 8, 'italic'))
         info_label.pack(pady=2)
     
+    def force_refresh_history(self):
+        """Force refresh the history integration"""
+        try:
+            history_manager = getattr(self.parent_app, 'history_manager', None)
+            if not history_manager:
+                messagebox.showwarning("Warning", "History manager not available in main application")
+                return
+                
+            added_count = 0
+            for slot in self.file_slots:
+                if slot.is_processed and slot.results:
+                    try:
+                        # Re-add to history with proper format
+                        history_results = {
+                            'integral_value': slot.results.get('integral_value', '0.00 pC'),
+                            'hyperpol_area': slot.results.get('hyperpol_area', '0.00 pC'),
+                            'depol_area': slot.results.get('depol_area', '0.00 pC'),
+                            'capacitance_nF': slot.results.get('capacitance_nF', '0.00 nF'),
+                            'v2_voltage': slot.results.get('v2_voltage', '0 mV')
+                        }
+                        
+                        history_manager.add_entry(
+                            filename=slot.filepath,
+                            results=history_results,
+                            analysis_type="multi-file-refresh"
+                        )
+                        added_count += 1
+                    except Exception as e:
+                        app_logger.error(f"Failed to refresh history for {slot.filename}: {str(e)}")
+            
+            messagebox.showinfo("History Refresh", f"Successfully refreshed {added_count} entries in history")
+            
+        except Exception as e:
+            app_logger.error(f"Error refreshing history: {str(e)}")
+            messagebox.showerror("Error", f"Failed to refresh history: {str(e)}")
+    
     def select_slot(self, slot_number):
         """Select a specific file slot"""
         self.current_slot = slot_number
         self.update_slot_buttons()
         self.update_file_info()
+        self.update_results_display(self.file_slots[self.current_slot])
         self.update_plot()
     
     def update_slot_buttons(self):
         """Update the appearance of slot buttons"""
         for i, btn in enumerate(self.slot_buttons):
             slot = self.file_slots[i]
-            
-            # Change button color based on status
-            if slot.is_processed:
-                btn.configure(style="Processed.TButton")
-            elif slot.is_loaded:
-                btn.configure(style="Loaded.TButton")
-            else:
-                btn.configure(style="TButton")
             
             # Highlight current slot
             if i == self.current_slot:
@@ -486,6 +645,7 @@ class MultiFileAnalysisWindow:
             if slot.load_file(filepath):
                 self.update_slot_buttons()
                 self.update_file_info()
+                self.update_results_display(slot)
                 self.update_plot()
                 messagebox.showinfo("Success", f"File loaded into slot {self.current_slot + 1}")
             else:
@@ -497,6 +657,7 @@ class MultiFileAnalysisWindow:
         slot.clear()
         self.update_slot_buttons()
         self.update_file_info()
+        self.update_results_display(slot)
         self.update_plot()
         self.update_results_table()
     
@@ -507,6 +668,7 @@ class MultiFileAnalysisWindow:
                 slot.clear()
             self.update_slot_buttons()
             self.update_file_info()
+            self.update_results_display(self.file_slots[self.current_slot])
             self.update_plot()
             self.update_results_table()
     
@@ -529,6 +691,7 @@ class MultiFileAnalysisWindow:
         if slot.process_file(voltage, history_manager):
             self.update_slot_buttons()
             self.update_file_info()
+            self.update_results_display(slot)
             self.update_plot()
             self.update_results_table()
             
@@ -536,8 +699,9 @@ class MultiFileAnalysisWindow:
             if history_manager:
                 messagebox.showinfo("Success", 
                     f"File processed successfully!\n\n"
+                    f"✓ Results: {slot.results.get('integral_value', 'N/A')}\n"
                     f"✓ Added to main application history\n"
-                    f"✓ Results: {slot.results.get('integral_value', 'N/A')}")
+                    f"✓ Use 'View Main App History' to see all entries")
             else:
                 messagebox.showinfo("Success", f"File processed successfully")
         else:
@@ -562,6 +726,7 @@ class MultiFileAnalysisWindow:
         
         self.update_slot_buttons()
         self.update_file_info()
+        self.update_results_display(self.file_slots[self.current_slot])
         self.update_plot()
         self.update_results_table()
         
@@ -587,6 +752,11 @@ class MultiFileAnalysisWindow:
             self._plot_compare_all()
         elif mode == "purple":
             self._plot_purple_curves()
+        
+        # Update point tracker data for current mode
+        if mode == "current":
+            current_slot = self.file_slots[self.current_slot]
+            self.update_point_tracker_data(current_slot)
         
         self.canvas.draw()
     
