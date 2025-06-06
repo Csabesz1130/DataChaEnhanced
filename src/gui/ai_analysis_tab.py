@@ -1,5 +1,3 @@
-# src/gui/ai_analysis_tab.py
-
 """
 AI Analysis Tab for the Signal Analyzer Application
 
@@ -680,7 +678,7 @@ class AIAnalysisTab:
         return None
     
     def validate_ranges(self, hyperpol_range: Tuple[int, int], depol_range: Tuple[int, int], 
-                       processor) -> bool:
+                        processor) -> bool:
         """Validate that the specified ranges are valid for the current data."""
         try:
             # Check range validity
@@ -987,8 +985,8 @@ class AIAnalysisTab:
                 hyperpol_end_time = hyperpol_times[min(self.hyperpol_end.get()-1, len(hyperpol_times)-1)]
                 
                 ax.axvspan(hyperpol_start_time, hyperpol_end_time, 
-                          alpha=0.3, color='blue', 
-                          label='hyperpol_range_indicator')
+                           alpha=0.3, color='blue', 
+                           label='hyperpol_range_indicator')
             
             if hasattr(processor, 'modified_depol_times'):
                 depol_times = processor.modified_depol_times * 1000  # Convert to ms
@@ -996,8 +994,8 @@ class AIAnalysisTab:
                 depol_end_time = depol_times[min(self.depol_end.get()-1, len(depol_times)-1)]
                 
                 ax.axvspan(depol_start_time, depol_end_time, 
-                          alpha=0.3, color='red', 
-                          label='depol_range_indicator')
+                           alpha=0.3, color='red', 
+                           label='depol_range_indicator')
             
         except Exception as e:
             app_logger.debug(f"Error adding range indicators: {str(e)}")
