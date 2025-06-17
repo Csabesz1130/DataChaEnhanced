@@ -1,0 +1,11 @@
+# Core system monitoring
+psutil>=5.8.0
+
+# Data processing and visualization  
+numpy>=1.21.0
+matplotlib>=3.4.0
+pandas>=1.3.0
+
+# Optional but recommended
+memory-profiler>=0.60.0
+line-profiler>=3.5.0
