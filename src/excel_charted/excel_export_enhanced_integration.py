@@ -17,7 +17,7 @@ from src.utils.logger import app_logger
 
 # Import both old and new export systems
 try:
-    from src.analysis.enhanced_excel_export_with_charts import export_purple_curves_with_charts
+    from src.excel_charted.enhanced_excel_export_with_charts import export_purple_curves_with_charts
     ENHANCED_EXPORT_AVAILABLE = True
     app_logger.info("Enhanced Excel export with charts is available")
 except ImportError as e:

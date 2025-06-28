@@ -15,9 +15,9 @@ from pathlib import Path
 import json
 from typing import Optional, Dict, List, Tuple
 from src.utils.logger import app_logger
-from .ai_curve_learning import CurveFittingAI, ExcelAnalysisCollector
-from .ai_confidence_validation import PredictionConfidenceEstimator, ModelValidator, ActiveLearningSelector
-from .enhanced_excel_export_with_charts import EnhancedExcelExporter
+from src.analysis.ai_curve_learning import CurveFittingAI, ExcelAnalysisCollector
+from src.analysis.ai_confidence_validation import PredictionConfidenceEstimator, ModelValidator, ActiveLearningSelector
+from src.excel_charted.enhanced_excel_export_with_charts import EnhancedExcelExporter
 
 class AIIntegrationManager:
     """
