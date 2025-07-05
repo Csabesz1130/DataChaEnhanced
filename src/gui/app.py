@@ -20,6 +20,9 @@ from src.utils.analysis_history_manager import AnalysisHistoryManager
 from src.gui.history_window import HistoryWindow
 from src.excel_export import add_excel_export_to_app
 from src.gui.direct_spike_removal import remove_spikes_from_processor
+from src.gui.simplified_set_exporter import add_set_export_to_toolbar
+from src.gui.batch_set_exporter import add_set_export_to_toolbar
+from src.gui.multi_file_analysis import add_multi_file_analysis_to_toolbar
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -48,6 +51,7 @@ class SignalAnalyzerApp:
         self.history_manager = AnalysisHistoryManager(self)
         
         # Setup components
+        self.setup_menubar()  # Add menubar setup
         self.setup_toolbar()
         self.setup_plot()
         self.setup_plot_interaction()
@@ -56,6 +60,81 @@ class SignalAnalyzerApp:
         add_excel_export_to_app(self)
         
         app_logger.info("Application initialized successfully")
+
+    def setup_menubar(self):
+        """Setup the application menubar"""
+        self.menubar = tk.Menu(self.master)
+        self.master.config(menu=self.menubar)
+        
+        # File menu
+        file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Load Data", command=self.load_data)
+        file_menu.add_command(label="Export Data", command=self.export_data)
+        file_menu.add_command(label="Export Figure", command=self.export_figure)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.master.quit)
+        
+        # Analysis menu
+        analysis_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Analysis", menu=analysis_menu)
+        analysis_menu.add_command(label="View History", command=self.show_analysis_history)
+        analysis_menu.add_command(label="Export Purple Curves", command=self.on_export_purple_curves)
+        
+        # Help menu
+        help_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+        help_menu.add_command(label="Check for Updates", command=self.check_for_updates)
+
+    def show_about(self):
+        """Show about dialog with AI status"""
+        messagebox.showinfo(
+            "About Signal Analyzer",
+            f"Signal Analyzer v1.0\n\n"
+            f"Advanced electrophysiology data analysis tool\n\n"
+            f"Build: 2024.1"
+        )
+
+    # AI Integration Methods (only if AI is available)
+    def run_ai_analysis(self):
+        """Switch to AI tab and run AI analysis"""
+        if hasattr(self, 'tabs') and 'ai_analysis' in self.tabs:
+            # Switch to AI Analysis tab
+            for i, tab_name in enumerate(['filter', 'analysis', 'view', 'action_potential', 'ai_analysis']):
+                if tab_name == 'ai_analysis':
+                    self.notebook.select(i)
+                    break
+            # Trigger AI analysis
+            self.tabs['ai_analysis'].run_ai_analysis()
+        else:
+            messagebox.showwarning("AI Not Available", "AI Analysis is not available in this installation.")
+
+    def run_manual_analysis(self):
+        """Switch to AI tab and run manual analysis"""
+        if hasattr(self, 'tabs') and 'ai_analysis' in self.tabs:
+            # Switch to AI Analysis tab
+            for i, tab_name in enumerate(['filter', 'analysis', 'view', 'action_potential', 'ai_analysis']):
+                if tab_name == 'ai_analysis':
+                    self.notebook.select(i)
+                    break
+            # Trigger manual analysis
+            self.tabs['ai_analysis'].run_manual_analysis()
+        else:
+            messagebox.showwarning("AI Not Available", "AI Analysis is not available in this installation.")
+
+    def validate_ai_results(self):
+        """Switch to AI tab and run validation"""
+        if hasattr(self, 'tabs') and 'ai_analysis' in self.tabs:
+            # Switch to AI Analysis tab
+            for i, tab_name in enumerate(['filter', 'analysis', 'view', 'action_potential', 'ai_analysis']):
+                if tab_name == 'ai_analysis':
+                    self.notebook.select(i)
+                    break
+            # Trigger validation
+            self.tabs['ai_analysis'].validate_results()
+        else:
+            messagebox.showwarning("AI Not Available", "AI Analysis is not available in this installation.")
 
     def setup_main_layout(self):
         """Setup the main application layout with status bar"""
@@ -191,11 +270,11 @@ class SignalAnalyzerApp:
         file_frame.pack(side='left', fill='x')
         
         ttk.Button(file_frame, text="Load Data", 
-                command=self.load_data).pack(side='left', padx=2)
+                   command=self.load_data).pack(side='left', padx=2)
         ttk.Button(file_frame, text="Export Data", 
-                command=self.export_data).pack(side='left', padx=2)
+                   command=self.export_data).pack(side='left', padx=2)
         ttk.Button(file_frame, text="Export Figure", 
-                command=self.export_figure).pack(side='left', padx=2)
+                   command=self.export_figure).pack(side='left', padx=2)
         
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
 
@@ -216,6 +295,12 @@ class SignalAnalyzerApp:
             text="View History",
             command=self.show_analysis_history
         ).pack(side='left', padx=2)
+
+        # Add the new "Export Sets" button HERE, to the export_frame
+        self.set_export_button = add_set_export_to_toolbar(self, export_frame) # <--- ADD THIS LINE
+
+        # Add Multi-File Analysis button
+        self.multi_file_button = add_multi_file_analysis_to_toolbar(self, export_frame)
 
         ttk.Separator(self.toolbar_frame, orient='vertical').pack(side='left', fill='y', padx=5)
         
@@ -280,8 +365,8 @@ class SignalAnalyzerApp:
 
         # In the setup_toolbar method of SignalAnalyzerApp
         debug_button = ttk.Button(self.toolbar_frame, 
-                                text="Debug Processor",
-                                command=self.debug_processor)
+                                  text="Debug Processor",
+                                  command=self.debug_processor)
         debug_button.pack(side='left', padx=2)
 
     def check_for_updates(self):
@@ -637,18 +722,38 @@ class SignalAnalyzerApp:
         self.notebook = ttk.Notebook(self.control_frame)
         self.notebook.pack(fill='both', expand=True)
         
+        # Create tabs dictionary to store tab references
+        self.tabs = {}
+        
         # Create tabs
         self.filter_tab = FilterTab(self.notebook, self.on_filter_change)
         self.analysis_tab = AnalysisTab(self.notebook, self.on_analysis_update)
         self.view_tab = ViewTab(self.notebook, self.on_view_change)
         self.action_potential_tab = ActionPotentialTab(self.notebook, self.on_action_potential_analysis)
         
+        # Store tab references
+        self.tabs['filter'] = self.filter_tab
+        self.tabs['analysis'] = self.analysis_tab
+        self.tabs['view'] = self.view_tab
+        self.tabs['action_potential'] = self.action_potential_tab
+        
         # Add tabs to notebook
         self.notebook.add(self.filter_tab.frame, text='Filters')
         self.notebook.add(self.analysis_tab.frame, text='Analysis')
         self.notebook.add(self.view_tab.frame, text='View')
         self.notebook.add(self.action_potential_tab.frame, text='Action Potential')
-
+        
+        # Add AI Analysis tab with deferred import to prevent circular dependencies
+        try:
+            from src.gui.ai_analysis_tab import AIAnalysisTab
+            self.tabs['ai_analysis'] = AIAnalysisTab(self.notebook, self)
+            self.notebook.add(self.tabs['ai_analysis'].frame, text='AI Analysis')
+            app_logger.info("Successfully loaded AI Analysis tab.")
+        except Exception as e:
+            app_logger.warning(f"AI Analysis tab not available: {e}")
+            placeholder_frame = ttk.Frame(self.notebook)
+            ttk.Label(placeholder_frame, text="AI Analysis module unavailable", justify='center').pack(padx=20, pady=20)
+            self.notebook.add(placeholder_frame, text='AI Analysis', state='disabled')
 
     
     def reset_point_tracker(self):

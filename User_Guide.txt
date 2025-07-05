@@ -1,0 +1,14 @@
+Signal Analyzer - User Guide
+=============================
+
+Getting Started:
+1. Double-click SignalAnalyzer.exe to start the application
+2. Use File > Load to load your ATF data files
+3. Apply filters using the Filter tab
+4. Analyze signals using the Analysis tab
+5. Export results when done
+
+For support, contact your instructor.
+
+Build Date: 2025-05-27 18:32
+Version: 1.0.2
