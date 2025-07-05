@@ -7,6 +7,10 @@ import numpy as np
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+import gc
+import weakref
+import matplotlib
+
 from src.utils.logger import app_logger
 from src.gui.filter_tab import FilterTab
 from src.gui.analysis_tab import AnalysisTab
@@ -24,19 +28,28 @@ from src.gui.simplified_set_exporter import add_set_export_to_toolbar
 from src.gui.batch_set_exporter import add_set_export_to_toolbar
 from src.gui.multi_file_analysis import add_multi_file_analysis_to_toolbar
 
+
 class SignalAnalyzerApp:
     def __init__(self, master):
-        """Initialize the Signal Analyzer application."""
+        """Initialize the Signal Analyzer application with memory optimization."""
         self.master = master
-        self.master.title("Signal Analyzer")
+        self.master.title("Signal Analyzer - Memory Optimized")
         
-        # Initialize data variables
-        self.data = None
-        self.time_data = None
-        self.filtered_data = None
+        # Initialize data variables with memory management
+        self._data = None
+        self._time_data = None
+        self._filtered_data = None
+        self._processed_data = None
+        self._orange_curve = None
+        self._orange_curve_times = None
+        
+        # Memory management
+        self._memory_usage = 0
+        self.active_figures = weakref.WeakSet()
+        
         self.current_filters = {}
         self.action_potential_processor = None
-        self.current_file = None  # Track current file path
+        self.current_file = None
 
         self.use_regression_hyperpol = tk.BooleanVar(value=False)
         self.use_regression_depol = tk.BooleanVar(value=False)
@@ -51,15 +64,261 @@ class SignalAnalyzerApp:
         self.history_manager = AnalysisHistoryManager(self)
         
         # Setup components
-        self.setup_menubar()  # Add menubar setup
+        self.setup_menubar()
         self.setup_toolbar()
         self.setup_plot()
         self.setup_plot_interaction()
         self.setup_tabs()
 
+        # Setup memory management
+        self.setup_memory_management()
+
         add_excel_export_to_app(self)
         
-        app_logger.info("Application initialized successfully")
+        app_logger.info("Application initialized successfully with memory optimization")
+
+    # Property-based data management with automatic cleanup
+    @property
+    def data(self):
+        """Property getter for data"""
+        return self._data
+    
+    @data.setter 
+    def data(self, value):
+        """Property setter for data with automatic cleanup"""
+        # Clean up old data
+        if self._data is not None:
+            old_size = self._data.nbytes if hasattr(self._data, 'nbytes') else 0
+            app_logger.debug(f"Cleaning up old data array: {old_size / 1024 / 1024:.1f} MB")
+            del self._data
+            self._memory_usage -= old_size
+            
+        # Store new data
+        if value is not None:
+            self._data = np.asarray(value, dtype=np.float64)
+            # Ensure contiguous memory layout for efficiency
+            if not self._data.flags['C_CONTIGUOUS']:
+                old_data = self._data
+                self._data = np.ascontiguousarray(self._data)
+                del old_data
+                
+            new_size = self._data.nbytes
+            self._memory_usage += new_size
+            app_logger.debug(f"New data stored: {self._data.shape}, {new_size / 1024 / 1024:.1f} MB")
+        else:
+            self._data = None
+            
+        # Force garbage collection after data change
+        gc.collect()
+
+    @property
+    def time_data(self):
+        """Property getter for time data"""
+        return self._time_data
+    
+    @time_data.setter
+    def time_data(self, value):
+        """Property setter for time data with cleanup"""
+        if self._time_data is not None:
+            del self._time_data
+            
+        if value is not None:
+            self._time_data = np.asarray(value, dtype=np.float64)
+        else:
+            self._time_data = None
+            
+        gc.collect()
+    
+    @property 
+    def filtered_data(self):
+        """Property getter for filtered data"""
+        return self._filtered_data
+    
+    @filtered_data.setter
+    def filtered_data(self, value):
+        """Property setter for filtered data with cleanup"""
+        if self._filtered_data is not None:
+            del self._filtered_data
+            
+        if value is not None:
+            self._filtered_data = np.asarray(value, dtype=np.float64)
+        else:
+            self._filtered_data = None
+            
+        gc.collect()
+
+    @property
+    def processed_data(self):
+        """Property getter for processed data"""
+        return self._processed_data
+    
+    @processed_data.setter
+    def processed_data(self, value):
+        """Property setter for processed data with cleanup"""
+        if self._processed_data is not None:
+            del self._processed_data
+            
+        if value is not None:
+            self._processed_data = np.asarray(value, dtype=np.float64)
+        else:
+            self._processed_data = None
+            
+        gc.collect()
+
+    @property
+    def orange_curve(self):
+        """Property getter for orange curve"""
+        return self._orange_curve
+    
+    @orange_curve.setter
+    def orange_curve(self, value):
+        """Property setter for orange curve with cleanup"""
+        if self._orange_curve is not None:
+            del self._orange_curve
+            
+        if value is not None:
+            self._orange_curve = np.asarray(value, dtype=np.float64)
+        else:
+            self._orange_curve = None
+            
+        gc.collect()
+
+    @property
+    def orange_curve_times(self):
+        """Property getter for orange curve times"""
+        return self._orange_curve_times
+    
+    @orange_curve_times.setter
+    def orange_curve_times(self, value):
+        """Property setter for orange curve times with cleanup"""
+        if self._orange_curve_times is not None:
+            del self._orange_curve_times
+            
+        if value is not None:
+            self._orange_curve_times = np.asarray(value, dtype=np.float64)
+        else:
+            self._orange_curve_times = None
+            
+        gc.collect()
+
+    def setup_memory_management(self):
+        """Setup memory management and monitoring"""
+        # Configure matplotlib for memory efficiency
+        matplotlib.rcParams['figure.max_open_warning'] = 5
+        
+        # Set up periodic cleanup
+        self.master.after(30000, self.periodic_cleanup)  # Every 30 seconds
+        
+        # Bind cleanup to window close
+        self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        app_logger.debug("Memory management setup completed")
+
+    def periodic_cleanup(self):
+        """Periodic memory cleanup function"""
+        try:
+            # Close any orphaned matplotlib figures
+            self.cleanup_matplotlib_figures()
+            
+            # Force garbage collection
+            collected = gc.collect()
+            if collected > 0:
+                app_logger.debug(f"Periodic cleanup: collected {collected} objects")
+            
+            # Check memory usage
+            try:
+                import psutil
+                process = psutil.Process()
+                memory_mb = process.memory_info().rss / 1024 / 1024
+                if memory_mb > 500:  # Warning threshold
+                    app_logger.warning(f"High memory usage detected: {memory_mb:.1f} MB")
+                    self.force_cleanup()
+            except ImportError:
+                pass
+            
+            # Schedule next cleanup
+            self.master.after(30000, self.periodic_cleanup)
+            
+        except Exception as e:
+            app_logger.error(f"Error in periodic cleanup: {str(e)}")
+            # Still schedule next cleanup even if this one failed
+            self.master.after(30000, self.periodic_cleanup)
+
+    def cleanup_matplotlib_figures(self):
+        """Clean up matplotlib figures to prevent memory leaks"""
+        try:
+            # Get list of all figure numbers
+            figure_numbers = plt.get_fignums()
+            
+            if len(figure_numbers) > 3:  # Keep max 3 figures
+                app_logger.debug(f"Cleaning up {len(figure_numbers)} matplotlib figures")
+                
+                # Close excess figures (keep the 3 most recent)
+                for fig_num in figure_numbers[:-3]:
+                    plt.close(fig_num)
+                
+                # Force cleanup
+                gc.collect()
+                
+        except Exception as e:
+            app_logger.error(f"Error cleaning matplotlib figures: {str(e)}")
+
+    def force_cleanup(self):
+        """Force memory cleanup (for debugging and emergency situations)"""
+        try:
+            app_logger.info("Forcing memory cleanup")
+            
+            # Close matplotlib figures
+            self.cleanup_matplotlib_figures()
+            
+            # Force garbage collection multiple times
+            total_collected = 0
+            for i in range(3):
+                collected = gc.collect()
+                total_collected += collected
+                if collected == 0:
+                    break
+            
+            # Log memory usage
+            try:
+                import psutil
+                process = psutil.Process()
+                memory_mb = process.memory_info().rss / 1024 / 1024
+                app_logger.info(f"Force cleanup: collected {total_collected} objects, current usage: {memory_mb:.1f} MB")
+            except ImportError:
+                app_logger.info(f"Force cleanup: collected {total_collected} objects")
+                
+        except Exception as e:
+            app_logger.error(f"Error in force cleanup: {str(e)}")
+
+    def clear_all_data(self):
+        """Clear all data and free memory"""
+        app_logger.debug("Clearing all data")
+        
+        # Clear data using properties (automatic cleanup)
+        self.data = None
+        self.time_data = None
+        self.filtered_data = None
+        self.processed_data = None
+        self.orange_curve = None
+        self.orange_curve_times = None
+        
+        # Clear other data structures
+        if hasattr(self, 'normalized_curve'):
+            self.normalized_curve = None
+        if hasattr(self, 'average_curve'):
+            self.average_curve = None
+            
+        # Clear processor
+        self.action_potential_processor = None
+        
+        # Clear file reference
+        self.current_file = None
+        
+        # Force garbage collection
+        gc.collect()
+        
+        app_logger.debug("All data cleared successfully")
 
     def setup_menubar(self):
         """Setup the application menubar"""
@@ -297,7 +556,7 @@ class SignalAnalyzerApp:
         ).pack(side='left', padx=2)
 
         # Add the new "Export Sets" button HERE, to the export_frame
-        self.set_export_button = add_set_export_to_toolbar(self, export_frame) # <--- ADD THIS LINE
+        self.set_export_button = add_set_export_to_toolbar(self, export_frame)
 
         # Add Multi-File Analysis button
         self.multi_file_button = add_multi_file_analysis_to_toolbar(self, export_frame)
@@ -599,8 +858,6 @@ class SignalAnalyzerApp:
                     
                 self.canvas.draw_idle()
 
-    # Add this method to the SignalAnalyzerApp class in app.py
-
     def on_remove_spikes(self):
         """
         Remove spikes from the current action_potential_processor.
@@ -639,7 +896,6 @@ class SignalAnalyzerApp:
             print(f"Error in on_remove_spikes: {str(e)}")
             print(traceback.format_exc())
             messagebox.showerror("Error", f"Failed to remove spikes: {str(e)}")
-
 
     def plot_regression_lines(self, data, times, interval, color='purple', alpha=0.7):
         """Plot regression line for a given segment of data with improved visibility."""
@@ -754,7 +1010,6 @@ class SignalAnalyzerApp:
             placeholder_frame = ttk.Frame(self.notebook)
             ttk.Label(placeholder_frame, text="AI Analysis module unavailable", justify='center').pack(padx=20, pady=20)
             self.notebook.add(placeholder_frame, text='AI Analysis', state='disabled')
-
     
     def reset_point_tracker(self):
         """
@@ -1100,7 +1355,7 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error updating hyperpol range: {str(e)}")
 
     def load_data(self):
-        """Load data from file with proper cleanup of old data."""
+        """Load data from file with proper memory management."""
         try:
             filepath = filedialog.askopenfilename(
                 filetypes=[("ATF files", "*.atf"), ("All files", "*.*")]
@@ -1111,23 +1366,30 @@ class SignalAnalyzerApp:
                 
             app_logger.info(f"Loading file: {filepath}")
             
-            # Clear existing data
-            self.data = None
-            self.time_data = None
-            self.filtered_data = None
-            self.processed_data = None
-            self.orange_curve = None
-            self.orange_curve_times = None
+            # Clear existing data using the clear method
+            self.clear_all_data()
+            
+            # Force cleanup before loading new data
+            gc.collect()
             
             # Store current file path
             self.current_file = filepath
             
+            # Load with memory optimization
             atf_handler = ATFHandler(filepath)
             atf_handler.load_atf()
             
-            self.time_data = atf_handler.get_column("Time")
-            self.data = atf_handler.get_column("#1")
-            self.filtered_data = self.data.copy()
+            # Get data and store using properties
+            new_time_data = atf_handler.get_column("Time")
+            new_data = atf_handler.get_column("#1")
+            
+            self.time_data = new_time_data
+            self.data = new_data
+            self.filtered_data = new_data.copy()
+            
+            # Clean up handler
+            del atf_handler
+            gc.collect()
             
             # Update view limits
             self.view_tab.update_limits(
@@ -1143,21 +1405,22 @@ class SignalAnalyzerApp:
             voltage = ActionPotentialProcessor.parse_voltage_from_filename(filepath)
             if voltage is not None:
                 app_logger.info(f"Detected V2 voltage from filename: {voltage} mV")
-                self.action_potential_tab.V2.set(voltage)  # Update UI value but don't run analysis
-            else:
-                self.action_potential_processor = None
+                self.action_potential_tab.V2.set(voltage)
             
             self.update_plot()
             filename = os.path.basename(filepath)
             self.status_var.set(f"Loaded: {filename}")
             
-            # Check if this file exists in history
+            # Log memory usage
+            data_size_mb = (self.data.nbytes + self.time_data.nbytes) / 1024 / 1024
+            app_logger.info(f"File loaded successfully. Data size: {data_size_mb:.1f} MB")
+            
+            # Check file history
             if hasattr(self, 'history_manager') and hasattr(self.history_manager, 'history_entries'):
                 history = self.history_manager.history_entries
                 file_history = [entry for entry in history if entry['filename'] == filename]
                 
                 if file_history:
-                    # Show most recent analysis results for this file
                     latest_result = file_history[-1]
                     msg = (
                         f"Previous analysis results for {filename}:\n"
@@ -1173,28 +1436,43 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error loading data: {str(e)}")
             messagebox.showerror("Error", f"Failed to load data: {str(e)}")
+            # Clean up on error
+            self.clear_all_data()
 
     def on_filter_change(self, filters):
-        """Handle changes in filter settings"""
+        """Handle changes in filter settings with memory optimization"""
         if self.data is None:
             return
             
         try:
-            app_logger.debug("Applying filters with parameters: " + str(filters))
+            app_logger.debug("Applying filters with memory optimization")
             self.current_filters = filters
             
-            self.filtered_data = combined_filter(self.data, **filters)
+            # Create temporary copy for filtering
+            temp_data = self.data.copy()
+            
+            # Apply combined filter with memory optimization
+            filtered_result = combined_filter(temp_data, **filters)
+            
+            # Store result and clean up temporary data
+            self.filtered_data = filtered_result
+            del temp_data
+            gc.collect()
             
             self.update_plot()
             self.analysis_tab.update_filtered_data(self.filtered_data)
             
             self.window_manager.set_data(self.time_data, self.filtered_data)
             
+            # Clear processor as data has changed
             self.action_potential_processor = None
             
         except Exception as e:
             app_logger.error(f"Error applying filters: {str(e)}")
             messagebox.showerror("Error", f"Failed to apply filters: {str(e)}")
+            # Reset to original data on error
+            if self.data is not None:
+                self.filtered_data = self.data.copy()
 
     def on_analysis_update(self, analysis_params):
         """Handle changes in analysis settings"""
@@ -1519,60 +1797,443 @@ class SignalAnalyzerApp:
         dialog.geometry(f"+{x}+{y}")
 
     def update_plot(self, view_params=None):
-        """Update plot with current data ensuring arrays match."""
+        """Update plot with memory-efficient rendering"""
         if self.data is None:
             return
+            
         try:
+            # Clear previous plot to free memory
             self.ax.clear()
+            
+            # Get view parameters
             if view_params is None:
                 view_params = self.view_tab.get_view_params()
             
-            if view_params.get('use_interval', False):
-                start_idx = np.searchsorted(self.time_data, view_params['t_min'])
-                end_idx = np.searchsorted(self.time_data, view_params['t_max'])
-                plot_time = self.time_data[start_idx:end_idx+1]
-                plot_data = self.data[start_idx:end_idx+1]
-                if self.filtered_data is not None:
-                    plot_filtered = self.filtered_data[start_idx:end_idx+1]
-                if hasattr(self, 'processed_data') and self.processed_data is not None:
-                    plot_processed = self.processed_data[start_idx:end_idx+1]
-            else:
-                plot_time = self.time_data
-                plot_data = self.data
-                plot_filtered = self.filtered_data
-                plot_processed = getattr(self, 'processed_data', None)
-
-            if view_params.get('show_original', True):
-                self.ax.plot(plot_time, plot_data, 'b-', label='Original Signal', alpha=0.3)
-            if view_params.get('show_filtered', True) and plot_filtered is not None:
-                if len(plot_filtered) == len(plot_time):
-                    self.ax.plot(plot_time, plot_filtered, 'r-', label='Filtered Signal', alpha=0.5)
-            if (plot_processed is not None and 
-                hasattr(self.action_potential_tab, 'show_processed') and 
-                self.action_potential_tab.show_processed.get()):
-                display_mode = self.action_potential_tab.processed_display_mode.get()
-                if display_mode in ["line", "all_points"]:
-                    self.ax.plot(plot_time, plot_processed, 'g-',
-                                 label='Processed Signal' if display_mode=="line" else "_nolegend_",
-                                 linewidth=1.5, alpha=0.7)
-                if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(plot_time, plot_processed, color='green', s=15, alpha=0.8, marker='.',
-                                    label='Processed Signal' if display_mode=="points" else "_nolegend_")
+            # Determine what to plot
+            show_original = view_params.get('show_original', True)
+            show_filtered = view_params.get('show_filtered', True)
             
-            self.ax.set_xlabel('Time (s)')
+            # Use downsampling for large datasets to save memory
+            if show_original and self.data is not None:
+                time_plot, data_plot = self._downsample_for_plot(self.time_data, self.data)
+                self.ax.plot(time_plot, data_plot, 'b-', label='Original', alpha=0.7, linewidth=1)
+                del time_plot, data_plot  # Clean up immediately
+            
+            if show_filtered and self.filtered_data is not None:
+                time_plot, filtered_plot = self._downsample_for_plot(self.time_data, self.filtered_data)
+                self.ax.plot(time_plot, filtered_plot, 'r-', label='Filtered', linewidth=2)
+                del time_plot, filtered_plot  # Clean up immediately
+            
+            # Configure plot
+            self.ax.set_xlabel("Time (s)")
+            self.ax.set_ylabel("Current (pA)")
+            self.ax.grid(True, alpha=0.3)
+            
+            # Handle axis limits
+            if view_params.get('use_interval'):
+                self.ax.set_xlim(view_params['t_min'], view_params['t_max'])
+            
+            if view_params.get('use_custom_ylim'):
+                self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
+            
+            # Add legend if multiple traces
+            handles, labels = self.ax.get_legend_handles_labels()
+            if len(handles) > 1:
+                self.ax.legend(loc='best')
+            
+            # Optimize plot for memory
+            self.fig.tight_layout()
+            
+            # Draw with memory optimization
+            self.canvas.draw_idle()  # Use idle drawing to reduce memory pressure
+            
+            # Force cleanup after plotting
+            gc.collect()
+            
+        except Exception as e:
+            app_logger.error(f"Error updating plot: {str(e)}")
+
+    def _downsample_for_plot(self, time_data, signal_data, max_points=10000):
+        """Downsample data for plotting to reduce memory usage"""
+        if len(signal_data) <= max_points:
+            return time_data, signal_data
+        
+        # Calculate downsampling factor
+        factor = len(signal_data) // max_points
+        
+        # Downsample using indexing to preserve peaks
+        indices = np.arange(0, len(signal_data), factor)
+        
+        return time_data[indices], signal_data[indices]
+
+    def _plot_curve_if_enabled(self, x_data, y_data, enabled, *plot_args, **plot_kwargs):
+        """Helper method to plot curve if enabled with memory cleanup"""
+        if enabled and y_data is not None:
+            try:
+                # Downsample for memory efficiency
+                x_plot, y_plot = self._downsample_for_plot(x_data, y_data)
+                self.ax.plot(x_plot, y_plot, *plot_args, **plot_kwargs)
+                del x_plot, y_plot  # Immediate cleanup
+            except Exception as e:
+                app_logger.error(f"Error plotting curve: {str(e)}")
+
+    def _plot_processed_curve(self, processed_data, time_data):
+        """Plot processed curve with memory optimization"""
+        try:
+            display_mode = self.action_potential_tab.processed_display_mode.get()
+            time_ms = time_data * 1000
+            
+            if display_mode in ["line", "all_points"]:
+                time_plot, data_plot = self._downsample_for_plot(time_ms, processed_data)
+                self.ax.plot(time_plot, data_plot, 'g-', 
+                        label='Processed Signal',
+                        linewidth=1.5, alpha=0.7)
+                del time_plot, data_plot
+                
+            if display_mode in ["points", "all_points"]:
+                # For points, use more aggressive downsampling
+                time_plot, data_plot = self._downsample_for_plot(time_ms, processed_data, max_points=5000)
+                self.ax.scatter(time_plot, data_plot, 
+                            color='green', s=15, alpha=0.8, 
+                            marker='.', label='Processed Points')
+                del time_plot, data_plot
+                
+        except Exception as e:
+            app_logger.error(f"Error plotting processed curve: {str(e)}")
+
+    def _plot_average_curve(self, orange_curve, orange_times):
+        """Plot average curve with memory optimization"""
+        try:
+            display_mode = self.action_potential_tab.average_display_mode.get()
+            time_ms = orange_times * 1000
+            
+            if display_mode in ["line", "all_points"]:
+                time_plot, data_plot = self._downsample_for_plot(time_ms, orange_curve)
+                self.ax.plot(time_plot, data_plot, 
+                        color='#FFA500', label='50-point Average', 
+                        linewidth=1.5, alpha=0.7)
+                del time_plot, data_plot
+                
+            if display_mode in ["points", "all_points"]:
+                time_plot, data_plot = self._downsample_for_plot(time_ms, orange_curve, max_points=5000)
+                self.ax.scatter(time_plot, data_plot, 
+                            color='#FFA500', s=25, alpha=1, 
+                            marker='o', label='Average Points')
+                del time_plot, data_plot
+                
+        except Exception as e:
+            app_logger.error(f"Error plotting average curve: {str(e)}")
+
+    def _plot_normalized_curve(self, normalized_curve, normalized_times):
+        """Plot normalized curve with memory optimization"""
+        try:
+            display_mode = self.action_potential_tab.normalized_display_mode.get()
+            time_ms = normalized_times * 1000
+            
+            if display_mode in ["line", "all_points"]:
+                time_plot, data_plot = self._downsample_for_plot(time_ms, normalized_curve)
+                self.ax.plot(time_plot, data_plot, 
+                        color='#0057B8', label='Voltage-Normalized', 
+                        linewidth=1.5, alpha=0.7)
+                del time_plot, data_plot
+                
+            if display_mode in ["points", "all_points"]:
+                time_plot, data_plot = self._downsample_for_plot(time_ms, normalized_curve, max_points=5000)
+                self.ax.scatter(time_plot, data_plot, 
+                            color='#0057B8', s=25, alpha=1,
+                            marker='o', label='Normalized Points')
+                del time_plot, data_plot
+                
+        except Exception as e:
+            app_logger.error(f"Error plotting normalized curve: {str(e)}")
+
+    def _plot_averaged_normalized_curve(self, average_curve, average_curve_times):
+        """Plot averaged normalized curve with memory optimization"""
+        try:
+            display_mode = self.action_potential_tab.averaged_normalized_display_mode.get()
+            time_ms = average_curve_times * 1000
+            
+            if display_mode in ["line", "all_points"]:
+                time_plot, data_plot = self._downsample_for_plot(time_ms, average_curve)
+                self.ax.plot(time_plot, data_plot, 
+                        color='magenta', label='Averaged Normalized', 
+                        linewidth=2, alpha=0.8)
+                del time_plot, data_plot
+                
+            if display_mode in ["points", "all_points"]:
+                time_plot, data_plot = self._downsample_for_plot(time_ms, average_curve, max_points=5000)
+                self.ax.scatter(time_plot, data_plot, 
+                            color='magenta', s=30, alpha=1,
+                            marker='o', label='Avg Normalized Points')
+                del time_plot, data_plot
+                
+        except Exception as e:
+            app_logger.error(f"Error plotting averaged normalized curve: {str(e)}")
+
+    def _plot_purple_curves_with_ranges(self, display_options, integration_ranges, intervals, show_points):
+        """Plot purple curves with integration ranges and memory optimization"""
+        try:
+            has_purple_curves = (hasattr(self.action_potential_processor, 'modified_hyperpol') and 
+                            hasattr(self.action_potential_processor, 'modified_depol') and
+                            self.action_potential_processor.modified_hyperpol is not None and 
+                            self.action_potential_processor.modified_depol is not None)
+
+            if not (has_purple_curves and display_options.get('show_modified', True)):
+                return
+                
+            display_mode = self.action_potential_tab.modified_display_mode.get()
+            
+            # Get data
+            hyperpol = self.action_potential_processor.modified_hyperpol
+            hyperpol_times = self.action_potential_processor.modified_hyperpol_times
+            depol = self.action_potential_processor.modified_depol
+            depol_times = self.action_potential_processor.modified_depol_times
+            
+            # Plot curves based on display mode
+            if display_mode in ["line", "all_points"]:
+                # Use downsampling for memory efficiency
+                hyp_time_plot, hyp_data_plot = self._downsample_for_plot(hyperpol_times * 1000, hyperpol)
+                dep_time_plot, dep_data_plot = self._downsample_for_plot(depol_times * 1000, depol)
+                
+                self.ax.plot(hyp_time_plot, hyp_data_plot,
+                        color='purple', label='Modified Peaks', 
+                        linewidth=2, alpha=0.8)
+                self.ax.plot(dep_time_plot, dep_data_plot,
+                        color='purple', label='_nolegend_',
+                        linewidth=2, alpha=0.8)
+                        
+                del hyp_time_plot, hyp_data_plot, dep_time_plot, dep_data_plot
+                        
+            if display_mode in ["points", "all_points"]:
+                # More aggressive downsampling for scatter plots
+                hyp_time_plot, hyp_data_plot = self._downsample_for_plot(hyperpol_times * 1000, hyperpol, max_points=3000)
+                dep_time_plot, dep_data_plot = self._downsample_for_plot(depol_times * 1000, depol, max_points=3000)
+                
+                self.ax.scatter(hyp_time_plot, hyp_data_plot,
+                            color='purple', s=30, alpha=0.8,
+                            marker='o',
+                            label='_nolegend_' if display_mode == "all_points" else "Modified Points")
+                self.ax.scatter(dep_time_plot, dep_data_plot,
+                            color='purple', s=30, alpha=0.8,
+                            marker='o', label='_nolegend_')
+                            
+                del hyp_time_plot, hyp_data_plot, dep_time_plot, dep_data_plot
+            
+            # Add integration range visualizations
+            self._add_integration_range_visualizations(integration_ranges, hyperpol_times, depol_times)
+            
+            # Add regression lines if enabled
+            if show_points and hasattr(self, 'plot_regression_lines'):
+                regression_interval = intervals.get('regression_interval')
+                if regression_interval:
+                    self.plot_regression_lines(hyperpol, hyperpol_times, regression_interval, color='blue', alpha=0.8)
+                    self.plot_regression_lines(depol, depol_times, regression_interval, color='red', alpha=0.8)
+                    
+        except Exception as e:
+            app_logger.error(f"Error plotting purple curves: {str(e)}")
+
+    def _add_integration_range_visualizations(self, integration_ranges, hyperpol_times, depol_times):
+        """Add integration range visualizations with memory optimization"""
+        try:
+            if not integration_ranges:
+                return
+                
+            # Hyperpolarization range
+            if 'hyperpol' in integration_ranges and hyperpol_times is not None:
+                hyperpol_range = integration_ranges['hyperpol']
+                start_idx = hyperpol_range['start']
+                end_idx = hyperpol_range['end']
+                
+                if 0 <= start_idx < len(hyperpol_times) and 0 < end_idx <= len(hyperpol_times):
+                    self.ax.axvspan(
+                        hyperpol_times[start_idx] * 1000,
+                        hyperpol_times[end_idx-1] * 1000,
+                        color='blue', alpha=0.15,
+                        label='Hyperpol Range'
+                    )
+            
+            # Depolarization range
+            if 'depol' in integration_ranges and depol_times is not None:
+                depol_range = integration_ranges['depol']
+                start_idx = depol_range['start']
+                end_idx = depol_range['end']
+                
+                if 0 <= start_idx < len(depol_times) and 0 < end_idx <= len(depol_times):
+                    self.ax.axvspan(
+                        depol_times[start_idx] * 1000,
+                        depol_times[end_idx-1] * 1000,
+                        color='red', alpha=0.15,
+                        label='Depol Range'
+                    )
+                    
+        except Exception as e:
+            app_logger.error(f"Error adding integration range visualizations: {str(e)}")
+
+    def _update_span_selectors(self, show_points, integration_ranges):
+        """Update span selector visibility and positions with memory considerations"""
+        try:
+            # Determine if span selectors should be active
+            active_mode = False
+            if hasattr(self.action_potential_tab, 'modified_display_mode'):
+                active_mode = (self.action_potential_tab.modified_display_mode.get() in ["line", "all_points"])
+
+            enable_spans = show_points and active_mode
+
+            if hasattr(self, 'span_selector'):
+                self.span_selector.set_visible(enable_spans)
+                self.span_selector.set_active(enable_spans)
+
+            # Update range span selectors if enabled
+            if enable_spans and hasattr(self, 'hyperpol_span') and hasattr(self, 'depol_span'):
+                self._position_span_selectors(integration_ranges)
+            else:
+                # Disable span selectors
+                if hasattr(self, 'hyperpol_span'):
+                    self.hyperpol_span.set_visible(False)
+                    self.hyperpol_span.set_active(False)
+                if hasattr(self, 'depol_span'):
+                    self.depol_span.set_visible(False)
+                    self.depol_span.set_active(False)
+                    
+        except Exception as e:
+            app_logger.error(f"Error updating span selectors: {str(e)}")
+
+    def _position_span_selectors(self, integration_ranges):
+        """Position span selectors with memory considerations"""
+        try:
+            if not (hasattr(self.action_potential_processor, 'modified_hyperpol_times') and 
+                   hasattr(self.action_potential_processor, 'modified_depol_times')):
+                return
+                
+            hyperpol_times = self.action_potential_processor.modified_hyperpol_times
+            depol_times = self.action_potential_processor.modified_depol_times
+            
+            # Position hyperpol span
+            if 'hyperpol' in integration_ranges and hyperpol_times is not None:
+                hyperpol_range = integration_ranges['hyperpol']
+                start_idx = hyperpol_range['start']
+                end_idx = hyperpol_range['end']
+                
+                if (0 <= start_idx < len(hyperpol_times) and 0 < end_idx <= len(hyperpol_times)):
+                    new_extents = (
+                        hyperpol_times[start_idx] * 1000, 
+                        hyperpol_times[end_idx - 1] * 1000
+                    )
+                    
+                    if not hasattr(self, 'prev_hyperpol_extents') or self.prev_hyperpol_extents != new_extents:
+                        self.hyperpol_span.extents = new_extents
+                        self.prev_hyperpol_extents = new_extents
+                        
+                    self.hyperpol_span.set_visible(True)
+                    self.hyperpol_span.set_active(True)
+            
+            # Position depol span
+            if 'depol' in integration_ranges and depol_times is not None:
+                depol_range = integration_ranges['depol']
+                start_idx = depol_range['start']
+                end_idx = depol_range['end']
+                
+                if (0 <= start_idx < len(depol_times) and 0 < end_idx <= len(depol_times)):
+                    new_extents = (
+                        depol_times[start_idx] * 1000, 
+                        depol_times[end_idx - 1] * 1000
+                    )
+                    
+                    if not hasattr(self, 'prev_depol_extents') or self.prev_depol_extents != new_extents:
+                        self.depol_span.extents = new_extents
+                        self.prev_depol_extents = new_extents
+                        
+                    self.depol_span.set_visible(True)
+                    self.depol_span.set_active(True)
+                    
+        except Exception as e:
+            app_logger.error(f"Error positioning span selectors: {str(e)}")
+
+    def update_plot_with_processed_data(
+        self,
+        processed_data,
+        orange_curve,
+        orange_times,
+        normalized_curve,
+        normalized_times,
+        average_curve,
+        average_curve_times
+    ):
+        """Update the main plot with all processed data and curves with memory optimization."""
+        try:
+            if not hasattr(self, 'action_potential_tab'):
+                return
+
+            # Clear plot and force cleanup
+            self.ax.clear()
+            gc.collect()
+            
+            view_params = self.view_tab.get_view_params()
+            display_options = self.action_potential_tab.get_parameters().get('display_options', {})
+
+            # Get integration ranges and points visibility
+            intervals = self.action_potential_tab.get_intervals()
+            show_points = intervals.get('show_points', False)
+            integration_ranges = intervals.get('integration_ranges', {})
+            
+            app_logger.debug(f"Updating plot with integration ranges: {integration_ranges}")
+
+            # Plot curves with memory optimization
+            self._plot_curve_if_enabled(
+                self.time_data * 1000, self.data, 
+                display_options.get('show_noisy_original', False),
+                'b-', 'Original Signal', alpha=0.3
+            )
+
+            self._plot_curve_if_enabled(
+                self.time_data * 1000, self.filtered_data,
+                display_options.get('show_red_curve', True),
+                '#800000', 'Filtered Signal', alpha=0.7, linewidth=1.5
+            )
+
+            # Plot processed curves
+            if processed_data is not None and display_options.get('show_processed', True):
+                self._plot_processed_curve(processed_data, self.time_data)
+
+            # Plot other curves
+            if orange_curve is not None and orange_times is not None and display_options.get('show_average', True):
+                self._plot_average_curve(orange_curve, orange_times)
+
+            if normalized_curve is not None and normalized_times is not None and display_options.get('show_normalized', True):
+                self._plot_normalized_curve(normalized_curve, normalized_times)
+
+            if average_curve is not None and average_curve_times is not None and display_options.get('show_averaged_normalized', True):
+                self._plot_averaged_normalized_curve(average_curve, average_curve_times)
+
+            # Plot purple curves with integration ranges
+            self._plot_purple_curves_with_ranges(display_options, integration_ranges, intervals, show_points)
+
+            # Configure axes and layout
+            self.ax.set_xlabel('Time (ms)')
             self.ax.set_ylabel('Current (pA)')
             self.ax.grid(True, alpha=0.3)
             self.ax.legend()
-            
-            if 'y_min' in view_params and 'y_max' in view_params:
+
+            # Apply view limits
+            if view_params.get('use_custom_ylim', False):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
-            if 't_min' in view_params and 't_max' in view_params:
-                self.ax.set_xlim(view_params['t_min'], view_params['t_max'])
-            
+            if view_params.get('use_interval', False):
+                self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
+
             self.fig.tight_layout()
             self.canvas.draw_idle()
+            
+            # Handle span selectors
+            self._update_span_selectors(show_points, integration_ranges)
+            
+            # Force cleanup after plotting
+            gc.collect()
+            
+            app_logger.debug("Plot updated with all processed data and integration ranges")
+
         except Exception as e:
-            app_logger.error(f"Error updating plot: {str(e)}")
+            app_logger.error(f"Error updating plot with processed data: {str(e)}")
+            gc.collect()  # Cleanup on error
             raise
 
     def export_data(self):
@@ -1674,295 +2335,30 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error exporting figure: {str(e)}")
             messagebox.showerror("Error", f"Failed to export figure: {str(e)}")
 
-    def update_plot_with_processed_data(
-        self,
-        processed_data,
-        orange_curve,
-        orange_times,
-        normalized_curve,
-        normalized_times,
-        average_curve,
-        average_curve_times
-    ):
-        """Update the main plot with all processed data and curves."""
+    def on_closing(self):
+        """Handle application closing with proper cleanup"""
         try:
-            if not hasattr(self, 'action_potential_tab'):
-                return
-
-            self.ax.clear()
-            view_params = self.view_tab.get_view_params()
-            display_options = self.action_potential_tab.get_parameters().get('display_options', {})
-
-            # Get integration ranges and points visibility
-            intervals = self.action_potential_tab.get_intervals()
-            show_points = intervals.get('show_points', False)
-            integration_ranges = intervals.get('integration_ranges', {})
+            app_logger.info("Application closing - performing cleanup")
             
-            app_logger.debug(f"Updating plot with integration ranges: {integration_ranges}")
-            app_logger.debug(f"Points visibility: {show_points}")
-
-            # Original signal
-            if display_options.get('show_noisy_original', False):
-                self.ax.plot(self.time_data * 1000, self.data, 'b-', 
-                        label='Original Signal', alpha=0.3)
-
-            # Filtered signal in maroon
-            if self.filtered_data is not None and display_options.get('show_red_curve', True):
-                self.ax.plot(self.time_data * 1000, self.filtered_data, 
-                        color='#800000',  # Maroon color
-                        label='Filtered Signal', 
-                        alpha=0.7,
-                        linewidth=1.5)
-
-            # Processed signal
-            if processed_data is not None and display_options.get('show_processed', True):
-                display_mode = self.action_potential_tab.processed_display_mode.get()
-                if display_mode in ["line", "all_points"]:
-                    self.ax.plot(self.time_data * 1000, processed_data, 'g-', 
-                            label='Processed Signal',
-                            linewidth=1.5, alpha=0.7)
-                if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(self.time_data * 1000, processed_data, 
-                                color='green', s=15, alpha=0.8, 
-                                marker='.', label='Processed Points')
-
-            # 50-point average (orange)
-            if (orange_curve is not None and orange_times is not None
-                and display_options.get('show_average', True)):
-                display_mode = self.action_potential_tab.average_display_mode.get()
-                if display_mode in ["line", "all_points"]:
-                    self.ax.plot(orange_times * 1000, orange_curve, 
-                            color='#FFA500',  # Orange
-                            label='50-point Average', 
-                            linewidth=1.5, alpha=0.7)
-                if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(orange_times * 1000, orange_curve, 
-                                color='#FFA500', s=25, alpha=1, 
-                                marker='o', label='Average Points')
-
-            # Voltage-normalized (dark blue)
-            if (normalized_curve is not None and normalized_times is not None
-                and display_options.get('show_normalized', True)):
-                display_mode = self.action_potential_tab.normalized_display_mode.get()
-                if display_mode in ["line", "all_points"]:
-                    self.ax.plot(normalized_times * 1000, normalized_curve, 
-                            color='#0057B8',  # Dark blue
-                            label='Voltage-Normalized', 
-                            linewidth=1.5, alpha=0.7)
-                if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(normalized_times * 1000, normalized_curve, 
-                                color='#0057B8', s=25, alpha=1,
-                                marker='o', label='Normalized Points')
-
-            # Averaged-normalized (magenta)
-            if (average_curve is not None and average_curve_times is not None
-                and display_options.get('show_averaged_normalized', True)):
-                display_mode = self.action_potential_tab.averaged_normalized_display_mode.get()
-                if display_mode in ["line", "all_points"]:
-                    self.ax.plot(average_curve_times * 1000, average_curve, 
-                            color='magenta',
-                            label='Averaged Normalized', 
-                            linewidth=2, alpha=0.8)
-                if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(average_curve_times * 1000, average_curve, 
-                                color='magenta', s=30, alpha=1,
-                                marker='o', label='Avg Normalized Points')
-
-            # Modified peaks (purple) with integration ranges
-            has_purple_curves = (hasattr(self.action_potential_processor, 'modified_hyperpol') and 
-                            hasattr(self.action_potential_processor, 'modified_depol') and
-                            self.action_potential_processor.modified_hyperpol is not None and 
-                            self.action_potential_processor.modified_depol is not None)
-
-            if has_purple_curves and display_options.get('show_modified', True):
-                display_mode = self.action_potential_tab.modified_display_mode.get()
-                
-                # Get hyperpolarization data
-                hyperpol = self.action_potential_processor.modified_hyperpol
-                hyperpol_times = self.action_potential_processor.modified_hyperpol_times
-                
-                # Get depolarization data
-                depol = self.action_potential_processor.modified_depol
-                depol_times = self.action_potential_processor.modified_depol_times
-                
-                # Plot curves based on display mode
-                if display_mode in ["line", "all_points"]:
-                    self.ax.plot(hyperpol_times * 1000, hyperpol,
-                            color='purple', label='Modified Peaks', 
-                            linewidth=2, alpha=0.8)
-                    self.ax.plot(depol_times * 1000, depol,
-                            color='purple', label='_nolegend_',
-                            linewidth=2, alpha=0.8)
-                            
-                if display_mode in ["points", "all_points"]:
-                    self.ax.scatter(hyperpol_times * 1000, hyperpol,
-                                color='purple', s=30, alpha=0.8,
-                                marker='o',
-                                label='_nolegend_' if display_mode == "all_points" else "Modified Points")
-                    self.ax.scatter(depol_times * 1000, depol,
-                                color='purple', s=30, alpha=0.8,
-                                marker='o',
-                                label='_nolegend_')
-                
-                # Visualize integration ranges as shaded areas
-                if integration_ranges:
-                    # Hyperpolarization range
-                    if 'hyperpol' in integration_ranges:
-                        hyperpol_range = integration_ranges['hyperpol']
-                        start_idx = hyperpol_range['start']
-                        end_idx = hyperpol_range['end']
-                        
-                        if 0 <= start_idx < len(hyperpol_times) and 0 < end_idx <= len(hyperpol_times):
-                            self.ax.axvspan(
-                                hyperpol_times[start_idx] * 1000,
-                                hyperpol_times[end_idx-1] * 1000,
-                                color='blue', alpha=0.15,
-                                label='Hyperpol Range'
-                            )
-                            app_logger.debug(f"Added hyperpol range visualization: {start_idx}-{end_idx}")
-                    
-                    # Depolarization range
-                    if 'depol' in integration_ranges:
-                        depol_range = integration_ranges['depol']
-                        start_idx = depol_range['start']
-                        end_idx = depol_range['end']
-                        
-                        if 0 <= start_idx < len(depol_times) and 0 < end_idx <= len(depol_times):
-                            self.ax.axvspan(
-                                depol_times[start_idx] * 1000,
-                                depol_times[end_idx-1] * 1000,
-                                color='red', alpha=0.15,
-                                label='Depol Range'
-                            )
-                            app_logger.debug(f"Added depol range visualization: {start_idx}-{end_idx}")
-                            
-                # Add regression lines if enabled and regression intervals exist
-                if show_points and hasattr(self, 'plot_regression_lines'):
-                    regression_interval = intervals.get('regression_interval')
-                    if regression_interval:
-                        # Plot regression line for hyperpolarization
-                        self.plot_regression_lines(
-                            hyperpol, hyperpol_times, 
-                            regression_interval, 
-                            color='blue', alpha=0.8
-                        )
-                        
-                        # Plot regression line for depolarization
-                        self.plot_regression_lines(
-                            depol, depol_times, 
-                            regression_interval, 
-                            color='red', alpha=0.8
-                        )
-
-            # Configure axes and layout
-            self.ax.set_xlabel('Time (ms)')
-            self.ax.set_ylabel('Current (pA)')
-            self.ax.grid(True, alpha=0.3)
-            self.ax.legend()
-
-            # Apply view limits if set
-            if view_params.get('use_custom_ylim', False):
-                self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
-            if view_params.get('use_interval', False):
-                self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
-
-            self.fig.tight_layout()
-            self.canvas.draw_idle()
+            # Clear all data
+            self.clear_all_data()
             
-            # Toggle span selector visibility based on display mode
-            active_mode = False
-            if hasattr(self.action_potential_tab, 'modified_display_mode'):
-                # Enable in both line and all_points modes
-                active_mode = (self.action_potential_tab.modified_display_mode.get() in ["line", "all_points"])
-
-            # Enable spans if show_points is true and we're in a compatible display mode
-            enable_spans = show_points and active_mode
-
-            if hasattr(self, 'span_selector'):
-                self.span_selector.set_visible(enable_spans)
-                self.span_selector.set_active(enable_spans)
-                app_logger.debug(f"Span selector visibility set to {enable_spans}")
-
-            # If span selectors are visible and ranges are defined, position them
-            if enable_spans and hasattr(self, 'hyperpol_span') and hasattr(self, 'depol_span'):
-                # Make sure we have the times data
-                if hasattr(self.action_potential_processor, 'modified_hyperpol_times') and \
-                   hasattr(self.action_potential_processor, 'modified_depol_times'):
-                    
-                    hyperpol_times = self.action_potential_processor.modified_hyperpol_times
-                    depol_times = self.action_potential_processor.modified_depol_times
-                    
-                    # Hyperpol range
-                    if 'hyperpol' in integration_ranges:
-                        hyperpol_range = integration_ranges['hyperpol']
-                        start_idx = hyperpol_range['start']
-                        end_idx = hyperpol_range['end']
-                        
-                        if (hyperpol_times is not None and 0 <= start_idx < len(hyperpol_times) and 
-                            0 < end_idx <= len(hyperpol_times)):
-                            # Set the initial position of the hyperpol span selector
-                            try:
-                                # Calculate extents based on actual data points
-                                new_extents = (
-                                    hyperpol_times[start_idx] * 1000, 
-                                    hyperpol_times[end_idx - 1] * 1000
-                                )
-                                
-                                # Only update if the extents have changed from sliders
-                                # This prevents "jumpy" behavior when dragging
-                                if not hasattr(self, 'prev_hyperpol_extents') or self.prev_hyperpol_extents != new_extents:
-                                    self.hyperpol_span.extents = new_extents
-                                    self.prev_hyperpol_extents = new_extents
-                                    
-                                self.hyperpol_span.set_visible(True)
-                                self.hyperpol_span.set_active(True)
-                                
-                                app_logger.debug(f"Hyperpol span positioned at: {start_idx}-{end_idx}")
-                            except Exception as e:
-                                app_logger.error(f"Error setting hyperpol span extents: {str(e)}")
-                    
-                    # Depol range
-                    if 'depol' in integration_ranges:
-                        depol_range = integration_ranges['depol']
-                        start_idx = depol_range['start']
-                        end_idx = depol_range['end']
-                        
-                        if (depol_times is not None and 0 <= start_idx < len(depol_times) and 
-                            0 < end_idx <= len(depol_times)):
-                            # Set the initial position of the depol span selector
-                            try:
-                                # Calculate extents based on actual data points
-                                new_extents = (
-                                    depol_times[start_idx] * 1000, 
-                                    depol_times[end_idx - 1] * 1000
-                                )
-                                
-                                # Only update if the extents have changed from sliders
-                                # This prevents "jumpy" behavior when dragging
-                                if not hasattr(self, 'prev_depol_extents') or self.prev_depol_extents != new_extents:
-                                    self.depol_span.extents = new_extents
-                                    self.prev_depol_extents = new_extents
-                                    
-                                self.depol_span.set_visible(True)
-                                self.depol_span.set_active(True)
-                                
-                                app_logger.debug(f"Depol span positioned at: {start_idx}-{end_idx}")
-                            except Exception as e:
-                                app_logger.error(f"Error setting depol span extents: {str(e)}")
-            else:
-                # Disable span selectors when not in the right mode
-                if hasattr(self, 'hyperpol_span'):
-                    self.hyperpol_span.set_visible(False)
-                    self.hyperpol_span.set_active(False)
-                if hasattr(self, 'depol_span'):
-                    self.depol_span.set_visible(False)
-                    self.depol_span.set_active(False)
-                
-            app_logger.debug("Plot updated with all processed data and integration ranges")
-
+            # Close all matplotlib figures
+            plt.close('all')
+            
+            # Force final garbage collection
+            gc.collect()
+            
+            # Destroy the window
+            self.master.quit()
+            self.master.destroy()
+            
         except Exception as e:
-            app_logger.error(f"Error updating plot with processed data: {str(e)}")
-            raise
+            app_logger.error(f"Error during application close: {str(e)}")
+            # Force close even if cleanup fails
+            self.master.quit()
+            self.master.destroy()
+
 
 # For standalone testing
 if __name__ == "__main__":
