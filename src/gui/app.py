@@ -320,6 +320,37 @@ class SignalAnalyzerApp:
         
         app_logger.debug("All data cleared successfully")
 
+    def _configure_axes(self):
+        """Configure both X and Y axes with proper labels and ticks"""
+        try:
+            # Set labels
+            self.ax.set_xlabel('Time (ms)')
+            self.ax.set_ylabel('Current (pA)')
+            
+            # Ensure y-axis ticks are visible
+            self.ax.tick_params(axis='y', which='major', labelsize=9, pad=5)
+            self.ax.tick_params(axis='x', which='major', labelsize=9, pad=5)
+            
+            # Force y-axis tick locator and formatter
+            from matplotlib.ticker import MaxNLocator, ScalarFormatter
+            
+            # Set y-axis locator to ensure ticks are shown
+            self.ax.yaxis.set_major_locator(MaxNLocator(nbins=8, prune=None))
+            self.ax.yaxis.set_major_formatter(ScalarFormatter())
+            
+            # Set x-axis locator
+            self.ax.xaxis.set_major_locator(MaxNLocator(nbins=10, prune=None))
+            
+            # Ensure ticks are visible
+            self.ax.yaxis.set_visible(True)
+            self.ax.xaxis.set_visible(True)
+            
+            # Force redraw of axis
+            self.ax.figure.canvas.draw_idle()
+            
+        except Exception as e:
+            app_logger.error(f"Error configuring axes: {str(e)}")
+
     def setup_menubar(self):
         """Setup the application menubar"""
         self.menubar = tk.Menu(self.master)
@@ -1669,7 +1700,7 @@ class SignalAnalyzerApp:
             self.ax.set_ylabel('Current (pA)')
             self.ax.legend()
             self.format_time_axis()
-            self.fig.tight_layout()
+            self.fig.tight_layout(pad=2.0)
             self.canvas.draw_idle()
         except Exception as e:
             app_logger.error(f"Error plotting action potential: {str(e)}")
@@ -1797,7 +1828,7 @@ class SignalAnalyzerApp:
         dialog.geometry(f"+{x}+{y}")
 
     def update_plot(self, view_params=None):
-        """Update plot with memory-efficient rendering"""
+        """Update plot with memory-efficient rendering and proper axis configuration"""
         if self.data is None:
             return
             
@@ -1824,9 +1855,10 @@ class SignalAnalyzerApp:
                 self.ax.plot(time_plot, filtered_plot, 'r-', label='Filtered', linewidth=2)
                 del time_plot, filtered_plot  # Clean up immediately
             
-            # Configure plot
-            self.ax.set_xlabel("Time (s)")
-            self.ax.set_ylabel("Current (pA)")
+            # Configure axes BEFORE setting limits
+            self._configure_axes()
+            
+            # Configure grid
             self.ax.grid(True, alpha=0.3)
             
             # Handle axis limits
@@ -1842,7 +1874,7 @@ class SignalAnalyzerApp:
                 self.ax.legend(loc='best')
             
             # Optimize plot for memory
-            self.fig.tight_layout()
+            self.fig.tight_layout(pad=2.0)  # Add padding to prevent label cutoff
             
             # Draw with memory optimization
             self.canvas.draw_idle()  # Use idle drawing to reduce memory pressure
@@ -2208,19 +2240,23 @@ class SignalAnalyzerApp:
             # Plot purple curves with integration ranges
             self._plot_purple_curves_with_ranges(display_options, integration_ranges, intervals, show_points)
 
-            # Configure axes and layout
-            self.ax.set_xlabel('Time (ms)')
-            self.ax.set_ylabel('Current (pA)')
+            # Configure axes with proper labels and ticks
+            self._configure_axes()
+            
+            # Configure grid
             self.ax.grid(True, alpha=0.3)
+            
+            # Add legend
             self.ax.legend()
 
-            # Apply view limits
+            # Apply view limits AFTER axis configuration
             if view_params.get('use_custom_ylim', False):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
             if view_params.get('use_interval', False):
                 self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
 
-            self.fig.tight_layout()
+            # Use tight layout with padding to prevent label cutoff
+            self.fig.tight_layout(pad=2.0)
             self.canvas.draw_idle()
             
             # Handle span selectors
