@@ -227,11 +227,27 @@ GitHub: {'CONFIGURED' if self.github_token else 'NOT CONFIGURED'}
             try:
                 if module == 'tkinter':
                     import tkinter
+                    print(f"[OK] {module:<12} - {description}")
+                    self.logger.info(f"OK: {module}")
+                elif module == 'pyinstaller':
+                    # PyInstaller is a command-line tool, not an importable module
+                    # Check if the command is available
+                    result = subprocess.run(
+                        ['pyinstaller', '--version'], 
+                        capture_output=True, 
+                        text=True, 
+                        timeout=10
+                    )
+                    if result.returncode == 0:
+                        print(f"[OK] {module:<12} - {description}")
+                        self.logger.info(f"OK: {module}")
+                    else:
+                        raise subprocess.CalledProcessError(result.returncode, 'pyinstaller')
                 else:
                     __import__(module.replace('-', '_'))
-                print(f"[OK] {module:<12} - {description}")
-                self.logger.info(f"OK: {module}")
-            except ImportError:
+                    print(f"[OK] {module:<12} - {description}")
+                    self.logger.info(f"OK: {module}")
+            except (ImportError, subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
                 missing_modules.append(module)
                 print(f"[MISSING] {module:<12} - {description}")
                 self.logger.error(f"MISSING: {module}")
@@ -257,7 +273,7 @@ GitHub: {'CONFIGURED' if self.github_token else 'NOT CONFIGURED'}
     def step_1_validate_environment(self) -> bool:
         """Step 1: Comprehensive environment validation"""
         print("\n" + "="*60)
-        print("STEP 1: Environment Validation")
+        print("STEP 1/5: Environment Validation")
         print("="*60)
         
         try:
@@ -338,7 +354,7 @@ GitHub: {'CONFIGURED' if self.github_token else 'NOT CONFIGURED'}
     def step_2_build_executable(self) -> bool:
         """Step 2: Build the executable"""
         print("\n" + "="*60)
-        print("STEP 2: Building Executable")
+        print("STEP 2/5: Building Executable")
         print("="*60)
         
         try:
@@ -379,7 +395,7 @@ GitHub: {'CONFIGURED' if self.github_token else 'NOT CONFIGURED'}
     def step_3_test_executable(self) -> bool:
         """Step 3: Test the built executable"""
         print("\n" + "="*60)
-        print("STEP 3: Testing Executable")
+        print("STEP 3/5: Testing Executable")
         print("="*60)
         
         # Find executable
@@ -434,7 +450,7 @@ GitHub: {'CONFIGURED' if self.github_token else 'NOT CONFIGURED'}
     def step_4_create_distribution(self) -> bool:
         """Step 4: Create distribution packages"""
         print("\n" + "="*60)
-        print("STEP 4: Creating Distribution")
+        print("STEP 4/5: Creating Distribution")
         print("="*60)
         
         try:
@@ -477,7 +493,7 @@ GitHub: {'CONFIGURED' if self.github_token else 'NOT CONFIGURED'}
     def step_5_create_github_release(self) -> bool:
         """Step 5: Create GitHub release and upload packages"""
         print("\n" + "="*60)
-        print("STEP 5: Creating GitHub Release")
+        print("STEP 5/5: Creating GitHub Release")
         print("="*60)
         
         if not self.github_token or not self.github_owner or not self.github_repo:
