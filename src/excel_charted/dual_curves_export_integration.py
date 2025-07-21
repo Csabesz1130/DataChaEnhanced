@@ -14,7 +14,7 @@ from src.utils.logger import app_logger
 
 # Import both export systems
 try:
-    from src.excel_charted.enhanced_excel_export_with_charts_dual import export_both_curves_with_charts
+    from src.excel_charted.enhanced_excel_export_with_charts import export_both_curves_with_charts
     DUAL_EXPORT_AVAILABLE = True
     app_logger.info("Dual curves Excel export with charts is available")
 except ImportError as e:
