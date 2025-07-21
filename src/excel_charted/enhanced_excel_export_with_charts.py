@@ -1,7 +1,7 @@
-# src/analysis/enhanced_excel_export_with_charts.py
+# src/excel_charted/enhanced_excel_export_with_charts_dual.py
 """
 Enhanced Excel export with automatic chart generation and manual curve fitting framework.
-Creates Excel files with interactive charts and comprehensive analysis tools.
+Creates Excel files with interactive charts and comprehensive analysis tools for BOTH purple and red curves.
 """
 
 import numpy as np
@@ -11,794 +11,483 @@ from datetime import datetime
 import os
 from src.utils.logger import app_logger
 
-class EnhancedExcelExporter:
-    """Enhanced Excel exporter with automatic chart generation and manual curve fitting framework"""
+class EnhancedExcelExporterDual:
+    """Enhanced Excel exporter with automatic chart generation for both purple and red curves"""
     
     def __init__(self):
         self.workbook = None
         self.filename = None
         self.charts_created = []
         
-    def export_purple_curves_with_charts(self, processor, filename=None):
+    def export_both_curves_with_charts(self, processor, app, filename=None):
         """
-        Export purple curves to Excel with automatic chart generation and manual analysis framework.
+        Export both purple and red curves to Excel with automatic chart generation.
         
         Args:
             processor: ActionPotentialProcessor instance with purple curve data
+            app: Main application instance with red curve data (filtered_data, time_data)
             filename: Optional filename, will auto-generate if not provided
         """
         try:
-            app_logger.info("Starting enhanced Excel export with automatic charts")
+            app_logger.info("Starting enhanced Excel export with automatic charts for both datasets")
             
             # Generate filename if not provided
             if filename is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"purple_curves_analysis_{timestamp}.xlsx"
+                filename = f"dual_curves_analysis_{timestamp}.xlsx"
             
             self.filename = filename
             
-            # Check if we have purple curve data
-            if not self._validate_purple_curve_data(processor):
-                raise ValueError("No purple curve data available for export")
+            # Validate data availability
+            if not self._validate_dual_curve_data(processor, app):
+                raise ValueError("Missing purple or red curve data for export")
             
             # Create Excel workbook using xlsxwriter for advanced chart features
             self.workbook = xlsxwriter.Workbook(filename)
             
             # Create worksheets in order
-            self._create_data_worksheet(processor)
-            self._create_charts_worksheet(processor)  # This creates the instant charts
-            self._create_hyperpol_analysis_worksheet(processor)
-            self._create_depol_analysis_worksheet(processor)
-            self._create_manual_fitting_worksheet()
-            self._create_instructions_worksheet()
+            self._create_dual_data_worksheet(processor, app)
+            self._create_dual_charts_worksheet(processor, app)
+            self._create_dual_hyperpol_analysis_worksheet(processor, app)
+            self._create_dual_depol_analysis_worksheet(processor, app)
+            self._create_dual_manual_fitting_worksheet()
+            self._create_dual_instructions_worksheet()
             
             # Close workbook
             self.workbook.close()
             
-            app_logger.info(f"Enhanced Excel export completed with charts: {filename}")
+            app_logger.info(f"Enhanced dual curves Excel export completed: {filename}")
             return filename
             
         except Exception as e:
-            app_logger.error(f"Error in enhanced Excel export: {str(e)}")
+            app_logger.error(f"Error in enhanced dual curves Excel export: {str(e)}")
             if self.workbook:
                 self.workbook.close()
             raise
     
-    def _validate_purple_curve_data(self, processor):
-        """Validate that purple curve data is available."""
-        required_attrs = [
-            'modified_hyperpol', 'modified_depol',
-            'modified_hyperpol_times', 'modified_depol_times'
-        ]
+    def _validate_dual_curve_data(self, processor, app):
+        """Validate that both purple and red curve data are available."""
+        # Check purple curve data
+        purple_valid = (hasattr(processor, 'modified_hyperpol') and 
+                       hasattr(processor, 'modified_depol') and
+                       processor.modified_hyperpol is not None and 
+                       processor.modified_depol is not None and
+                       len(processor.modified_hyperpol) > 0 and 
+                       len(processor.modified_depol) > 0)
         
-        for attr in required_attrs:
-            if not hasattr(processor, attr) or getattr(processor, attr) is None:
-                app_logger.error(f"Missing required attribute: {attr}")
-                return False
-        return True
+        # Check red curve data
+        red_valid = (hasattr(app, 'filtered_data') and 
+                    hasattr(app, 'time_data') and
+                    app.filtered_data is not None and 
+                    app.time_data is not None and
+                    len(app.filtered_data) > 0 and 
+                    len(app.time_data) > 0)
+        
+        app_logger.info(f"Data validation - Purple curves: {purple_valid}, Red curves: {red_valid}")
+        return purple_valid and red_valid
     
-    def _create_data_worksheet(self, processor):
-        """Create the main data worksheet with purple curve data."""
-        worksheet = self.workbook.add_worksheet('Purple_Curve_Data')
+    def _create_dual_data_worksheet(self, processor, app):
+        """Create worksheet with both purple and red curve data."""
+        worksheet = self.workbook.add_worksheet('Dual_Curve_Data')
         
-        # Define formats
+        # Create formats
         header_format = self.workbook.add_format({
-            'bold': True,
-            'font_color': 'white',
-            'bg_color': '#4F81BD',
-            'border': 1,
-            'align': 'center'
+            'bold': True, 
+            'font_size': 12, 
+            'bg_color': '#4F81BD', 
+            'font_color': 'white'
         })
-        
-        hyperpol_format = self.workbook.add_format({
-            'bg_color': '#E6F3FF',
-            'border': 1,
-            'num_format': '0.0000000'
-        })
-        
-        depol_format = self.workbook.add_format({
-            'bg_color': '#FFE6E6',
-            'border': 1,
-            'num_format': '0.0000000'
+        subheader_format = self.workbook.add_format({
+            'bold': True, 
+            'font_size': 11, 
+            'bg_color': '#B1C5E7'
         })
         
         # Write headers
-        headers = [
-            'Hyperpol_Time_ms', 'Hyperpol_Current_pA', 
-            'Depol_Time_ms', 'Depol_Current_pA'
-        ]
+        worksheet.write('A1', 'DUAL CURVE DATA EXPORT', header_format)
+        worksheet.write('A2', f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+        worksheet.write('A3', 'Purple curves: Modified/processed data')
+        worksheet.write('A4', 'Red curves: Original filtered/denoised data')
         
-        for col, header in enumerate(headers):
-            worksheet.write(0, col, header, header_format)
-        
-        # Write data
-        hyperpol_times_ms = processor.modified_hyperpol_times * 1000  # Convert to ms
+        # Prepare purple curve data
+        hyperpol_times_ms = processor.modified_hyperpol_times * 1000
         depol_times_ms = processor.modified_depol_times * 1000
         
-        max_rows = max(len(processor.modified_hyperpol), len(processor.modified_depol))
+        # Prepare red curve data (extract relevant sections)
+        red_time_ms = app.time_data * 1000
+        red_data = app.filtered_data
         
-        for row in range(max_rows):
-            # Hyperpolarization data
-            if row < len(processor.modified_hyperpol):
-                worksheet.write(row + 1, 0, hyperpol_times_ms[row], hyperpol_format)
-                worksheet.write(row + 1, 1, processor.modified_hyperpol[row], hyperpol_format)
-            
-            # Depolarization data
-            if row < len(processor.modified_depol):
-                worksheet.write(row + 1, 2, depol_times_ms[row], depol_format)
-                worksheet.write(row + 1, 3, processor.modified_depol[row], depol_format)
+        # Extract red curve sections corresponding to purple curves
+        # Use the same slicing logic as the processor
+        if hasattr(processor, '_hyperpol_slice') and hasattr(processor, '_depol_slice'):
+            hyperpol_slice = processor._hyperpol_slice
+            depol_slice = processor._depol_slice
+        else:
+            # Default slices (you may need to adjust these based on your specific implementation)
+            hyperpol_slice = (1035, 1235)
+            depol_slice = (835, 1035)
         
-        # Set column widths
-        worksheet.set_column('A:D', 15)
+        # Extract red curve sections
+        red_hyperpol_data = red_data[hyperpol_slice[0]:hyperpol_slice[1]]
+        red_hyperpol_times = red_time_ms[hyperpol_slice[0]:hyperpol_slice[1]]
+        red_depol_data = red_data[depol_slice[0]:depol_slice[1]]
+        red_depol_times = red_time_ms[depol_slice[0]:depol_slice[1]]
         
-        # Store data range for chart creation
-        self.data_range = {
-            'hyperpol_rows': len(processor.modified_hyperpol),
-            'depol_rows': len(processor.modified_depol)
-        }
-    
-    def _create_charts_worksheet(self, processor):
-        """Create worksheet with automatic charts like in the user's image."""
-        worksheet = self.workbook.add_worksheet('Charts')
+        # Create unified data structure
+        max_len = max(len(processor.modified_hyperpol), len(processor.modified_depol),
+                     len(red_hyperpol_data), len(red_depol_data))
         
-        # Add title
-        title_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 16,
-            'align': 'center',
-            'font_color': '#4F81BD'
-        })
+        # Pad all arrays to same length
+        def pad_array(arr, target_len):
+            padded = np.full(target_len, np.nan)
+            padded[:len(arr)] = arr
+            return padded
         
-        worksheet.merge_range('A1:H1', 'Purple Curves Analysis - Automatic Charts', title_format)
+        # Purple curve data (padded)
+        purple_hyperpol_times = pad_array(hyperpol_times_ms, max_len)
+        purple_hyperpol_data = pad_array(processor.modified_hyperpol, max_len)
+        purple_depol_times = pad_array(depol_times_ms, max_len)
+        purple_depol_data = pad_array(processor.modified_depol, max_len)
         
-        # Create Hyperpolarization chart (like in the image)
-        hyperpol_chart = self.workbook.add_chart({'type': 'scatter', 'subtype': 'smooth_with_markers'})
+        # Red curve data (padded)
+        red_hyperpol_times_padded = pad_array(red_hyperpol_times, max_len)
+        red_hyperpol_data_padded = pad_array(red_hyperpol_data, max_len)
+        red_depol_times_padded = pad_array(red_depol_times, max_len)
+        red_depol_data_padded = pad_array(red_depol_data, max_len)
         
-        # Configure hyperpol chart
-        hyperpol_chart.add_series({
-            'name': 'Hyperpolarization Purple Curve',
-            'categories': ['Purple_Curve_Data', 1, 0, self.data_range['hyperpol_rows'], 0],
-            'values': ['Purple_Curve_Data', 1, 1, self.data_range['hyperpol_rows'], 1],
-            'line': {'color': '#8B00FF', 'width': 2},  # Purple color
-            'marker': {
-                'type': 'circle', 
-                'size': 4, 
-                'border': {'color': '#8B00FF'}, 
-                'fill': {'color': '#8B00FF'}
-            }
-        })
+        # Column headers
+        col_headers = [
+            'Purple_Hyperpol_Time_ms', 'Purple_Hyperpol_Current_pA',
+            'Purple_Depol_Time_ms', 'Purple_Depol_Current_pA',
+            'Red_Hyperpol_Time_ms', 'Red_Hyperpol_Current_pA',
+            'Red_Depol_Time_ms', 'Red_Depol_Current_pA'
+        ]
         
-        hyperpol_chart.set_title({
-            'name': 'Purple Hyperpolarization Curve',
-            'name_font': {'size': 14, 'bold': True}
-        })
-        hyperpol_chart.set_x_axis({
-            'name': 'Time (ms)',
-            'major_gridlines': {'visible': True},
-            'name_font': {'size': 12}
-        })
-        hyperpol_chart.set_y_axis({
-            'name': 'Current (pA)',
-            'major_gridlines': {'visible': True},
-            'name_font': {'size': 12}
-        })
-        hyperpol_chart.set_legend({'position': 'top'})
-        hyperpol_chart.set_size({'width': 600, 'height': 400})
+        # Write column headers
+        for col, header in enumerate(col_headers):
+            worksheet.write(5, col, header, subheader_format)
         
-        # Insert hyperpol chart
-        worksheet.insert_chart('A3', hyperpol_chart)
+        # Write data
+        data_arrays = [
+            purple_hyperpol_times, purple_hyperpol_data,
+            purple_depol_times, purple_depol_data,
+            red_hyperpol_times_padded, red_hyperpol_data_padded,
+            red_depol_times_padded, red_depol_data_padded
+        ]
         
-        # Create Depolarization chart
-        depol_chart = self.workbook.add_chart({'type': 'scatter', 'subtype': 'smooth_with_markers'})
-        
-        # Configure depol chart
-        depol_chart.add_series({
-            'name': 'Depolarization Purple Curve',
-            'categories': ['Purple_Curve_Data', 1, 2, self.data_range['depol_rows'], 2],
-            'values': ['Purple_Curve_Data', 1, 3, self.data_range['depol_rows'], 3],
-            'line': {'color': '#8B00FF', 'width': 2},  # Purple color
-            'marker': {
-                'type': 'circle', 
-                'size': 4, 
-                'border': {'color': '#8B00FF'}, 
-                'fill': {'color': '#8B00FF'}
-            }
-        })
-        
-        depol_chart.set_title({
-            'name': 'Purple Depolarization Curve',
-            'name_font': {'size': 14, 'bold': True}
-        })
-        depol_chart.set_x_axis({
-            'name': 'Time (ms)',
-            'major_gridlines': {'visible': True},
-            'name_font': {'size': 12}
-        })
-        depol_chart.set_y_axis({
-            'name': 'Current (pA)',
-            'major_gridlines': {'visible': True},
-            'name_font': {'size': 12}
-        })
-        depol_chart.set_legend({'position': 'top'})
-        depol_chart.set_size({'width': 600, 'height': 400})
-        
-        # Insert depol chart
-        worksheet.insert_chart('A25', depol_chart)
-        
-        # Add combined chart (both curves)
-        combined_chart = self.workbook.add_chart({'type': 'scatter', 'subtype': 'smooth_with_markers'})
-        
-        # Add both series to combined chart
-        combined_chart.add_series({
-            'name': 'Hyperpolarization',
-            'categories': ['Purple_Curve_Data', 1, 0, self.data_range['hyperpol_rows'], 0],
-            'values': ['Purple_Curve_Data', 1, 1, self.data_range['hyperpol_rows'], 1],
-            'line': {'color': '#0000FF', 'width': 2},  # Blue for hyperpol
-            'marker': {'type': 'circle', 'size': 3, 'border': {'color': '#0000FF'}, 'fill': {'color': '#0000FF'}}
-        })
-        
-        combined_chart.add_series({
-            'name': 'Depolarization',
-            'categories': ['Purple_Curve_Data', 1, 2, self.data_range['depol_rows'], 2],
-            'values': ['Purple_Curve_Data', 1, 3, self.data_range['depol_rows'], 3],
-            'line': {'color': '#FF0000', 'width': 2},  # Red for depol
-            'marker': {'type': 'circle', 'size': 3, 'border': {'color': '#FF0000'}, 'fill': {'color': '#FF0000'}}
-        })
-        
-        combined_chart.set_title({
-            'name': 'Combined Purple Curves - Manual Analysis',
-            'name_font': {'size': 14, 'bold': True}
-        })
-        combined_chart.set_x_axis({
-            'name': 'Time (ms)',
-            'major_gridlines': {'visible': True},
-            'name_font': {'size': 12}
-        })
-        combined_chart.set_y_axis({
-            'name': 'Current (pA)',
-            'major_gridlines': {'visible': True},
-            'name_font': {'size': 12}
-        })
-        combined_chart.set_legend({'position': 'top'})
-        combined_chart.set_size({'width': 600, 'height': 400})
-        
-        # Insert combined chart
-        worksheet.insert_chart('A47', combined_chart)
-        
-        # Add instructions for chart usage
-        instruction_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 11,
-            'bg_color': '#FFFFCC',
-            'border': 1,
-            'text_wrap': True
-        })
-        
-        worksheet.merge_range('K3:O15', 
-            'CHART USAGE INSTRUCTIONS:\n\n'
-            '1. Use these charts to visually identify points for curve fitting\n'
-            '2. Click on chart points to see coordinates\n'
-            '3. Note the time values (x-axis) for linear fitting\n'
-            '4. Go to analysis worksheets to enter point selections\n'
-            '5. Use row numbers from Purple_Curve_Data sheet\n'
-            '6. Charts show the actual data you will be analyzing', 
-            instruction_format)
-    
-    def _create_hyperpol_analysis_worksheet(self, processor):
-        """Create hyperpolarization analysis worksheet with manual curve fitting."""
-        worksheet = self.workbook.add_worksheet('Hyperpol_Analysis')
-        
-        # Title format
-        title_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 16,
-            'font_color': '#0000FF',
-            'align': 'center'
-        })
-        
-        # Section header format
-        section_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 12,
-            'bg_color': '#D9E2F3',
-            'border': 1,
-            'align': 'center'
-        })
-        
-        # Input format for user entries
-        input_format = self.workbook.add_format({
-            'bg_color': '#FFF2CC',
-            'border': 1,
-            'align': 'center',
-            'num_format': '0'
-        })
-        
-        # Result format
-        result_format = self.workbook.add_format({
-            'bg_color': '#E2EFDA',
-            'border': 1,
-            'num_format': '0.0000'
-        })
-        
-        row = 0
-        
-        # Title
-        worksheet.merge_range(row, 0, row, 7, 'HYPERPOLARIZATION PURPLE CURVE ANALYSIS', title_format)
-        row += 2
-        
-        # STEP 1: Manual Point Selection for Linear Fitting
-        worksheet.merge_range(row, 0, row, 7, 'STEP 1: SELECT TWO POINTS FOR LINEAR FITTING', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Linear Fitting Points (Row Numbers):', self.workbook.add_format({'bold': True}))
-        row += 1
-        
-        worksheet.write(row, 0, 'Point 1 (Start Row #):')
-        worksheet.write(row, 1, '', input_format)  # User input cell B
-        worksheet.write(row, 2, 'Point 2 (End Row #):')
-        worksheet.write(row, 3, '', input_format)   # User input cell D
-        
-        # Add data validation to restrict to valid row numbers
-        worksheet.data_validation(row, 1, row, 1, {
-            'validate': 'integer',
-            'criteria': 'between',
-            'minimum': 1,
-            'maximum': len(processor.modified_hyperpol),
-            'error_message': 'Must be a valid row number from Purple_Curve_Data sheet'
-        })
-        
-        worksheet.data_validation(row, 3, row, 3, {
-            'validate': 'integer', 
-            'criteria': 'between',
-            'minimum': 1,
-            'maximum': len(processor.modified_hyperpol),
-            'error_message': 'Must be a valid row number from Purple_Curve_Data sheet'
-        })
-        row += 2
-        
-        # STEP 2: Linear Fitting Results 
-        worksheet.merge_range(row, 0, row, 7, 'STEP 2: LINEAR FITTING RESULTS (y = mx + a)', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Slope (m):', self.workbook.add_format({'bold': True}))
-        # Formula to calculate slope based on selected points
-        worksheet.write_formula(row, 1, 
-            '=IF(AND(B4<>"",D4<>""),SLOPE(OFFSET(Purple_Curve_Data!B:B,B4,0,D4-B4+1,1),OFFSET(Purple_Curve_Data!A:A,B4,0,D4-B4+1,1)),"")', 
-            result_format)
-        worksheet.write(row, 2, 'pA/ms')
-        row += 1
-        
-        worksheet.write(row, 0, 'Intercept (a):', self.workbook.add_format({'bold': True}))
-        worksheet.write_formula(row, 1, 
-            '=IF(AND(B4<>"",D4<>""),INTERCEPT(OFFSET(Purple_Curve_Data!B:B,B4,0,D4-B4+1,1),OFFSET(Purple_Curve_Data!A:A,B4,0,D4-B4+1,1)),"")', 
-            result_format)
-        worksheet.write(row, 2, 'pA')
-        row += 1
-        
-        worksheet.write(row, 0, 'R-squared:', self.workbook.add_format({'bold': True}))
-        worksheet.write_formula(row, 1, 
-            '=IF(AND(B4<>"",D4<>""),RSQ(OFFSET(Purple_Curve_Data!B:B,B4,0,D4-B4+1,1),OFFSET(Purple_Curve_Data!A:A,B4,0,D4-B4+1,1)),"")', 
-            result_format)
-        row += 2
-        
-        # STEP 3: Third Point Selection
-        worksheet.merge_range(row, 0, row, 7, 'STEP 3: SELECT THIRD POINT FOR EXPONENTIAL FITTING', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Exponential Start Point (Row #):')
-        worksheet.write(row, 1, '', input_format)  # User input cell
-        
-        worksheet.data_validation(row, 1, row, 1, {
-            'validate': 'integer',
-            'criteria': 'between', 
-            'minimum': 1,
-            'maximum': len(processor.modified_hyperpol),
-            'error_message': 'Must be a valid row number from Purple_Curve_Data sheet'
-        })
-        row += 2
-        
-        # STEP 4: Trend Removal/Addition
-        worksheet.merge_range(row, 0, row, 7, 'STEP 4: TREND REMOVAL (HYPERPOL = SUBTRACT LINEAR)', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Linear Trend Operation:', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, 'SUBTRACT linear trend from hyperpol curve')
-        worksheet.write(row, 0, 'Formula: Corrected_Current = Original_Current - (m × time + a)')
-        row += 2
-        
-        # STEP 5: Exponential Fitting Results
-        worksheet.merge_range(row, 0, row, 7, 'STEP 5: EXPONENTIAL FITTING RESULTS (y = A×exp(-t/τ) + C)', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Amplitude (A):', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)  # Manual entry - requires Solver
-        worksheet.write(row, 2, 'pA')
-        row += 1
-        
-        worksheet.write(row, 0, 'Time Constant (τ):', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)  # Manual entry - requires Solver
-        worksheet.write(row, 2, 'ms')
-        row += 1
-        
-        worksheet.write(row, 0, 'Offset (C):', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)  # Manual entry - requires Solver
-        worksheet.write(row, 2, 'pA')
-        row += 1
-        
-        worksheet.write(row, 0, 'R-squared:', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)  # Manual entry
-        row += 2
-        
-        # STEP 6: Parameter Summary
-        worksheet.merge_range(row, 0, row, 7, 'STEP 6: EXTRACTED PARAMETERS SUMMARY', section_format)
-        row += 1
-        
-        summary_format = self.workbook.add_format({'bg_color': '#E6F3FF', 'border': 1})
-        
-        worksheet.write(row, 0, 'Linear Parameters:', self.workbook.add_format({'bold': True}))
-        row += 1
-        worksheet.write(row, 0, 'Slope (m):', summary_format)
-        worksheet.write_formula(row, 1, '=B8', summary_format)
-        worksheet.write(row, 2, 'pA/ms', summary_format)
-        row += 1
-        worksheet.write(row, 0, 'Intercept (a):', summary_format)
-        worksheet.write_formula(row, 1, '=B9', summary_format)
-        worksheet.write(row, 2, 'pA', summary_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Exponential Parameters:', self.workbook.add_format({'bold': True}))
-        row += 1
-        worksheet.write(row, 0, 'Amplitude (A):', summary_format)
-        worksheet.write_formula(row, 1, '=B19', summary_format)
-        worksheet.write(row, 2, 'pA', summary_format)
-        row += 1
-        worksheet.write(row, 0, 'Time Constant (τ):', summary_format)
-        worksheet.write_formula(row, 1, '=B20', summary_format)
-        worksheet.write(row, 2, 'ms', summary_format)
-        row += 1
-        worksheet.write(row, 0, 'Offset (C):', summary_format)
-        worksheet.write_formula(row, 1, '=B21', summary_format)
-        worksheet.write(row, 2, 'pA', summary_format)
+        for row in range(max_len):
+            for col, data_array in enumerate(data_arrays):
+                if row < len(data_array) and not np.isnan(data_array[row]):
+                    worksheet.write(row + 6, col, data_array[row])
         
         # Set column widths
-        worksheet.set_column('A:A', 25)
-        worksheet.set_column('B:G', 12)
-    
-    def _create_depol_analysis_worksheet(self, processor):
-        """Create depolarization analysis worksheet (similar structure to hyperpol)."""
-        worksheet = self.workbook.add_worksheet('Depol_Analysis')
+        worksheet.set_column('A:H', 18)
         
-        # Title format
+        app_logger.info(f"Dual data worksheet created with {max_len} data points")
+        
+    def _create_dual_charts_worksheet(self, processor, app):
+        """Create worksheet with interactive charts for both purple and red curves."""
+        worksheet = self.workbook.add_worksheet('Interactive_Charts')
+        
+        # Create formats
         title_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 16,
-            'font_color': '#FF0000',
-            'align': 'center'
-        })
-        
-        # Section header format
-        section_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 12,
-            'bg_color': '#F2DCDB',
-            'border': 1,
-            'align': 'center'
-        })
-        
-        # Input format
-        input_format = self.workbook.add_format({
-            'bg_color': '#FFF2CC',
-            'border': 1,
-            'align': 'center',
-            'num_format': '0'
-        })
-        
-        # Result format
-        result_format = self.workbook.add_format({
-            'bg_color': '#E2EFDA',
-            'border': 1,
-            'num_format': '0.0000'
-        })
-        
-        row = 0
-        
-        # Title
-        worksheet.merge_range(row, 0, row, 7, 'DEPOLARIZATION PURPLE CURVE ANALYSIS', title_format)
-        row += 2
-        
-        # STEP 1: Manual Point Selection for Linear Fitting
-        worksheet.merge_range(row, 0, row, 7, 'STEP 1: SELECT TWO POINTS FOR LINEAR FITTING', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Linear Fitting Points (Row Numbers):', self.workbook.add_format({'bold': True}))
-        row += 1
-        
-        worksheet.write(row, 0, 'Point 1 (Start Row #):')
-        worksheet.write(row, 1, '', input_format)
-        worksheet.write(row, 2, 'Point 2 (End Row #):')
-        worksheet.write(row, 3, '', input_format)
-        
-        # Data validation
-        worksheet.data_validation(row, 1, row, 1, {
-            'validate': 'integer',
-            'criteria': 'between',
-            'minimum': 1,
-            'maximum': len(processor.modified_depol),
-            'error_message': 'Must be a valid row number from Purple_Curve_Data sheet'
-        })
-        
-        worksheet.data_validation(row, 3, row, 3, {
-            'validate': 'integer',
-            'criteria': 'between',
-            'minimum': 1,
-            'maximum': len(processor.modified_depol),
-            'error_message': 'Must be a valid row number from Purple_Curve_Data sheet'
-        })
-        row += 2
-        
-        # STEP 2: Linear Fitting Results (using depol data - columns C and D)
-        worksheet.merge_range(row, 0, row, 7, 'STEP 2: LINEAR FITTING RESULTS (y = mx + a)', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Slope (m):', self.workbook.add_format({'bold': True}))
-        worksheet.write_formula(row, 1, 
-            '=IF(AND(B4<>"",D4<>""),SLOPE(OFFSET(Purple_Curve_Data!D:D,B4,0,D4-B4+1,1),OFFSET(Purple_Curve_Data!C:C,B4,0,D4-B4+1,1)),"")', 
-            result_format)
-        worksheet.write(row, 2, 'pA/ms')
-        row += 1
-        
-        worksheet.write(row, 0, 'Intercept (a):', self.workbook.add_format({'bold': True}))
-        worksheet.write_formula(row, 1, 
-            '=IF(AND(B4<>"",D4<>""),INTERCEPT(OFFSET(Purple_Curve_Data!D:D,B4,0,D4-B4+1,1),OFFSET(Purple_Curve_Data!C:C,B4,0,D4-B4+1,1)),"")', 
-            result_format)
-        worksheet.write(row, 2, 'pA')
-        row += 1
-        
-        worksheet.write(row, 0, 'R-squared:', self.workbook.add_format({'bold': True}))
-        worksheet.write_formula(row, 1, 
-            '=IF(AND(B4<>"",D4<>""),RSQ(OFFSET(Purple_Curve_Data!D:D,B4,0,D4-B4+1,1),OFFSET(Purple_Curve_Data!C:C,B4,0,D4-B4+1,1)),"")', 
-            result_format)
-        row += 2
-        
-        # STEP 3: Third Point Selection
-        worksheet.merge_range(row, 0, row, 7, 'STEP 3: SELECT THIRD POINT FOR EXPONENTIAL FITTING', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Exponential Start Point (Row #):')
-        worksheet.write(row, 1, '', input_format)
-        
-        worksheet.data_validation(row, 1, row, 1, {
-            'validate': 'integer',
-            'criteria': 'between',
-            'minimum': 1,
-            'maximum': len(processor.modified_depol),
-            'error_message': 'Must be a valid row number from Purple_Curve_Data sheet'
-        })
-        row += 2
-        
-        # STEP 4: Trend Addition
-        worksheet.merge_range(row, 0, row, 7, 'STEP 4: TREND ADDITION (DEPOL = ADD LINEAR)', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Linear Trend Operation:', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, 'ADD linear trend to depol curve')
-        worksheet.write(row, 0, 'Formula: Corrected_Current = Original_Current + (m × time + a)')
-        row += 2
-        
-        # STEP 5: Exponential Fitting Results (different form for depol)
-        worksheet.merge_range(row, 0, row, 7, 'STEP 5: EXPONENTIAL FITTING RESULTS (y = A×(1-exp(-t/τ)) + C)', section_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Amplitude (A):', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)
-        worksheet.write(row, 2, 'pA')
-        row += 1
-        
-        worksheet.write(row, 0, 'Time Constant (τ):', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)
-        worksheet.write(row, 2, 'ms')
-        row += 1
-        
-        worksheet.write(row, 0, 'Offset (C):', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)
-        worksheet.write(row, 2, 'pA')
-        row += 1
-        
-        worksheet.write(row, 0, 'R-squared:', self.workbook.add_format({'bold': True}))
-        worksheet.write(row, 1, '', result_format)
-        row += 2
-        
-        # STEP 6: Parameter Summary
-        worksheet.merge_range(row, 0, row, 7, 'STEP 6: EXTRACTED PARAMETERS SUMMARY', section_format)
-        row += 1
-        
-        summary_format = self.workbook.add_format({'bg_color': '#FFE6E6', 'border': 1})
-        
-        worksheet.write(row, 0, 'Linear Parameters:', self.workbook.add_format({'bold': True}))
-        row += 1
-        worksheet.write(row, 0, 'Slope (m):', summary_format)
-        worksheet.write_formula(row, 1, '=B8', summary_format)
-        worksheet.write(row, 2, 'pA/ms', summary_format)
-        row += 1
-        worksheet.write(row, 0, 'Intercept (a):', summary_format)
-        worksheet.write_formula(row, 1, '=B9', summary_format)
-        worksheet.write(row, 2, 'pA', summary_format)
-        row += 1
-        
-        worksheet.write(row, 0, 'Exponential Parameters:', self.workbook.add_format({'bold': True}))
-        row += 1
-        worksheet.write(row, 0, 'Amplitude (A):', summary_format)
-        worksheet.write_formula(row, 1, '=B19', summary_format)
-        worksheet.write(row, 2, 'pA', summary_format)
-        row += 1
-        worksheet.write(row, 0, 'Time Constant (τ):', summary_format)
-        worksheet.write_formula(row, 1, '=B20', summary_format)
-        worksheet.write(row, 2, 'ms', summary_format)
-        row += 1
-        worksheet.write(row, 0, 'Offset (C):', summary_format)
-        worksheet.write_formula(row, 1, '=B21', summary_format)
-        worksheet.write(row, 2, 'pA', summary_format)
-        
-        # Set column widths
-        worksheet.set_column('A:A', 25)
-        worksheet.set_column('B:G', 12)
-    
-    def _create_manual_fitting_worksheet(self):
-        """Create worksheet with manual fitting tools and helpers."""
-        worksheet = self.workbook.add_worksheet('Manual_Fitting_Tools')
-        
-        title_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 16,
-            'align': 'center',
-            'bg_color': '#366092',
+            'bold': True, 
+            'font_size': 14, 
+            'bg_color': '#4F81BD', 
             'font_color': 'white'
         })
         
-        worksheet.merge_range('A1:F1', 'MANUAL CURVE FITTING TOOLS AND EXAMPLES', title_format)
+        worksheet.write('A1', 'INTERACTIVE CHARTS - DUAL CURVES', title_format)
+        worksheet.write('A2', 'Charts show both Purple (modified) and Red (filtered) curves')
         
-        # Add helper formulas and examples
-        example_format = self.workbook.add_format({'bg_color': '#F0F8FF', 'border': 1})
+        # Create hyperpolarization comparison chart
+        hyperpol_chart = self.workbook.add_chart({'type': 'scatter', 'subtype': 'smooth'})
+        
+        # Add purple hyperpol series
+        hyperpol_chart.add_series({
+            'name': 'Purple Hyperpol (Modified)',
+            'categories': ['Dual_Curve_Data', 6, 0, 300, 0],  # Time column A
+            'values': ['Dual_Curve_Data', 6, 1, 300, 1],      # Current column B
+            'line': {'color': 'purple', 'width': 2},
+            'marker': {'type': 'none'}
+        })
+        
+        # Add red hyperpol series
+        hyperpol_chart.add_series({
+            'name': 'Red Hyperpol (Filtered)',
+            'categories': ['Dual_Curve_Data', 6, 4, 300, 4],  # Time column E
+            'values': ['Dual_Curve_Data', 6, 5, 300, 5],      # Current column F
+            'line': {'color': 'red', 'width': 2},
+            'marker': {'type': 'none'}
+        })
+        
+        hyperpol_chart.set_title({'name': 'Hyperpolarization Curves Comparison'})
+        hyperpol_chart.set_x_axis({'name': 'Time (ms)'})
+        hyperpol_chart.set_y_axis({'name': 'Current (pA)'})
+        hyperpol_chart.set_size({'width': 600, 'height': 400})
+        worksheet.insert_chart('A4', hyperpol_chart)
+        
+        # Create depolarization comparison chart
+        depol_chart = self.workbook.add_chart({'type': 'scatter', 'subtype': 'smooth'})
+        
+        # Add purple depol series
+        depol_chart.add_series({
+            'name': 'Purple Depol (Modified)',
+            'categories': ['Dual_Curve_Data', 6, 2, 300, 2],  # Time column C
+            'values': ['Dual_Curve_Data', 6, 3, 300, 3],      # Current column D
+            'line': {'color': 'purple', 'width': 2},
+            'marker': {'type': 'none'}
+        })
+        
+        # Add red depol series
+        depol_chart.add_series({
+            'name': 'Red Depol (Filtered)',
+            'categories': ['Dual_Curve_Data', 6, 6, 300, 6],  # Time column G
+            'values': ['Dual_Curve_Data', 6, 7, 300, 7],      # Current column H
+            'line': {'color': 'red', 'width': 2},
+            'marker': {'type': 'none'}
+        })
+        
+        depol_chart.set_title({'name': 'Depolarization Curves Comparison'})
+        depol_chart.set_x_axis({'name': 'Time (ms)'})
+        depol_chart.set_y_axis({'name': 'Current (pA)'})
+        depol_chart.set_size({'width': 600, 'height': 400})
+        worksheet.insert_chart('A25', depol_chart)
+        
+        app_logger.info("Dual curves charts worksheet created with comparison charts")
+        
+    def _create_dual_hyperpol_analysis_worksheet(self, processor, app):
+        """Create analysis worksheet for hyperpolarization curves comparison."""
+        worksheet = self.workbook.add_worksheet('Hyperpol_Analysis')
+        
+        header_format = self.workbook.add_format({
+            'bold': True, 
+            'font_size': 12, 
+            'bg_color': '#4F81BD', 
+            'font_color': 'white'
+        })
+        
+        worksheet.write('A1', 'HYPERPOLARIZATION CURVES ANALYSIS', header_format)
+        worksheet.write('A3', 'Comparison between Purple (modified) and Red (filtered) hyperpol curves')
+        
+        # Calculate basic statistics for both curves
+        purple_hyperpol = processor.modified_hyperpol
+        purple_stats = {
+            'mean': np.mean(purple_hyperpol),
+            'std': np.std(purple_hyperpol),
+            'min': np.min(purple_hyperpol),
+            'max': np.max(purple_hyperpol),
+            'peak_to_peak': np.max(purple_hyperpol) - np.min(purple_hyperpol)
+        }
+        
+        # Get red hyperpol data
+        if hasattr(processor, '_hyperpol_slice'):
+            hyperpol_slice = processor._hyperpol_slice
+        else:
+            hyperpol_slice = (1035, 1235)
+        
+        red_hyperpol = app.filtered_data[hyperpol_slice[0]:hyperpol_slice[1]]
+        red_stats = {
+            'mean': np.mean(red_hyperpol),
+            'std': np.std(red_hyperpol),
+            'min': np.min(red_hyperpol),
+            'max': np.max(red_hyperpol),
+            'peak_to_peak': np.max(red_hyperpol) - np.min(red_hyperpol)
+        }
+        
+        # Write comparison table
+        worksheet.write('A5', 'Statistic')
+        worksheet.write('B5', 'Purple Curve')
+        worksheet.write('C5', 'Red Curve')
+        worksheet.write('D5', 'Difference')
+        worksheet.write('E5', '% Change')
+        
+        row = 6
+        for stat, label in [('mean', 'Mean'), ('std', 'Std Dev'), ('min', 'Minimum'), 
+                           ('max', 'Maximum'), ('peak_to_peak', 'Peak-to-Peak')]:
+            worksheet.write(row, 0, label)
+            worksheet.write(row, 1, purple_stats[stat])
+            worksheet.write(row, 2, red_stats[stat])
+            diff = purple_stats[stat] - red_stats[stat]
+            worksheet.write(row, 3, diff)
+            if red_stats[stat] != 0:
+                pct_change = (diff / red_stats[stat]) * 100
+                worksheet.write(row, 4, f"{pct_change:.2f}%")
+            row += 1
+        
+        worksheet.set_column('A:E', 15)
+        
+    def _create_dual_depol_analysis_worksheet(self, processor, app):
+        """Create analysis worksheet for depolarization curves comparison."""
+        worksheet = self.workbook.add_worksheet('Depol_Analysis')
+        
+        header_format = self.workbook.add_format({
+            'bold': True, 
+            'font_size': 12, 
+            'bg_color': '#4F81BD', 
+            'font_color': 'white'
+        })
+        
+        worksheet.write('A1', 'DEPOLARIZATION CURVES ANALYSIS', header_format)
+        worksheet.write('A3', 'Comparison between Purple (modified) and Red (filtered) depol curves')
+        
+        # Calculate basic statistics for both curves
+        purple_depol = processor.modified_depol
+        purple_stats = {
+            'mean': np.mean(purple_depol),
+            'std': np.std(purple_depol),
+            'min': np.min(purple_depol),
+            'max': np.max(purple_depol),
+            'peak_to_peak': np.max(purple_depol) - np.min(purple_depol)
+        }
+        
+        # Get red depol data
+        if hasattr(processor, '_depol_slice'):
+            depol_slice = processor._depol_slice
+        else:
+            depol_slice = (835, 1035)
+        
+        red_depol = app.filtered_data[depol_slice[0]:depol_slice[1]]
+        red_stats = {
+            'mean': np.mean(red_depol),
+            'std': np.std(red_depol),
+            'min': np.min(red_depol),
+            'max': np.max(red_depol),
+            'peak_to_peak': np.max(red_depol) - np.min(red_depol)
+        }
+        
+        # Write comparison table
+        worksheet.write('A5', 'Statistic')
+        worksheet.write('B5', 'Purple Curve')
+        worksheet.write('C5', 'Red Curve')
+        worksheet.write('D5', 'Difference')
+        worksheet.write('E5', '% Change')
+        
+        row = 6
+        for stat, label in [('mean', 'Mean'), ('std', 'Std Dev'), ('min', 'Minimum'), 
+                           ('max', 'Maximum'), ('peak_to_peak', 'Peak-to-Peak')]:
+            worksheet.write(row, 0, label)
+            worksheet.write(row, 1, purple_stats[stat])
+            worksheet.write(row, 2, red_stats[stat])
+            diff = purple_stats[stat] - red_stats[stat]
+            worksheet.write(row, 3, diff)
+            if red_stats[stat] != 0:
+                pct_change = (diff / red_stats[stat]) * 100
+                worksheet.write(row, 4, f"{pct_change:.2f}%")
+            row += 1
+        
+        worksheet.set_column('A:E', 15)
+        
+    def _create_dual_manual_fitting_worksheet(self):
+        """Create worksheet with manual fitting framework for dual curves."""
+        worksheet = self.workbook.add_worksheet('Manual_Fitting')
+        
+        title_format = self.workbook.add_format({
+            'bold': True, 
+            'font_size': 14, 
+            'bg_color': '#4F81BD', 
+            'font_color': 'white'
+        })
+        
+        worksheet.write('A1', 'MANUAL CURVE FITTING FRAMEWORK - DUAL CURVES', title_format)
+        
+        # Instructions
+        instructions = [
+            "This worksheet provides tools for manual curve fitting on both datasets:",
+            "",
+            "PURPLE CURVES (Modified Data):",
+            "• Use columns A-B for hyperpol time/current",
+            "• Use columns C-D for depol time/current", 
+            "",
+            "RED CURVES (Filtered Data):",
+            "• Use columns E-F for hyperpol time/current",
+            "• Use columns G-H for depol time/current",
+            "",
+            "ANALYSIS WORKFLOW:",
+            "1. Compare curve characteristics between datasets",
+            "2. Identify regions for linear/exponential fitting",
+            "3. Select point ranges for each dataset separately",
+            "4. Calculate fitting parameters for comparison",
+            "5. Document differences in curve behaviors"
+        ]
         
         row = 3
-        worksheet.write(row, 0, 'EXPONENTIAL FITTING HELPER', self.workbook.add_format({'bold': True, 'font_size': 14}))
-        row += 2
+        for instruction in instructions:
+            worksheet.write(row, 0, instruction)
+            row += 1
         
-        worksheet.write(row, 0, 'For HYPERPOLARIZATION (decay): y = A × exp(-t/τ) + C', self.workbook.add_format({'bold': True}))
-        row += 1
-        worksheet.write(row, 0, 'For DEPOLARIZATION (growth): y = A × (1 - exp(-t/τ)) + C', self.workbook.add_format({'bold': True}))
-        row += 2
+        worksheet.set_column('A:A', 50)
         
-        worksheet.write(row, 0, 'SOLVER SETUP INSTRUCTIONS:', self.workbook.add_format({'bold': True, 'bg_color': '#FFFFCC'}))
-        row += 1
-        worksheet.write(row, 0, '1. Create helper column calculating predicted values')
-        row += 1
-        worksheet.write(row, 0, '2. Create column calculating residuals (actual - predicted)²')
-        row += 1
-        worksheet.write(row, 0, '3. Sum the squared residuals')
-        row += 1
-        worksheet.write(row, 0, '4. Use Solver to minimize sum of squared residuals')
-        row += 1
-        worksheet.write(row, 0, '5. Change variables: A, τ, C parameters')
-        row += 2
-        
-        worksheet.write(row, 0, 'PARAMETER CONSTRAINTS:', self.workbook.add_format({'bold': True, 'bg_color': '#E6F3FF'}))
-        row += 1
-        worksheet.write(row, 0, 'Time constant (τ) > 0.1 ms')
-        row += 1
-        worksheet.write(row, 0, 'Amplitude (A): For hyperpol > 0, for depol can be negative')
-        row += 1
-        worksheet.write(row, 0, 'Offset (C): Usually close to baseline current')
-        row += 2
-        
-        # Example calculation area
-        worksheet.write(row, 0, 'EXAMPLE CALCULATION AREA:', self.workbook.add_format({'bold': True, 'bg_color': '#E6FFE6'}))
-        row += 1
-        worksheet.write(row, 0, 'Time (ms)', example_format)
-        worksheet.write(row, 1, 'Current (pA)', example_format)
-        worksheet.write(row, 2, 'A (parameter)', example_format)
-        worksheet.write(row, 3, 'τ (parameter)', example_format)
-        worksheet.write(row, 4, 'C (parameter)', example_format)
-        worksheet.write(row, 5, 'Predicted', example_format)
-        worksheet.write(row, 6, 'Residual²', example_format)
-        
-        # Set column widths
-        worksheet.set_column('A:G', 15)
-    
-    def _create_instructions_worksheet(self):
-        """Create comprehensive instructions worksheet."""
+    def _create_dual_instructions_worksheet(self):
+        """Create comprehensive instructions worksheet for dual curve analysis."""
         worksheet = self.workbook.add_worksheet('Instructions')
         
         title_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 16,
-            'align': 'center',
-            'bg_color': '#2F5233',
+            'bold': True, 
+            'font_size': 16, 
+            'bg_color': '#4F81BD', 
             'font_color': 'white'
         })
         
-        header_format = self.workbook.add_format({
-            'bold': True,
-            'font_size': 14,
-            'bg_color': '#70AD47',
-            'font_color': 'white'
+        section_format = self.workbook.add_format({
+            'bold': True, 
+            'font_size': 12, 
+            'bg_color': '#FFFFCC'
         })
         
-        text_format = self.workbook.add_format({
-            'text_wrap': True,
-            'valign': 'top'
-        })
-        
-        worksheet.merge_range('A1:F1', 'PURPLE CURVE MANUAL ANALYSIS WORKFLOW', title_format)
-        
-        row = 3
-        worksheet.merge_range(f'A{row}:F{row}', 'COMPLETE WORKFLOW GUIDE', header_format)
-        row += 2
+        worksheet.write('A1', 'DUAL CURVES ANALYSIS INSTRUCTIONS', title_format)
         
         instructions = [
-            "STEP 1: EXAMINE CHARTS",
-            "• Go to 'Charts' worksheet to see your purple curves",
-            "• Use the interactive charts to identify fitting regions",
-            "• Note time values where linear behavior occurs",
-            "• Identify transition points for exponential fitting",
             "",
-            "STEP 2: LINEAR FITTING (for both Hyperpol and Depol)",
-            "• Go to respective analysis worksheet (Hyperpol_Analysis or Depol_Analysis)",
-            "• Enter TWO row numbers for linear fitting region",
-            "• Row numbers correspond to Purple_Curve_Data sheet",
-            "• Linear parameters (slope, intercept, R²) auto-calculate",
-            "• Record these parameters: y = mx + a",
+            "OVERVIEW:",
+            "This Excel file contains both Purple and Red curve datasets for comparison:",
+            "• Purple Curves: Modified/processed data from your analysis",
+            "• Red Curves: Original filtered/denoised data",
             "",
-            "STEP 3: TREND REMOVAL/ADDITION",
-            "• HYPERPOLARIZATION: SUBTRACT linear trend from curve",
-            "• DEPOLARIZATION: ADD linear trend to curve", 
-            "• This prepares data for exponential fitting",
-            "• Formula provided in analysis worksheets",
+            "STEP 1: DATA COMPARISON",
+            "• Use the 'Interactive_Charts' worksheet to visually compare curves",
+            "• Review statistical comparisons in analysis worksheets",
+            "• Note differences in curve characteristics",
             "",
-            "STEP 4: EXPONENTIAL FITTING",
-            "• Select THIRD point where exponential behavior starts",
-            "• Use Manual_Fitting_Tools worksheet for Solver setup",
-            "• Fit appropriate exponential function:",
-            "  - Hyperpol: y = A×exp(-t/τ) + C (decay)",
-            "  - Depol: y = A×(1-exp(-t/τ)) + C (growth)",
+            "STEP 2: CURVE ANALYSIS",
+            "• Hyperpol_Analysis: Compare hyperpolarization responses",
+            "• Depol_Analysis: Compare depolarization responses",
+            "• Look for processing effects on signal characteristics",
             "",
-            "STEP 5: PARAMETER EXTRACTION",
-            "• Record all parameters from both fits:",
-            "• Linear: slope (m), intercept (a), R²",
-            "• Exponential: amplitude (A), time constant (τ), offset (C), R²",
-            "• These parameters can be used for model training",
+            "STEP 3: MANUAL FITTING (Optional)",
+            "• Use Manual_Fitting worksheet for detailed analysis",
+            "• Compare fitting parameters between datasets",
+            "• Document processing effects on curve parameters",
             "",
-            "STEP 6: VALIDATION AND DOCUMENTATION",
-            "• Check R² values for fit quality (>0.95 is excellent)",
-            "• Document point selection rationale",
-            "• Save parameter values for training dataset",
-            "• Repeat process for multiple files to build training data"
+            "DATA INTERPRETATION:",
+            "• Purple curves show post-processing effects",
+            "• Red curves represent raw filtered signals",
+            "• Differences indicate processing impact",
+            "• Use for validation and method development"
         ]
         
+        row = 2
         for instruction in instructions:
-            if instruction.startswith("STEP"):
-                worksheet.write(row, 0, instruction, self.workbook.add_format({'bold': True, 'font_size': 12, 'bg_color': '#FFFFCC'}))
+            if instruction.startswith("STEP") or instruction.startswith("OVERVIEW") or instruction.startswith("DATA INTERPRETATION"):
+                worksheet.write(row, 0, instruction, section_format)
             else:
-                worksheet.write(row, 0, instruction, text_format)
+                worksheet.write(row, 0, instruction)
             row += 1
         
-        # Set column widths and row heights
-        worksheet.set_column('A:F', 20)
-        for i in range(3, row):
-            worksheet.set_row(i, 20)
+        worksheet.set_column('A:A', 60)
 
 
-def export_purple_curves_with_charts(processor, filename=None):
+def export_both_curves_with_charts(processor, app, filename=None):
     """
-    Enhanced export function that creates Excel file with automatic charts and manual analysis framework.
-    This replaces the previous export function but maintains all current functionality.
+    Enhanced export function that creates Excel file with both purple and red curves.
     
     Args:
         processor: ActionPotentialProcessor instance
+        app: Main application instance with filtered data
         filename: Optional filename for the Excel file
         
     Returns:
         str: Path to the created Excel file
     """
-    exporter = EnhancedExcelExporter()
-    return exporter.export_purple_curves_with_charts(processor, filename)
+    exporter = EnhancedExcelExporterDual()
+    return exporter.export_both_curves_with_charts(processor, app, filename)
