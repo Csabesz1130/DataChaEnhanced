@@ -50,41 +50,44 @@ def add_dual_excel_export_to_app(app):
         app.export_frame = ttk.LabelFrame(app.control_frame, text="Data Export")
         app.export_frame.pack(fill='x', padx=5, pady=5)
     
-    # Clear any existing export buttons
-    for widget in app.export_frame.winfo_children():
-        widget.destroy()
+    # Check if buttons already exist to avoid duplicates
+    existing_buttons = [child for child in app.export_frame.winfo_children() 
+                       if isinstance(child, ttk.Button)]
     
-    # Add purple curves only export button
-    purple_button = ttk.Button(
-        app.export_frame,
-        text="Export Purple Curves Only", 
-        command=lambda: export_purple_curves_only(app)
-    )
-    purple_button.pack(pady=2)
-    
-    # Add dual curves export button (NEW FEATURE)
-    dual_button = ttk.Button(
-        app.export_frame,
-        text="Export Both Purple & Red Curves (Enhanced)", 
-        command=lambda: export_dual_curves_enhanced(app)
-    )
-    dual_button.pack(pady=2)
-    
-    # Add status label for export feedback
-    app.export_status_label = ttk.Label(
-        app.export_frame, 
-        text="Ready to export curve data",
-        font=('TkDefaultFont', 9)
-    )
-    app.export_status_label.pack(pady=2)
-    
-    # Add requirements check button
-    req_button = ttk.Button(
-        app.export_frame,
-        text="Check Export Requirements",
-        command=check_dual_export_requirements
-    )
-    req_button.pack(pady=2)
+    # Only add buttons if they don't already exist
+    if not any('Purple Curves Only' in str(btn.cget('text')) for btn in existing_buttons):
+        
+        # Add purple curves only export button
+        purple_button = ttk.Button(
+            app.export_frame,
+            text="Export Purple Curves Only", 
+            command=lambda: export_purple_curves_only(app)
+        )
+        purple_button.pack(pady=2)
+        
+        # Add dual curves export button (NEW FEATURE)
+        dual_button = ttk.Button(
+            app.export_frame,
+            text="Export Both Purple & Red Curves (Enhanced)", 
+            command=lambda: export_dual_curves_enhanced(app)
+        )
+        dual_button.pack(pady=2)
+        
+        # Add status label for export feedback
+        app.export_status_label = ttk.Label(
+            app.export_frame, 
+            text="Ready to export curve data",
+            font=('TkDefaultFont', 9)
+        )
+        app.export_status_label.pack(pady=2)
+        
+        # Add requirements check button
+        req_button = ttk.Button(
+            app.export_frame,
+            text="Check Export Requirements",
+            command=check_dual_export_requirements
+        )
+        req_button.pack(pady=2)
     
     app_logger.info("Dual curves Excel export functionality added successfully")
 

@@ -54,24 +54,11 @@ def export_dual_curves_to_csv(processor, app, filename=None):
         red_time_ms = app.time_data * 1000
         red_data = app.filtered_data
         
-        # Extract red curve sections corresponding to purple curves
-        if hasattr(processor, '_hyperpol_slice') and hasattr(processor, '_depol_slice'):
-            hyperpol_slice = processor._hyperpol_slice
-            depol_slice = processor._depol_slice
-        else:
-            # Default slices
-            hyperpol_slice = (1035, 1235)
-            depol_slice = (835, 1035)
-        
-        # Extract red curve sections
-        red_hyperpol_data = red_data[hyperpol_slice[0]:hyperpol_slice[1]]
-        red_hyperpol_times = red_time_ms[hyperpol_slice[0]:hyperpol_slice[1]]
-        red_depol_data = red_data[depol_slice[0]:depol_slice[1]]
-        red_depol_times = red_time_ms[depol_slice[0]:depol_slice[1]]
+        # Red curve data is continuous (not split into sections)
         
         # Create unified data structure
         max_len = max(len(processor.modified_hyperpol), len(processor.modified_depol),
-                     len(red_hyperpol_data), len(red_depol_data))
+                     len(red_data))
         
         # Pad arrays to same length
         def pad_array(arr, target_len):
@@ -85,10 +72,8 @@ def export_dual_curves_to_csv(processor, app, filename=None):
             'Purple_Hyperpol_Current_pA': pad_array(processor.modified_hyperpol, max_len),
             'Purple_Depol_Time_ms': pad_array(depol_times_ms, max_len),
             'Purple_Depol_Current_pA': pad_array(processor.modified_depol, max_len),
-            'Red_Hyperpol_Time_ms': pad_array(red_hyperpol_times, max_len),
-            'Red_Hyperpol_Current_pA': pad_array(red_hyperpol_data, max_len),
-            'Red_Depol_Time_ms': pad_array(red_depol_times, max_len),
-            'Red_Depol_Current_pA': pad_array(red_depol_data, max_len)
+            'Red_Time_ms': pad_array(red_time_ms, max_len),
+            'Red_Current_pA': pad_array(red_data, max_len)
         })
         
         # Add metadata header
@@ -235,14 +220,17 @@ def add_csv_export_buttons(app):
     try:
         from tkinter import ttk
         
-        # Create CSV export frame
-        if not hasattr(app, 'csv_export_frame'):
-            app.csv_export_frame = ttk.LabelFrame(app.control_frame, text="CSV Export")
-            app.csv_export_frame.pack(fill='x', padx=5, pady=5)
+        # Use existing export frame if available, otherwise create new one
+        if hasattr(app, 'export_frame'):
+            export_frame = app.export_frame
+        else:
+            export_frame = ttk.LabelFrame(app.control_frame, text="Data Export")
+            export_frame.pack(fill='x', padx=5, pady=5)
+            app.export_frame = export_frame
         
         # Purple curves only CSV button
         purple_csv_button = ttk.Button(
-            app.csv_export_frame,
+            export_frame,
             text="Export Purple Curves to CSV",
             command=lambda: _export_purple_csv_wrapper(app)
         )
@@ -250,7 +238,7 @@ def add_csv_export_buttons(app):
         
         # Dual curves CSV button
         dual_csv_button = ttk.Button(
-            app.csv_export_frame,
+            export_frame,
             text="Export Both Curves to CSV",
             command=lambda: _export_dual_csv_wrapper(app)
         )

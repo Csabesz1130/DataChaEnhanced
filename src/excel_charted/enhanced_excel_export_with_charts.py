@@ -113,29 +113,13 @@ class EnhancedExcelExporterDual:
         hyperpol_times_ms = processor.modified_hyperpol_times * 1000
         depol_times_ms = processor.modified_depol_times * 1000
         
-        # Prepare red curve data (extract relevant sections)
+        # Prepare red curve data (continuous, not split into sections)
         red_time_ms = app.time_data * 1000
         red_data = app.filtered_data
         
-        # Extract red curve sections corresponding to purple curves
-        # Use the same slicing logic as the processor
-        if hasattr(processor, '_hyperpol_slice') and hasattr(processor, '_depol_slice'):
-            hyperpol_slice = processor._hyperpol_slice
-            depol_slice = processor._depol_slice
-        else:
-            # Default slices (you may need to adjust these based on your specific implementation)
-            hyperpol_slice = (1035, 1235)
-            depol_slice = (835, 1035)
-        
-        # Extract red curve sections
-        red_hyperpol_data = red_data[hyperpol_slice[0]:hyperpol_slice[1]]
-        red_hyperpol_times = red_time_ms[hyperpol_slice[0]:hyperpol_slice[1]]
-        red_depol_data = red_data[depol_slice[0]:depol_slice[1]]
-        red_depol_times = red_time_ms[depol_slice[0]:depol_slice[1]]
-        
         # Create unified data structure
         max_len = max(len(processor.modified_hyperpol), len(processor.modified_depol),
-                     len(red_hyperpol_data), len(red_depol_data))
+                     len(red_data))
         
         # Pad all arrays to same length
         def pad_array(arr, target_len):
@@ -149,39 +133,37 @@ class EnhancedExcelExporterDual:
         purple_depol_times = pad_array(depol_times_ms, max_len)
         purple_depol_data = pad_array(processor.modified_depol, max_len)
         
-        # Red curve data (padded)
-        red_hyperpol_times_padded = pad_array(red_hyperpol_times, max_len)
-        red_hyperpol_data_padded = pad_array(red_hyperpol_data, max_len)
-        red_depol_times_padded = pad_array(red_depol_times, max_len)
-        red_depol_data_padded = pad_array(red_depol_data, max_len)
+        # Red curve data (continuous, padded)
+        red_times_padded = pad_array(red_time_ms, max_len)
+        red_data_padded = pad_array(red_data, max_len)
         
         # Column headers
         col_headers = [
             'Purple_Hyperpol_Time_ms', 'Purple_Hyperpol_Current_pA',
             'Purple_Depol_Time_ms', 'Purple_Depol_Current_pA',
-            'Red_Hyperpol_Time_ms', 'Red_Hyperpol_Current_pA',
-            'Red_Depol_Time_ms', 'Red_Depol_Current_pA'
+            'Red_Time_ms', 'Red_Current_pA'
         ]
         
         # Write column headers
         for col, header in enumerate(col_headers):
             worksheet.write(5, col, header, subheader_format)
         
-        # Write data
+        # Write data with number format
+        number_format = self.workbook.add_format({'num_format': '0.000'})
+        
         data_arrays = [
             purple_hyperpol_times, purple_hyperpol_data,
             purple_depol_times, purple_depol_data,
-            red_hyperpol_times_padded, red_hyperpol_data_padded,
-            red_depol_times_padded, red_depol_data_padded
+            red_times_padded, red_data_padded
         ]
         
         for row in range(max_len):
             for col, data_array in enumerate(data_arrays):
                 if row < len(data_array) and not np.isnan(data_array[row]):
-                    worksheet.write(row + 6, col, data_array[row])
+                    worksheet.write(row + 6, col, data_array[row], number_format)
         
         # Set column widths
-        worksheet.set_column('A:H', 18)
+        worksheet.set_column('A:F', 18)
         
         app_logger.info(f"Dual data worksheet created with {max_len} data points")
         
