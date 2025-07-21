@@ -109,7 +109,7 @@ def export_purple_curves_only(app):
             title="Save Purple Curves Excel File",
             defaultextension=".xlsx",
             filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            initialname=default_filename
+            initialfile=default_filename
         )
         
         if not filename:
@@ -164,7 +164,7 @@ def export_dual_curves_enhanced(app):
             title="Save Dual Curves Excel Analysis File",
             defaultextension=".xlsx",
             filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            initialname=default_filename
+            initialfile=default_filename
         )
         
         if not filename:

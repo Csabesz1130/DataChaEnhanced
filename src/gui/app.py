@@ -23,6 +23,8 @@ from src.gui.window_manager import SignalWindowManager
 from src.utils.analysis_history_manager import AnalysisHistoryManager
 from src.gui.history_window import HistoryWindow
 from src.excel_export import add_excel_export_to_app
+from src.excel_charted.dual_curves_export_integration import add_dual_excel_export_to_app
+from src.csv_export.dual_curves_csv_export import add_csv_export_buttons
 from src.gui.direct_spike_removal import remove_spikes_from_processor
 from src.gui.simplified_set_exporter import add_set_export_to_toolbar
 from src.gui.batch_set_exporter import add_set_export_to_toolbar
@@ -74,6 +76,12 @@ class SignalAnalyzerApp:
         self.setup_memory_management()
 
         add_excel_export_to_app(self)
+        
+        # Add the dual curves export functionality
+        add_dual_excel_export_to_app(self)
+        
+        # Add CSV export functionality
+        add_csv_export_buttons(self)
         
         app_logger.info("Application initialized successfully with memory optimization")
 

@@ -126,7 +126,7 @@ def enhanced_export_purple_curves(app):
             title="Save Enhanced Excel Analysis File",
             defaultextension=".xlsx",
             filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
-            initialname=default_filename
+            initialfile=default_filename
         )
         
         if not filename:

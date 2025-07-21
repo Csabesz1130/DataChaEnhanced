@@ -35,7 +35,7 @@ def export_dual_curves_to_csv(processor, app, filename=None):
                 title="Save Dual Curves CSV File",
                 defaultextension=".csv",
                 filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                initialname=default_filename
+                initialfile=default_filename
             )
             
             if not filename:
@@ -140,7 +140,7 @@ def export_purple_curves_only_csv(processor, filename=None):
                 title="Save Purple Curves CSV File",
                 defaultextension=".csv",
                 filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                initialname=default_filename
+                initialfile=default_filename
             )
             
             if not filename:
