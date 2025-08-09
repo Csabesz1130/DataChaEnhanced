@@ -25,6 +25,8 @@ The AI Excel Learning System is designed to analyze Excel files, learn patterns 
 - **Visual Configuration**: Learns colors, markers, axis settings, and positioning
 - **Template Creation**: Creates reusable chart templates
 - **Automatic Generation**: Generates charts based on learned patterns
+- **Formula Integration**: Creates charts that incorporate learned formula logic and filtering
+- **Dynamic Visualization**: Generates diagrams that reflect calculations and data transformations
 
 ### 🔄 **Data Generation**
 - **Synthetic Data**: Generates realistic data based on learned patterns
@@ -39,6 +41,7 @@ The AI Excel Learning System is designed to analyze Excel files, learn patterns 
 - **Conditional Logic**: Understands IF statements and conditional operations
 - **Range Analysis**: Learns how to work with cell ranges and references
 - **Formula Application**: Can apply learned formula logic to new data or different contexts
+- **Chart Integration**: Creates diagrams that reflect learned calculations and filtering operations
 
 ### 📁 **Excel File Generation**
 - **Complete Files**: Generates full Excel files with data, charts, and formatting
@@ -360,6 +363,42 @@ formula_logic = pipeline.learn_formula_logic("=SUM(A1:A10)")
 new_data = pd.DataFrame({'A': range(1, 21)})
 result = pipeline.apply_learned_formula_logic(formula_logic, new_data)
 print(f"Sum result: {result}")
+```
+
+### Example 5: Chart Generation with Formula Logic
+
+```python
+# Initialize the learning pipeline
+pipeline = LearningPipeline()
+
+# Create sample data with current measurements
+sample_data = pd.DataFrame({
+    'Current_mA': np.random.uniform(100, 300, 100),
+    'Voltage_V': np.random.uniform(3.0, 5.0, 100),
+    'Temperature_C': np.random.uniform(20, 80, 100),
+    'Status': np.random.choice(['OK', 'Warning', 'Error'], 100),
+    'Timestamp': pd.date_range('2024-01-01', periods=100, freq='H')
+})
+
+# Learn formula logic and create chart with it
+sum_formula = pipeline.learn_formula_logic("=SUM(A1:A10)")
+chart_config = pipeline.create_chart_with_formula_logic(
+    "sum_chart", 
+    sample_data, 
+    formula_logic=sum_formula
+)
+
+# Create chart with filtering (values above 250 mA)
+filter_conditions = [FilterCondition(column='Current_mA', operator='>', value=250)]
+filtered_chart = pipeline.create_chart_with_formula_logic(
+    "filtered_chart", 
+    sample_data, 
+    filter_conditions=filter_conditions
+)
+
+# Demonstrate comprehensive chart generation
+results = pipeline.demonstrate_chart_with_formulas(sample_data)
+print(f"Created {len(results['charts_created'])} charts with formula logic")
 ```
 
 ## Performance

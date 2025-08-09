@@ -17,7 +17,7 @@ import time
 
 from .excel_analyzer import ExcelAnalyzer, ExcelStructure
 from .ml_models import ExcelMLModels
-from .chart_learner import ChartLearner, ChartPattern
+from .chart_learner import ChartLearner, ChartPattern, ChartTemplate
 from .data_generator import DataGenerator, GenerationConfig
 from .excel_generator import ExcelGenerator, ExcelGenerationConfig
 from .formula_learner import FormulaLearner, FormulaLogic, FilterCondition, CalculationPattern
@@ -678,5 +678,140 @@ class LearningPipeline:
             except Exception as e:
                 logger.error(f"Error demonstrating formula {formula}: {e}")
                 results['learned_patterns'][formula] = {'error': str(e)}
+        
+        return results
+    
+    def create_chart_with_formula_logic(self, chart_template_name: str, data: pd.DataFrame,
+                                      formula_logic: FormulaLogic = None,
+                                      filter_conditions: List[FilterCondition] = None,
+                                      output_path: str = None) -> Dict[str, Any]:
+        """
+        Create a chart that incorporates learned formula logic and filtering
+        
+        Args:
+            chart_template_name: Name of the chart template to use
+            data: DataFrame with data for the chart
+            formula_logic: Optional learned formula logic to apply
+            filter_conditions: Optional filter conditions to apply
+            output_path: Optional path to save the chart image
+            
+        Returns:
+            Dictionary with chart configuration and metadata
+        """
+        try:
+            # Create a temporary template with formula logic
+            if chart_template_name not in self.chart_learner.templates:
+                # Create a basic template if it doesn't exist
+                basic_template = ChartTemplate(
+                    name=chart_template_name,
+                    chart_type='line',
+                    template_config={
+                        'visual_config': {
+                            'title': f'Chart with Formula Logic: {formula_logic.formula_type.value if formula_logic else "None"}',
+                            'x_axis': {'title': 'Index'},
+                            'y_axis': {'title': 'Values'}
+                        },
+                        'series_config': [{'name': 'Data Series'}]
+                    },
+                    data_requirements={'min_series': 1, 'min_data_points': 5},
+                    formula_logic=formula_logic,
+                    filter_conditions=filter_conditions
+                )
+                self.chart_learner.templates[chart_template_name] = basic_template
+            
+            # Generate chart with formula logic and filters applied
+            chart_config = self.chart_learner.generate_chart(
+                chart_template_name, 
+                data, 
+                output_path=output_path,
+                apply_formula_logic=True,
+                apply_filters=True
+            )
+            
+            logger.info(f"Created chart with formula logic: {chart_template_name}")
+            return chart_config
+            
+        except Exception as e:
+            logger.error(f"Error creating chart with formula logic: {e}")
+            return {'error': str(e)}
+    
+    def demonstrate_chart_with_formulas(self, sample_data: pd.DataFrame = None) -> Dict[str, Any]:
+        """
+        Demonstrate creating charts that incorporate learned formula logic and filtering
+        
+        Args:
+            sample_data: Optional sample data to use
+            
+        Returns:
+            Dictionary with demonstration results
+        """
+        if sample_data is None:
+            # Create sample data with current measurements
+            sample_data = pd.DataFrame({
+                'Current_mA': np.random.uniform(100, 300, 100),
+                'Voltage_V': np.random.uniform(3.0, 5.0, 100),
+                'Temperature_C': np.random.uniform(20, 80, 100),
+                'Status': np.random.choice(['OK', 'Warning', 'Error'], 100),
+                'Timestamp': pd.date_range('2024-01-01', periods=100, freq='H')
+            })
+        
+        results = {
+            'charts_created': [],
+            'formula_applications': [],
+            'filter_applications': []
+        }
+        
+        # Example 1: Chart with SUM formula
+        try:
+            sum_formula = self.learn_formula_logic("=SUM(A1:A10)")
+            chart1 = self.create_chart_with_formula_logic(
+                "sum_chart", 
+                sample_data, 
+                formula_logic=sum_formula
+            )
+            results['charts_created'].append({
+                'name': 'sum_chart',
+                'formula_type': 'SUM',
+                'config': chart1
+            })
+            results['formula_applications'].append('SUM formula applied to chart data')
+        except Exception as e:
+            logger.error(f"Error creating SUM chart: {e}")
+        
+        # Example 2: Chart with filtering (values above 250 mA)
+        try:
+            filter_conditions = [
+                FilterCondition(column='Current_mA', operator='>', value=250)
+            ]
+            chart2 = self.create_chart_with_formula_logic(
+                "filtered_chart", 
+                sample_data, 
+                filter_conditions=filter_conditions
+            )
+            results['charts_created'].append({
+                'name': 'filtered_chart',
+                'filter_type': 'Current > 250mA',
+                'config': chart2
+            })
+            results['filter_applications'].append('Filter applied: Current_mA > 250')
+        except Exception as e:
+            logger.error(f"Error creating filtered chart: {e}")
+        
+        # Example 3: Chart with conditional logic
+        try:
+            if_formula = self.learn_formula_logic("=IF(A1>250, 'High', 'Low')")
+            chart3 = self.create_chart_with_formula_logic(
+                "conditional_chart", 
+                sample_data, 
+                formula_logic=if_formula
+            )
+            results['charts_created'].append({
+                'name': 'conditional_chart',
+                'formula_type': 'IF',
+                'config': chart3
+            })
+            results['formula_applications'].append('IF formula applied to chart data')
+        except Exception as e:
+            logger.error(f"Error creating conditional chart: {e}")
         
         return results

@@ -23,6 +23,7 @@ from openpyxl.chart import ScatterChart, LineChart, BarChart, PieChart
 from openpyxl.chart.series import DataPoint
 import plotly.graph_objects as go
 import plotly.express as px
+from .formula_learner import FormulaLogic, FilterCondition, FormulaType
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,8 @@ class ChartTemplate:
     chart_type: str
     template_config: Dict[str, Any]
     data_requirements: Dict[str, Any]
+    formula_logic: Optional[FormulaLogic] = None
+    filter_conditions: Optional[List[FilterCondition]] = None
 
 class ChartLearner:
     """
@@ -367,14 +370,18 @@ class ChartLearner:
         return requirements
     
     def generate_chart(self, template_name: str, data: pd.DataFrame, 
-                      output_path: str = None) -> Dict[str, Any]:
+                      output_path: str = None, 
+                      apply_formula_logic: bool = True,
+                      apply_filters: bool = True) -> Dict[str, Any]:
         """
-        Generate a chart using a template and data
+        Generate a chart using a template and data, with optional formula and filter application
         
         Args:
             template_name: Name of the template to use
             data: Data for the chart
             output_path: Optional path to save the chart
+            apply_formula_logic: Whether to apply learned formula logic to data
+            apply_filters: Whether to apply learned filter conditions to data
             
         Returns:
             Chart configuration
@@ -384,18 +391,27 @@ class ChartLearner:
         
         template = self.templates[template_name]
         
+        # Apply learned formula logic if available
+        processed_data = data.copy()
+        if apply_formula_logic and template.formula_logic:
+            processed_data = self._apply_formula_logic_to_data(processed_data, template.formula_logic)
+        
+        # Apply learned filters if available
+        if apply_filters and template.filter_conditions:
+            processed_data = self._apply_filters_to_data(processed_data, template.filter_conditions)
+        
         # Validate data against requirements
-        self._validate_data_requirements(data, template.data_requirements)
+        self._validate_data_requirements(processed_data, template.data_requirements)
         
         # Generate chart based on type
         if template.chart_type == 'scatter':
-            chart_config = self._generate_scatter_chart(template, data)
+            chart_config = self._generate_scatter_chart(template, processed_data)
         elif template.chart_type == 'line':
-            chart_config = self._generate_line_chart(template, data)
+            chart_config = self._generate_line_chart(template, processed_data)
         elif template.chart_type == 'bar':
-            chart_config = self._generate_bar_chart(template, data)
+            chart_config = self._generate_bar_chart(template, processed_data)
         elif template.chart_type == 'pie':
-            chart_config = self._generate_pie_chart(template, data)
+            chart_config = self._generate_pie_chart(template, processed_data)
         else:
             raise ValueError(f"Unsupported chart type: {template.chart_type}")
         
@@ -622,3 +638,163 @@ class ChartLearner:
         if axis1.get('title') == axis2.get('title'):
             return 1.0
         return 0.0
+    
+    def _apply_formula_logic_to_data(self, data: pd.DataFrame, formula_logic: FormulaLogic) -> pd.DataFrame:
+        """
+        Apply learned formula logic to data before chart generation
+        
+        Args:
+            data: DataFrame to process
+            formula_logic: Learned formula logic to apply
+            
+        Returns:
+            Processed DataFrame with formula results
+        """
+        try:
+            # Create a copy to avoid modifying original
+            processed_data = data.copy()
+            
+            # Apply formula logic based on type
+            if formula_logic.formula_type == FormulaType.SUM:
+                if formula_logic.source_range:
+                    # Extract range values and sum them
+                    values = self._extract_range_values_from_data(data, formula_logic.source_range)
+                    if values is not None:
+                        result = sum(values)
+                        # Add result as a new column or update existing
+                        result_col = f"Sum_{formula_logic.source_range}"
+                        processed_data[result_col] = result
+            
+            elif formula_logic.formula_type == FormulaType.AVERAGE:
+                if formula_logic.source_range:
+                    values = self._extract_range_values_from_data(data, formula_logic.source_range)
+                    if values is not None:
+                        result = sum(values) / len(values) if values else 0
+                        result_col = f"Average_{formula_logic.source_range}"
+                        processed_data[result_col] = result
+            
+            elif formula_logic.formula_type == FormulaType.FILTER:
+                if formula_logic.conditions:
+                    # Apply filter conditions
+                    mask = pd.Series([True] * len(data), index=data.index)
+                    for condition in formula_logic.conditions:
+                        if condition.column in data.columns:
+                            col_mask = self._apply_filter_condition(data[condition.column], condition)
+                            mask = mask & col_mask
+                    processed_data = processed_data[mask]
+            
+            elif formula_logic.formula_type == FormulaType.IF:
+                if formula_logic.conditions and formula_logic.parameters:
+                    # Apply conditional logic
+                    condition_col = formula_logic.conditions[0].column
+                    if condition_col in data.columns:
+                        true_value = formula_logic.parameters.get('true_value', 'High')
+                        false_value = formula_logic.parameters.get('false_value', 'Low')
+                        threshold = formula_logic.conditions[0].value
+                        
+                        result_col = f"Conditional_{condition_col}"
+                        processed_data[result_col] = processed_data[condition_col].apply(
+                            lambda x: true_value if x > threshold else false_value
+                        )
+            
+            logger.info(f"Applied formula logic {formula_logic.formula_type.value} to data")
+            return processed_data
+            
+        except Exception as e:
+            logger.warning(f"Error applying formula logic: {e}")
+            return data
+    
+    def _apply_filters_to_data(self, data: pd.DataFrame, filter_conditions: List[FilterCondition]) -> pd.DataFrame:
+        """
+        Apply learned filter conditions to data before chart generation
+        
+        Args:
+            data: DataFrame to filter
+            filter_conditions: List of filter conditions to apply
+            
+        Returns:
+            Filtered DataFrame
+        """
+        try:
+            filtered_data = data.copy()
+            
+            for condition in filter_conditions:
+                if condition.column in filtered_data.columns:
+                    mask = self._apply_filter_condition(filtered_data[condition.column], condition)
+                    filtered_data = filtered_data[mask]
+            
+            logger.info(f"Applied {len(filter_conditions)} filter conditions, data shape: {data.shape} -> {filtered_data.shape}")
+            return filtered_data
+            
+        except Exception as e:
+            logger.warning(f"Error applying filters: {e}")
+            return data
+    
+    def _extract_range_values_from_data(self, data: pd.DataFrame, range_ref: str) -> Optional[List[float]]:
+        """
+        Extract values from a range reference in the data
+        
+        Args:
+            data: DataFrame containing the data
+            range_ref: Range reference (e.g., 'A1:A10', 'B2:B50')
+            
+        Returns:
+            List of values from the range, or None if extraction fails
+        """
+        try:
+            # Parse range reference (simplified - in production, use more robust parsing)
+            if ':' in range_ref:
+                start, end = range_ref.split(':')
+                start_col = start[0]
+                start_row = int(start[1:]) if len(start) > 1 else 1
+                end_col = end[0]
+                end_row = int(end[1:]) if len(end) > 1 else len(data)
+                
+                # Map column letters to DataFrame columns
+                col_mapping = {chr(65 + i): col for i, col in enumerate(data.columns)}
+                
+                if start_col in col_mapping and end_col in col_mapping:
+                    col_name = col_mapping[start_col]
+                    start_idx = max(0, start_row - 1)
+                    end_idx = min(len(data), end_row)
+                    
+                    values = data[col_name].iloc[start_idx:end_idx].dropna().tolist()
+                    return [float(v) for v in values if pd.notna(v)]
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error extracting range values: {e}")
+            return None
+    
+    def _apply_filter_condition(self, series: pd.Series, condition: FilterCondition) -> pd.Series:
+        """
+        Apply a single filter condition to a pandas Series
+        
+        Args:
+            series: Pandas Series to filter
+            condition: Filter condition to apply
+            
+        Returns:
+            Boolean mask for filtering
+        """
+        try:
+            if condition.operator == '>':
+                return series > condition.value
+            elif condition.operator == '>=':
+                return series >= condition.value
+            elif condition.operator == '<':
+                return series < condition.value
+            elif condition.operator == '<=':
+                return series <= condition.value
+            elif condition.operator == '==':
+                return series == condition.value
+            elif condition.operator == '!=':
+                return series != condition.value
+            else:
+                logger.warning(f"Unsupported operator: {condition.operator}")
+                return pd.Series([True] * len(series), index=series.index)
+                
+        except Exception as e:
+            logger.warning(f"Error applying filter condition: {e}")
+            return pd.Series([True] * len(series), index=series.index)

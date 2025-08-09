@@ -8,7 +8,7 @@ that can be learned by AI models to generate similar files.
 import pandas as pd
 import numpy as np
 import openpyxl
-from openpyxl.chart import Chart
+# Chart imports handled in chart_learner.py
 from openpyxl.styles import Font, PatternFill, Border, Alignment
 from openpyxl.utils import get_column_letter
 import json

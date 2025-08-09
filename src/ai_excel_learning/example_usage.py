@@ -416,6 +416,54 @@ def demonstrate_formula_learning():
     return results
 
 
+def demonstrate_chart_with_formulas():
+    """Demonstrate chart generation with formula logic capabilities"""
+    logger.info("=== Chart Generation with Formula Logic Demonstration ===")
+    
+    # Initialize the learning pipeline
+    pipeline = LearningPipeline()
+    
+    # Create sample data with current measurements
+    sample_data = pd.DataFrame({
+        'Current_mA': np.random.uniform(100, 300, 100),
+        'Voltage_V': np.random.uniform(3.0, 5.0, 100),
+        'Temperature_C': np.random.uniform(20, 80, 100),
+        'Status': np.random.choice(['OK', 'Warning', 'Error'], 100),
+        'Timestamp': pd.date_range('2024-01-01', periods=100, freq='H')
+    })
+    
+    logger.info(f"Sample data created: {sample_data.shape}")
+    logger.info(f"Current range: {sample_data['Current_mA'].min():.1f} - {sample_data['Current_mA'].max():.1f} mA")
+    
+    # Demonstrate chart generation with different formula logic
+    results = pipeline.demonstrate_chart_with_formulas(sample_data)
+    
+    logger.info("Chart Generation Results:")
+    logger.info(f"  Charts created: {len(results['charts_created'])}")
+    logger.info(f"  Formula applications: {len(results['formula_applications'])}")
+    logger.info(f"  Filter applications: {len(results['filter_applications'])}")
+    
+    # Show details of each chart
+    for i, chart_info in enumerate(results['charts_created']):
+        logger.info(f"  Chart {i+1}: {chart_info['name']}")
+        if 'formula_type' in chart_info:
+            logger.info(f"    Formula type: {chart_info['formula_type']}")
+        if 'filter_type' in chart_info:
+            logger.info(f"    Filter type: {chart_info['filter_type']}")
+    
+    # Show formula applications
+    logger.info("Formula Applications:")
+    for app in results['formula_applications']:
+        logger.info(f"  - {app}")
+    
+    # Show filter applications
+    logger.info("Filter Applications:")
+    for app in results['filter_applications']:
+        logger.info(f"  - {app}")
+    
+    return results
+
+
 def main():
     """Main demonstration function"""
     logger.info("Starting AI Excel Learning System Demonstration")
@@ -429,6 +477,9 @@ def main():
         
         # Demonstrate formula learning capabilities
         formula_results = demonstrate_formula_learning()
+        
+        # Demonstrate chart generation with formula logic
+        chart_results = demonstrate_chart_with_formulas()
         
         # Demonstrate complete pipeline
         pipeline, session_id = demonstrate_learning_pipeline()
