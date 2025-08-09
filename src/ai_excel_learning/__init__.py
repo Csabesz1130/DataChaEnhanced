@@ -19,6 +19,8 @@ from .excel_generator import ExcelGenerator
 from .learning_pipeline import LearningPipeline
 from .model_manager import ModelManager
 from .formula_learner import FormulaLearner, FormulaLogic, FilterCondition, CalculationPattern, FormulaType
+from .background_processor import BackgroundProcessor, LearningTask, TaskStatus, Notification, NotificationType
+from .research_extensions import ResearchExtensions, ResearchProject, DataQualityReport, StatisticalAnalysis
 
 __version__ = "1.0.0"
 __author__ = "DataChaEnhanced AI Team"
@@ -35,5 +37,14 @@ __all__ = [
     "FormulaLogic",
     "FilterCondition",
     "CalculationPattern",
-    "FormulaType"
+    "FormulaType",
+    "BackgroundProcessor",
+    "LearningTask",
+    "TaskStatus",
+    "Notification",
+    "NotificationType",
+    "ResearchExtensions",
+    "ResearchProject",
+    "DataQualityReport",
+    "StatisticalAnalysis"
 ]
