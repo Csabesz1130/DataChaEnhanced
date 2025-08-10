@@ -755,6 +755,15 @@ class SignalAnalyzerApp:
             ttk.Label(placeholder_frame, text="AI Analysis module unavailable", justify='center').pack(padx=20, pady=20)
             self.notebook.add(placeholder_frame, text='AI Analysis', state='disabled')
 
+        # Add Research tab
+        try:
+            from src.gui.research_tab import ResearchTab
+            self.tabs['research'] = ResearchTab(self.notebook, self)
+            self.notebook.add(self.tabs['research'].frame, text='Research')
+            app_logger.info("Research tab loaded.")
+        except Exception as e:
+            app_logger.warning(f"Research tab not available: {e}")
+
     
     def reset_point_tracker(self):
         """
