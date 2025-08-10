@@ -1,0 +1,48 @@
+[
+  {
+    "task_id": "d3b7c612-9bb9-4f89-afeb-50319cd94636",
+    "file_path": "test_file.xlsx",
+    "task_type": "excel_analysis",
+    "priority": 3,
+    "created_at": "2025-08-10 02:10:32.194946",
+    "started_at": "2025-08-10 02:10:32.199229",
+    "completed_at": "2025-08-10 02:10:32.213298",
+    "status": "completed",
+    "progress": 100.0,
+    "result": {
+      "excel_analysis": {
+        "file_path": "test_file.xlsx",
+        "file_size": 4858,
+        "sheets": [
+          {
+            "name": "Sheet",
+            "max_row": 2,
+            "max_column": 2,
+            "cells_with_data": 4,
+            "formulas": []
+          }
+        ],
+        "formulas": [],
+        "charts": [],
+        "summary": {
+          "total_sheets": 1,
+          "total_cells": 4,
+          "total_formulas": 0,
+          "analysis_timestamp": "2025-08-10T02:10:32.213262"
+        },
+        "task_metadata": {
+          "task_id": "d3b7c612-9bb9-4f89-afeb-50319cd94636",
+          "task_type": "excel_analysis",
+          "processing_time": "2025-08-10T02:10:32.213289"
+        }
+      },
+      "processing_summary": {
+        "sheets_analyzed": 1,
+        "formulas_found": 0,
+        "total_cells": 4
+      }
+    },
+    "error": null,
+    "metadata": {}
+  }
+]

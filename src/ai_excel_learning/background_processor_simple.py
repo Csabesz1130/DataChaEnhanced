@@ -101,6 +101,7 @@ class SimpleExcelAnalyzer:
     
     def _analyze_with_openpyxl(self, file_path: str) -> Dict[str, Any]:
         """Analyze Excel file using openpyxl"""
+        from openpyxl import load_workbook
         workbook = load_workbook(file_path, data_only=True)
         
         analysis = {
@@ -263,8 +264,12 @@ class SimpleBackgroundProcessor:
                 with open(tasks_file, 'r') as f:
                     tasks_data = json.load(f)
                     for task_dict in tasks_data:
-                        task = self._dict_to_task(task_dict)
-                        self.tasks[task.task_id] = task
+                        try:
+                            task = self._dict_to_task(task_dict)
+                            self.tasks[task.task_id] = task
+                        except Exception as task_error:
+                            logger.warning(f"Skipping corrupted task data: {task_error}")
+                            continue
             
             # Load notifications
             notifications_file = self.storage_path / "notifications.json"
@@ -272,26 +277,45 @@ class SimpleBackgroundProcessor:
                 with open(notifications_file, 'r') as f:
                     notifications_data = json.load(f)
                     for notif_dict in notifications_data:
-                        notification = self._dict_to_notification(notif_dict)
-                        self.notifications.append(notification)
+                        try:
+                            notification = self._dict_to_notification(notif_dict)
+                            self.notifications.append(notification)
+                        except Exception as notif_error:
+                            logger.warning(f"Skipping corrupted notification data: {notif_error}")
+                            continue
             
             logger.info(f"Loaded {len(self.tasks)} tasks and {len(self.notifications)} notifications")
             
         except Exception as e:
             logger.error(f"Error loading persistent data: {e}")
+            # If loading fails, start with clean state
+            self.tasks = {}
+            self.notifications = []
     
     def _save_persistent_data(self):
         """Save persistent data to storage"""
         try:
             # Save tasks
             tasks_file = self.storage_path / "tasks.json"
-            tasks_data = [asdict(task) for task in self.tasks.values()]
+            tasks_data = []
+            for task in self.tasks.values():
+                task_dict = asdict(task)
+                # Convert enum to string for JSON serialization
+                task_dict['status'] = task_dict['status'].value
+                tasks_data.append(task_dict)
+            
             with open(tasks_file, 'w') as f:
                 json.dump(tasks_data, f, indent=2, default=str)
             
             # Save notifications
             notifications_file = self.storage_path / "notifications.json"
-            notifications_data = [asdict(notification) for notification in self.notifications]
+            notifications_data = []
+            for notification in self.notifications:
+                notif_dict = asdict(notification)
+                # Convert enum to string for JSON serialization
+                notif_dict['notification_type'] = notif_dict['notification_type'].value
+                notifications_data.append(notif_dict)
+            
             with open(notifications_file, 'w') as f:
                 json.dump(notifications_data, f, indent=2, default=str)
             
@@ -713,6 +737,27 @@ class SimpleBackgroundProcessor:
         self._save_persistent_data()
         
         logger.info(f"Cleaned up {len(old_tasks)} old tasks and old notifications")
+    
+    def reset_persistent_data(self):
+        """Reset all persistent data - useful for testing or recovery"""
+        try:
+            # Remove existing files
+            tasks_file = self.storage_path / "tasks.json"
+            notifications_file = self.storage_path / "notifications.json"
+            
+            if tasks_file.exists():
+                tasks_file.unlink()
+            if notifications_file.exists():
+                notifications_file.unlink()
+            
+            # Clear in-memory data
+            self.tasks = {}
+            self.notifications = []
+            
+            logger.info("Persistent data reset successfully")
+            
+        except Exception as e:
+            logger.error(f"Error resetting persistent data: {e}")
     
     def export_learning_results(self, output_path: str):
         """Export learning results to file"""

@@ -375,7 +375,8 @@ class ExcelLearningTab:
                 # Store task reference
                 self.task_widgets[item] = task_id
             
-            self.status_bar.config(text=f"Refreshed at {datetime.now().strftime('%H:%M:%S')}")
+            if hasattr(self, 'status_bar') and self.status_bar:
+                self.status_bar.config(text=f"Refreshed at {datetime.now().strftime('%H:%M:%S')}")
             
         except Exception as e:
             app_logger.error(f"Error refreshing tasks: {e}")
@@ -525,7 +526,8 @@ Result Summary: {result_summary}
                     result_size
                 ))
             
-            self.status_bar.config(text=f"Results refreshed at {datetime.now().strftime('%H:%M:%S')}")
+            if hasattr(self, 'status_bar') and self.status_bar:
+                self.status_bar.config(text=f"Results refreshed at {datetime.now().strftime('%H:%M:%S')}")
             
         except Exception as e:
             app_logger.error(f"Error refreshing results: {e}")
@@ -558,7 +560,8 @@ Result Summary: {result_summary}
             self.results_tree.delete(item)
         
         self.result_details_text.delete(1.0, tk.END)
-        self.status_bar.config(text="Results cleared")
+        if hasattr(self, 'status_bar') and self.status_bar:
+            self.status_bar.config(text="Results cleared")
     
     def on_result_select(self, event):
         """Handle result selection"""
@@ -602,8 +605,9 @@ Full Result:
     def on_notification(self, notification):
         """Handle notifications from background processor"""
         try:
-            # Update status bar
-            self.status_bar.config(text=f"Notification: {notification.message}")
+            # Update status bar if available
+            if hasattr(self, 'status_bar') and self.status_bar:
+                self.status_bar.config(text=f"Notification: {notification.message}")
             
             # Show notification in GUI
             if notification.notification_type.value in ['task_completed', 'task_failed']:

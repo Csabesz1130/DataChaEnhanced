@@ -1,0 +1,46 @@
+[
+  {
+    "notification_id": "e875b839-bfcc-4caa-9fbe-6c67430fd6b1",
+    "task_id": "d3b7c612-9bb9-4f89-afeb-50319cd94636",
+    "notification_type": "task_started",
+    "message": "Task d3b7c612-9bb9-4f89-afeb-50319cd94636 submitted for test_file.xlsx",
+    "timestamp": "2025-08-10 02:10:32.194992",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "9f68cf86-c6e7-4760-b6a1-0e0975b3459a",
+    "task_id": "d3b7c612-9bb9-4f89-afeb-50319cd94636",
+    "notification_type": "task_started",
+    "message": "Processing test_file.xlsx",
+    "timestamp": "2025-08-10 02:10:32.199303",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "3d606849-5d67-4be3-8803-4dd0bd483e5f",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-10 02:10:32.200814",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "4c88d15a-9cba-40c0-b78b-b28e14268ddd",
+    "task_id": "d3b7c612-9bb9-4f89-afeb-50319cd94636",
+    "notification_type": "task_completed",
+    "message": "Task completed: test_file.xlsx",
+    "timestamp": "2025-08-10 02:10:32.213337",
+    "data": {
+      "result_summary": {
+        "excel_analysis": {
+          "sheets_analyzed": 1,
+          "total_cells": 4,
+          "formulas_found": 0
+        }
+      }
+    },
+    "read": false
+  }
+]

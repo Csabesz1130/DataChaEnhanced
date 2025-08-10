@@ -1,0 +1,52 @@
+[
+  {
+    "notification_id": "908480d8-5b41-4b00-9814-74ce6c41f990",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-10 02:43:17.528470",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "7c485435-1b6d-439f-986d-22122f11eaab",
+    "task_id": "1301d001-03b0-42c0-ade6-628717473e28",
+    "notification_type": "task_started",
+    "message": "Task 1301d001-03b0-42c0-ade6-628717473e28 submitted for eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-10 02:45:13.181096",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "c9a6fa79-8852-4df4-b4b5-be53a1bf0da0",
+    "task_id": "1301d001-03b0-42c0-ade6-628717473e28",
+    "notification_type": "task_started",
+    "message": "Processing eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-10 02:45:13.181251",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "0bcd7268-c62b-4c94-b854-e3f8f6b516a8",
+    "task_id": "1301d001-03b0-42c0-ade6-628717473e28",
+    "notification_type": "task_completed",
+    "message": "Task completed: eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-10 02:45:13.572952",
+    "data": {
+      "result_summary": {
+        "excel_analysis": {
+          "sheets_analyzed": 6,
+          "total_cells": 5063,
+          "formulas_found": 0
+        },
+        "formula_learning": {
+          "formulas_learned": 0
+        },
+        "chart_learning": {
+          "charts_learned": 0
+        }
+      }
+    },
+    "read": false
+  }
+]
