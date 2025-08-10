@@ -289,7 +289,69 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Send notification
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+          
+      - name: Send Email Notifications
+        if: ${{ env.ENABLE_EMAIL_NOTIFICATIONS != 'false' }}
+        run: |
+          python .github/scripts/email_notifier.py
+        env:
+          ENABLE_EMAIL_NOTIFICATIONS: ${{ vars.ENABLE_EMAIL_NOTIFICATIONS }}
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          DOWNLOAD_COUNT: ${{ github.event.release.download_count }}
+          
+      - name: Send Webhook Notifications
+        if: ${{ env.ENABLE_WEBHOOK_NOTIFICATIONS != 'false' }}
+        run: |
+          python .github/scripts/webhook_notifier.py
+        env:
+          ENABLE_WEBHOOK_NOTIFICATIONS: ${{ vars.ENABLE_WEBHOOK_NOTIFICATIONS }}
+          WEBHOOK_URLS: ${{ secrets.WEBHOOK_URLS }}
+          WEBHOOK_TYPE: ${{ vars.WEBHOOK_TYPE }}
+          WEBHOOK_TIMEOUT: ${{ vars.WEBHOOK_TIMEOUT }}
+          WEBHOOK_RETRY_ATTEMPTS: ${{ vars.WEBHOOK_RETRY_ATTEMPTS }}
+          WEBHOOK_RETRY_DELAY: ${{ vars.WEBHOOK_RETRY_DELAY }}
+          WEBHOOK_CUSTOM_HEADERS: ${{ vars.WEBHOOK_CUSTOM_HEADERS }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          DOWNLOAD_COUNT: ${{ github.event.release.download_count }}
+          
+      - name: Send Telegram Notifications
+        if: ${{ env.ENABLE_TELEGRAM_NOTIFICATIONS != 'false' }}
+        run: |
+          python .github/scripts/telegram_notifier.py
+        env:
+          ENABLE_TELEGRAM_NOTIFICATIONS: ${{ vars.ENABLE_TELEGRAM_NOTIFICATIONS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+          TELEGRAM_NOTIFICATION_TYPE: ${{ vars.TELEGRAM_NOTIFICATION_TYPE }}
+          TELEGRAM_TIMEOUT: ${{ vars.TELEGRAM_TIMEOUT }}
+          TELEGRAM_RETRY_ATTEMPTS: ${{ vars.TELEGRAM_RETRY_ATTEMPTS }}
+          TELEGRAM_RETRY_DELAY: ${{ vars.TELEGRAM_RETRY_DELAY }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          DOWNLOAD_COUNT: ${{ github.event.release.download_count }}
+          
+      - name: Notification Summary
         run: |
           echo "🎉 Release ${{ github.ref_name }} published successfully!"
           echo "📦 Downloads available at: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+          echo ""
+          echo "📧 Email notifications: ${{ env.ENABLE_EMAIL_NOTIFICATIONS != 'false' && 'Enabled' || 'Disabled' }}"
+          echo "🔗 Webhook notifications: ${{ env.ENABLE_WEBHOOK_NOTIFICATIONS != 'false' && 'Enabled' || 'Disabled' }}"
+          echo "📱 Telegram notifications: ${{ env.ENABLE_TELEGRAM_NOTIFICATIONS != 'false' && 'Enabled' || 'Disabled' }}"
