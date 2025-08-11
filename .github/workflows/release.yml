@@ -1,0 +1,95 @@
+name: Release Signal Analyzer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+jobs:
+  release-notifications:
+    runs-on: ubuntu-latest
+    
+    env:
+      # Unified version handling
+      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+      
+      # Secrets for notifications
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+      EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+      EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+      WEBHOOK_URLS: ${{ secrets.WEBHOOK_URLS }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_IDS: ${{ secrets.TELEGRAM_CHAT_IDS }}
+      
+      # Feature flags from repository variables
+      ENABLE_EMAIL_NOTIFICATIONS: ${{ vars.ENABLE_EMAIL_NOTIFICATIONS || 'false' }}
+      ENABLE_WEBHOOK_NOTIFICATIONS: ${{ vars.ENABLE_WEBHOOK_NOTIFICATIONS || 'false' }}
+      ENABLE_TELEGRAM_NOTIFICATIONS: ${{ vars.ENABLE_TELEGRAM_NOTIFICATIONS || 'false' }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Send email notification
+      if: env.ENABLE_EMAIL_NOTIFICATIONS == 'true'
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{ env.SMTP_SERVER }}
+        server_port: ${{ env.SMTP_PORT }}
+        username: ${{ env.EMAIL_USERNAME }}
+        password: ${{ env.EMAIL_PASSWORD }}
+        from: ${{ env.FROM_EMAIL }}
+        to: ${{ env.EMAIL_RECIPIENTS }}
+        subject: "Signal Analyzer Release ${{ env.VERSION }}"
+        html_body: |
+          <h3>New release: ${{ env.VERSION }}</h3>
+          <p>Build: ${{ github.run_id }}</p>
+          <p>Repository: ${{ github.repository }}</p>
+          <p>Commit: ${{ github.sha }}</p>
+
+    - name: Send webhook notifications
+      if: env.ENABLE_WEBHOOK_NOTIFICATIONS == 'true'
+      run: |
+        if [ -n "$WEBHOOK_URLS" ]; then
+          echo "$WEBHOOK_URLS" | while IFS= read -r url; do
+            if [ -n "$url" ]; then
+              curl -X POST "$url" \
+                -H "Content-Type: application/json" \
+                -d "{\"text\":\"Signal Analyzer release $VERSION is available (run $GITHUB_RUN_ID).\"}"
+            fi
+          done
+        fi
+
+    - name: Send Telegram notifications
+      if: env.ENABLE_TELEGRAM_NOTIFICATIONS == 'true'
+      run: |
+        if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_IDS" ]; then
+          echo "$TELEGRAM_CHAT_IDS" | tr ',' '\n' | while read -r chat_id; do
+            if [ -n "$chat_id" ]; then
+              curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+                -d "chat_id=$chat_id" \
+                -d "text=Signal Analyzer release $VERSION is available (run $GITHUB_RUN_ID)."
+            fi
+          done
+        fi
+
+    - name: Create release summary
+      run: |
+        echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version:** $VERSION" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build ID:** $GITHUB_RUN_ID" >> $GITHUB_STEP_SUMMARY
+        echo "- **Repository:** $GITHUB_REPOSITORY" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** $GITHUB_SHA" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Notifications Sent:" >> $GITHUB_STEP_SUMMARY
+        echo "- Email: $ENABLE_EMAIL_NOTIFICATIONS" >> $GITHUB_STEP_SUMMARY
+        echo "- Webhook: $ENABLE_WEBHOOK_NOTIFICATIONS" >> $GITHUB_STEP_SUMMARY
+        echo "- Telegram: $ENABLE_TELEGRAM_NOTIFICATIONS" >> $GITHUB_STEP_SUMMARY
