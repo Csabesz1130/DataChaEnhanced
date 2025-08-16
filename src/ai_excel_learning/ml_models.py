@@ -6,8 +6,14 @@ This module contains various ML models for learning Excel patterns and generatin
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
-from tensorflow import keras
+try:
+    import tensorflow as tf
+    from tensorflow import keras
+    TF_AVAILABLE = True
+except Exception:
+    tf = None  # type: ignore
+    keras = None  # type: ignore
+    TF_AVAILABLE = False
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.cluster import KMeans
@@ -52,7 +58,7 @@ class ExcelMLModels:
         tf.random.set_seed(42)
         
     def create_sequential_model(self, input_dim: int, output_dim: int, 
-                              layers: List[int] = [64, 32, 16]) -> keras.Model:
+                              layers: List[int] = [64, 32, 16]):
         """Create a sequential neural network model"""
         model = keras.Sequential()
         
@@ -77,7 +83,7 @@ class ExcelMLModels:
         return model
     
     def create_lstm_model(self, sequence_length: int, features: int, 
-                         output_dim: int) -> keras.Model:
+                         output_dim: int):
         """Create an LSTM model for time series data"""
         model = keras.Sequential([
             keras.layers.LSTM(50, return_sequences=True, input_shape=(sequence_length, features)),
@@ -131,6 +137,8 @@ class ExcelMLModels:
         
         # Train model
         if model_type == 'neural_network':
+            if not TF_AVAILABLE:
+                raise RuntimeError("TensorFlow nem elérhető ebben a környezetben. Telepítsd a TensorFlow-t, vagy válassz más modellt (pl. random_forest/linear).")
             model = self.create_sequential_model(
                 input_dim=X_train_scaled.shape[1], 
                 output_dim=1
@@ -324,6 +332,8 @@ class ExcelMLModels:
             sequence_length = min(5, len(data) // 2)
             X, y = self._create_sequences(data, sequence_length)
             
+            if not TF_AVAILABLE:
+                raise RuntimeError("TensorFlow nem elérhető ebben a környezetben. Telepítsd a TensorFlow-t, vagy válassz rövid szekvenciákhoz a lineáris megközelítést.")
             model = self.create_lstm_model(
                 sequence_length=sequence_length,
                 features=X.shape[2],
@@ -441,6 +451,8 @@ class ExcelMLModels:
         # Load model
         model_path = self.models_dir / f"{model_name}.h5"
         if model_path.exists():
+            if not TF_AVAILABLE:
+                raise RuntimeError("TensorFlow alapú modell (.h5) található, de TensorFlow nem elérhető. Telepítsd a TensorFlow-t, vagy használj .pkl modellt.")
             model = keras.models.load_model(model_path)
             model_type = 'neural_network'
         else:
