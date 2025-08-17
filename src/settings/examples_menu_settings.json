@@ -1,0 +1,7 @@
+{
+  "auto_refresh": true,
+  "real_time_monitoring": true,
+  "detailed_logging": false,
+  "export_format": "json",
+  "test_setting": "test_value"
+}

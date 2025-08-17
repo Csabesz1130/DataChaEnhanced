@@ -94,6 +94,9 @@ class ExamplesMenuTab:
         
         # Alsó státusz sáv
         self.setup_status_bar()
+        
+        # Kezdeti nézet megjelenítése (a status bar létrehozása után)
+        self.show_examples_view()
     
     def setup_header(self):
         """Beállítja a fejléc részt"""
@@ -170,9 +173,6 @@ class ExamplesMenuTab:
         self.setup_background_view()
         self.setup_testing_view()
         self.setup_results_view()
-        
-        # Kezdeti nézet
-        self.show_examples_view()
     
     def setup_examples_view(self):
         """Beállítja a tanpéldák nézetet"""
