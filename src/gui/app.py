@@ -1061,6 +1061,18 @@ class SignalAnalyzerApp:
             placeholder_frame = ttk.Frame(self.notebook)
             ttk.Label(placeholder_frame, text="Excel Learning module unavailable", justify='center').pack(padx=20, pady=20)
             self.notebook.add(placeholder_frame, text='Excel Learning', state='disabled')
+        
+        # Add AI Excel Learning Demo tab with deferred import
+        try:
+            from src.gui.ai_excel_learning_demo_tab import AIExcelLearningDemoTab
+            self.tabs['ai_excel_learning_demo'] = AIExcelLearningDemoTab(self.notebook, self)
+            self.notebook.add(self.tabs['ai_excel_learning_demo'].frame, text='AI Excel Learning Demo')
+            app_logger.info("Successfully loaded AI Excel Learning Demo tab.")
+        except Exception as e:
+            app_logger.warning(f"AI Excel Learning Demo tab not available: {e}")
+            placeholder_frame = ttk.Frame(self.notebook)
+            ttk.Label(placeholder_frame, text="AI Excel Learning Demo module unavailable", justify='center').pack(padx=20, pady=20)
+            self.notebook.add(placeholder_frame, text='AI Excel Learning Demo', state='disabled')
     
     def reset_point_tracker(self):
         """
