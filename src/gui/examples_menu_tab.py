@@ -29,6 +29,9 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from src.utils.logger import app_logger
+from src.utils.background_task_client import (
+    BackgroundTaskClient, TaskPriority, create_background_task_client
+)
 
 class ExamplesMenuTab:
     """Dedikált tab a kész tanpéldákhoz és AI Dashboard-hoz"""
@@ -58,6 +61,14 @@ class ExamplesMenuTab:
             "detailed_logging": False,
             "export_format": "json"
         }
+        
+        # Háttér task client
+        self.background_client = None
+        try:
+            self.background_client = create_background_task_client()
+            self.background_client.add_notification_callback(self._on_background_notification)
+        except Exception as e:
+            app_logger.warning(f"Háttér task client inicializálás sikertelen: {e}")
         
         # UI felépítése
         self.setup_ui()
@@ -129,12 +140,13 @@ class ExamplesMenuTab:
         
         # Tab-szerű navigáció
         self.nav_var = tk.StringVar(value="examples")
-        nav_buttons = [
-            ("examples", "📚 Tanpéldák", self.show_examples_view),
-            ("dashboard", "📊 Dashboard", self.show_dashboard_view),
-            ("testing", "🔧 Tesztelés", self.show_testing_view),
-            ("results", "📋 Eredmények", self.show_results_view)
-        ]
+                    nav_buttons = [
+                ("examples", "📚 Tanpéldák", self.show_examples_view),
+                ("dashboard", "📊 Dashboard", self.show_dashboard_view),
+                ("background", "🔄 Háttér Taskok", self.show_background_view),
+                ("testing", "🔧 Tesztelés", self.show_testing_view),
+                ("results", "📋 Eredmények", self.show_results_view)
+            ]
         
         for nav_id, nav_text, nav_command in nav_buttons:
             btn = ttk.Radiobutton(
@@ -155,6 +167,7 @@ class ExamplesMenuTab:
         # Nézetek beállítása
         self.setup_examples_view()
         self.setup_dashboard_view() 
+        self.setup_background_view()
         self.setup_testing_view()
         self.setup_results_view()
         
@@ -450,6 +463,212 @@ class ExamplesMenuTab:
         )
         preview_info.pack(expand=True)
     
+    def setup_background_view(self):
+        """Beállítja a háttér taskok nézetet"""
+        self.background_frame = ttk.Frame(self.content_frame)
+        
+        # Háttér szolgáltatás vezérlőpult
+        service_panel = ttk.LabelFrame(self.background_frame, text="🔧 Háttér Szolgáltatás", padding=10)
+        service_panel.pack(fill='x', padx=10, pady=10)
+        
+        # Service állapot és vezérlés
+        service_status_frame = ttk.Frame(service_panel)
+        service_status_frame.pack(fill='x')
+        
+        # Bal oldali állapot
+        status_left = ttk.Frame(service_status_frame)
+        status_left.pack(side='left', fill='both', expand=True)
+        
+        self.service_status_label = ttk.Label(
+            status_left,
+            text="❓ Státusz ellenőrzése...",
+            font=('Arial', 10, 'bold')
+        )
+        self.service_status_label.pack(anchor='w')
+        
+        self.service_details_label = ttk.Label(
+            status_left,
+            text="Részletek betöltése...",
+            font=('Arial', 9)
+        )
+        self.service_details_label.pack(anchor='w')
+        
+        # Jobb oldali vezérlés
+        controls_right = ttk.Frame(service_status_frame)
+        controls_right.pack(side='right')
+        
+        self.start_service_btn = ttk.Button(
+            controls_right,
+            text="🚀 Szolgáltatás Indítása",
+            command=self.start_background_service
+        )
+        self.start_service_btn.pack(side='left', padx=(0, 5))
+        
+        self.stop_service_btn = ttk.Button(
+            controls_right,
+            text="⏹ Szolgáltatás Leállítása",
+            command=self.stop_background_service,
+            state='disabled'
+        )
+        self.stop_service_btn.pack(side='left', padx=(0, 5))
+        
+        ttk.Button(
+            controls_right,
+            text="🔄 Frissítés",
+            command=self.refresh_background_status
+        ).pack(side='left')
+        
+        # Gyors task beküldés
+        quick_tasks_panel = ttk.LabelFrame(self.background_frame, text="⚡ Gyors Task Beküldés", padding=10)
+        quick_tasks_panel.pack(fill='x', padx=10, pady=10)
+        
+        # File picker és task submit
+        file_frame = ttk.Frame(quick_tasks_panel)
+        file_frame.pack(fill='x', pady=(0, 10))
+        
+        ttk.Label(file_frame, text="Excel fájl:").pack(side='left')
+        
+        self.selected_file_var = tk.StringVar()
+        self.file_path_entry = ttk.Entry(
+            file_frame,
+            textvariable=self.selected_file_var,
+            width=50
+        )
+        self.file_path_entry.pack(side='left', padx=(5, 5), fill='x', expand=True)
+        
+        ttk.Button(
+            file_frame,
+            text="📁 Tallózás",
+            command=self.browse_excel_file
+        ).pack(side='right')
+        
+        # Task típus választó és prioritás
+        task_config_frame = ttk.Frame(quick_tasks_panel)
+        task_config_frame.pack(fill='x', pady=(0, 10))
+        
+        ttk.Label(task_config_frame, text="Task típus:").pack(side='left')
+        
+        self.task_type_var = tk.StringVar(value="excel_analysis")
+        task_type_combo = ttk.Combobox(
+            task_config_frame,
+            textvariable=self.task_type_var,
+            values=[
+                "excel_analysis",
+                "formula_learning", 
+                "chart_learning",
+                "full_pipeline"
+            ],
+            state="readonly",
+            width=20
+        )
+        task_type_combo.pack(side='left', padx=(5, 20))
+        
+        ttk.Label(task_config_frame, text="Prioritás:").pack(side='left')
+        
+        self.priority_var = tk.StringVar(value="NORMAL")
+        priority_combo = ttk.Combobox(
+            task_config_frame,
+            textvariable=self.priority_var,
+            values=["LOW", "NORMAL", "HIGH", "URGENT"],
+            state="readonly",
+            width=10
+        )
+        priority_combo.pack(side='left', padx=(5, 0))
+        
+        # Submit gombok
+        submit_frame = ttk.Frame(quick_tasks_panel)
+        submit_frame.pack(fill='x')
+        
+        ttk.Button(
+            submit_frame,
+            text="▶ Azonnali Futtatás",
+            command=self.submit_immediate_task,
+            style='Accent.TButton'
+        ).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(
+            submit_frame,
+            text="⏰ Ütemezett Futtatás",
+            command=self.submit_scheduled_task
+        ).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(
+            submit_frame,
+            text="📁 Batch Feldolgozás",
+            command=self.submit_batch_task
+        ).pack(side='left')
+        
+        # Task lista és monitoring
+        tasks_panel = ttk.LabelFrame(self.background_frame, text="📋 Aktív és Legutóbbi Taskok", padding=10)
+        tasks_panel.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Task Treeview
+        tree_frame = ttk.Frame(tasks_panel)
+        tree_frame.pack(fill='both', expand=True)
+        
+        # Scrollbar
+        tree_scroll = ttk.Scrollbar(tree_frame)
+        tree_scroll.pack(side='right', fill='y')
+        
+        self.background_tasks_tree = ttk.Treeview(
+            tree_frame,
+            columns=('Task ID', 'Típus', 'Név', 'Állapot', 'Progress', 'Létrehozva'),
+            show='headings',
+            height=12,
+            yscrollcommand=tree_scroll.set
+        )
+        tree_scroll.config(command=self.background_tasks_tree.yview)
+        
+        # Oszlop fejlécek
+        self.background_tasks_tree.heading('Task ID', text='Task ID')
+        self.background_tasks_tree.heading('Típus', text='Típus')
+        self.background_tasks_tree.heading('Név', text='Név')
+        self.background_tasks_tree.heading('Állapot', text='Állapot')
+        self.background_tasks_tree.heading('Progress', text='Progress')
+        self.background_tasks_tree.heading('Létrehozva', text='Létrehozva')
+        
+        # Oszlop szélességek
+        self.background_tasks_tree.column('Task ID', width=150)
+        self.background_tasks_tree.column('Típus', width=120)
+        self.background_tasks_tree.column('Név', width=200)
+        self.background_tasks_tree.column('Állapot', width=100)
+        self.background_tasks_tree.column('Progress', width=80)
+        self.background_tasks_tree.column('Létrehozva', width=130)
+        
+        self.background_tasks_tree.pack(side='left', fill='both', expand=True)
+        
+        # Task kezelési gombok
+        task_actions_frame = ttk.Frame(tasks_panel)
+        task_actions_frame.pack(fill='x', pady=(10, 0))
+        
+        ttk.Button(
+            task_actions_frame,
+            text="🔄 Lista Frissítése",
+            command=self.refresh_background_tasks
+        ).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(
+            task_actions_frame,
+            text="⏹ Task Megszakítása",
+            command=self.cancel_selected_task
+        ).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(
+            task_actions_frame,
+            text="📊 Task Részletek",
+            command=self.show_task_details
+        ).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(
+            task_actions_frame,
+            text="🧹 Régi Taskok Törlése",
+            command=self.cleanup_old_tasks
+        ).pack(side='right')
+        
+        # Kezdeti állapot frissítése
+        self.refresh_background_status()
+        self.refresh_background_tasks()
+    
     def setup_testing_view(self):
         """Beállítja a tesztelési nézetet"""
         self.testing_frame = ttk.Frame(self.content_frame)
@@ -725,6 +944,14 @@ enterprise-szintű képességeket mutatja be.
         self.dashboard_frame.pack(fill='both', expand=True)
         self.main_status_label.config(text="Dashboard nézet")
     
+    def show_background_view(self):
+        """Megjeleníti a háttér taskok nézetet"""
+        self._hide_all_views()
+        self.background_frame.pack(fill='both', expand=True)
+        self.main_status_label.config(text="Háttér taskok nézet")
+        self.refresh_background_status()
+        self.refresh_background_tasks()
+    
     def show_testing_view(self):
         """Megjeleníti a tesztelési nézetet"""
         self._hide_all_views()
@@ -740,7 +967,7 @@ enterprise-szintű képességeket mutatja be.
     
     def _hide_all_views(self):
         """Elrejti az összes nézetet"""
-        for frame in [self.examples_frame, self.dashboard_frame, 
+        for frame in [self.examples_frame, self.dashboard_frame, self.background_frame,
                      self.testing_frame, self.results_frame]:
             frame.pack_forget()
     
@@ -1922,9 +2149,491 @@ Rendszerkövetelmények:
         # Beállítások mentése
         self.save_settings()
     
+    # Háttér task kezelési metódusok
+    def _on_background_notification(self, notification):
+        """Háttér értesítés kezelése"""
+        try:
+            # GUI thread-be schedulálja a UI frissítést
+            self.frame.after(0, self._handle_notification_in_gui, notification)
+        except Exception as e:
+            app_logger.error(f"Háttér értesítés kezelési hiba: {e}")
+    
+    def _handle_notification_in_gui(self, notification):
+        """Értesítés kezelése GUI thread-ben"""
+        try:
+            notif_type = notification.get('notification_type', '')
+            message = notification.get('message', '')
+            
+            # Státusz sáv frissítése
+            if notif_type in ['task_submitted', 'task_started']:
+                self.main_status_label.config(text=f"📤 {message}")
+            elif notif_type == 'task_completed':
+                self.main_status_label.config(text=f"✅ {message}")
+                # Toast notification opcionálisan
+                self._show_toast_notification("Task befejezve", message)
+            elif notif_type == 'task_failed':
+                self.main_status_label.config(text=f"❌ {message}")
+                self._show_toast_notification("Task sikertelen", message)
+            
+            # Task lista frissítése ha a háttér nézet aktív
+            if hasattr(self, 'background_frame') and self.background_frame.winfo_viewable():
+                self.refresh_background_tasks()
+                
+        except Exception as e:
+            app_logger.error(f"GUI értesítés kezelési hiba: {e}")
+    
+    def _show_toast_notification(self, title, message):
+        """Toast notification megjelenítése"""
+        try:
+            # Egyszerű popup ablak 3 másodpercre
+            toast = tk.Toplevel(self.frame)
+            toast.title(title)
+            toast.geometry("300x100")
+            toast.attributes('-topmost', True)
+            
+            # Pozicionálás jobb alsó sarokba
+            toast.geometry("+{}+{}".format(
+                toast.winfo_screenwidth() - 320,
+                toast.winfo_screenheight() - 150
+            ))
+            
+            ttk.Label(toast, text=title, font=('Arial', 10, 'bold')).pack(pady=(10, 5))
+            ttk.Label(toast, text=message, wraplength=280).pack(padx=10)
+            
+            # Automatikus bezárás
+            toast.after(3000, toast.destroy)
+            
+        except Exception as e:
+            app_logger.warning(f"Toast notification hiba: {e}")
+    
+    def refresh_background_status(self):
+        """Háttér szolgáltatás állapotának frissítése"""
+        if not self.background_client:
+            if hasattr(self, 'service_status_label'):
+                self.service_status_label.config(text="❌ Client nem elérhető")
+                self.service_details_label.config(text="Háttér task client inicializálás sikertelen")
+            return
+        
+        try:
+            status = self.background_client.get_service_status()
+            
+            if status.get('running', False):
+                self.service_status_label.config(
+                    text="✅ Háttér szolgáltatás fut",
+                    foreground="green"
+                )
+                
+                details = f"Aktív taskok: {status.get('active_tasks', 0)} | "
+                details += f"Queue: {status.get('queue_size', 0)} | "
+                details += f"Workers: {status.get('workers', 0)}"
+                
+                self.service_details_label.config(text=details)
+                
+                # Gombok állapota
+                self.start_service_btn.config(state='disabled')
+                self.stop_service_btn.config(state='normal')
+                
+            else:
+                self.service_status_label.config(
+                    text="❌ Háttér szolgáltatás nem fut",
+                    foreground="red"
+                )
+                self.service_details_label.config(text="Szolgáltatás indítása szükséges")
+                
+                # Gombok állapota
+                self.start_service_btn.config(state='normal')
+                self.stop_service_btn.config(state='disabled')
+                
+        except Exception as e:
+            if hasattr(self, 'service_status_label'):
+                self.service_status_label.config(
+                    text="⚠️ Állapot ellenőrzési hiba",
+                    foreground="orange"
+                )
+                self.service_details_label.config(text=f"Hiba: {str(e)}")
+            app_logger.error(f"Background status refresh hiba: {e}")
+    
+    def start_background_service(self):
+        """Háttér szolgáltatás indítása"""
+        if not self.background_client:
+            messagebox.showerror("Hiba", "Háttér task client nem elérhető!")
+            return
+        
+        try:
+            self.start_service_btn.config(state='disabled', text="⏳ Indítás...")
+            
+            # Service indítása thread-ben
+            def start_worker():
+                try:
+                    success = self.background_client.start_service()
+                    
+                    # GUI frissítés fő thread-ben
+                    self.frame.after(0, self._on_service_start_complete, success)
+                    
+                except Exception as e:
+                    self.frame.after(0, self._on_service_start_error, str(e))
+            
+            threading.Thread(target=start_worker, daemon=True).start()
+            
+        except Exception as e:
+            messagebox.showerror("Hiba", f"Szolgáltatás indítás hiba: {str(e)}")
+            self.start_service_btn.config(state='normal', text="🚀 Szolgáltatás Indítása")
+    
+    def _on_service_start_complete(self, success):
+        """Service indítás befejezése"""
+        self.start_service_btn.config(text="🚀 Szolgáltatás Indítása")
+        
+        if success:
+            messagebox.showinfo("Siker", "Háttér szolgáltatás sikeresen elindítva!")
+        else:
+            messagebox.showerror("Hiba", "Háttér szolgáltatás indítása sikertelen!")
+        
+        self.refresh_background_status()
+    
+    def _on_service_start_error(self, error_msg):
+        """Service indítás hiba kezelése"""
+        self.start_service_btn.config(state='normal', text="🚀 Szolgáltatás Indítása")
+        messagebox.showerror("Hiba", f"Szolgáltatás indítás hiba: {error_msg}")
+        self.refresh_background_status()
+    
+    def stop_background_service(self):
+        """Háttér szolgáltatás leállítása"""
+        if not self.background_client:
+            messagebox.showerror("Hiba", "Háttér task client nem elérhető!")
+            return
+        
+        result = messagebox.askyesno(
+            "Megerősítés",
+            "Biztosan le akarod állítani a háttér szolgáltatást?\n\n"
+            "Ez megszakítja az összes futó task-ot!"
+        )
+        
+        if result:
+            try:
+                success = self.background_client.stop_service()
+                
+                if success:
+                    messagebox.showinfo("Siker", "Háttér szolgáltatás leállítva!")
+                else:
+                    messagebox.showwarning("Figyelem", "Szolgáltatás leállítás sikertelen!")
+                
+                self.refresh_background_status()
+                
+            except Exception as e:
+                messagebox.showerror("Hiba", f"Szolgáltatás leállítás hiba: {str(e)}")
+    
+    def browse_excel_file(self):
+        """Excel fájl tallózása"""
+        file_path = filedialog.askopenfilename(
+            title="Válassz Excel fájlt",
+            filetypes=[
+                ("Excel files", "*.xlsx *.xls"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if file_path:
+            self.selected_file_var.set(file_path)
+    
+    def submit_immediate_task(self):
+        """Azonnali task beküldése"""
+        file_path = self.selected_file_var.get().strip()
+        
+        if not file_path:
+            messagebox.showerror("Hiba", "Válassz ki egy Excel fájlt!")
+            return
+        
+        if not os.path.exists(file_path):
+            messagebox.showerror("Hiba", "A kiválasztott fájl nem található!")
+            return
+        
+        try:
+            task_type = self.task_type_var.get()
+            priority_str = self.priority_var.get()
+            priority = TaskPriority[priority_str]
+            
+            # Task beküldése a típus alapján
+            if task_type == "excel_analysis":
+                task_id = self.background_client.submit_excel_analysis_task(
+                    file_path, priority=priority
+                )
+            elif task_type == "formula_learning":
+                task_id = self.background_client.submit_formula_learning_task(
+                    file_path, priority=priority
+                )
+            elif task_type == "chart_learning":
+                task_id = self.background_client.submit_chart_learning_task(
+                    file_path, priority=priority
+                )
+            elif task_type == "full_pipeline":
+                task_id = self.background_client.submit_full_pipeline_task(
+                    file_path, priority=priority
+                )
+            else:
+                raise ValueError(f"Ismeretlen task típus: {task_type}")
+            
+            messagebox.showinfo(
+                "Siker", 
+                f"Task sikeresen beküldve!\n\n"
+                f"Task ID: {task_id}\n"
+                f"Típus: {task_type}\n"
+                f"Prioritás: {priority_str}"
+            )
+            
+            # Task lista frissítése
+            self.refresh_background_tasks()
+            
+        except Exception as e:
+            messagebox.showerror("Hiba", f"Task beküldés hiba: {str(e)}")
+    
+    def submit_scheduled_task(self):
+        """Ütemezett task beküldése"""
+        file_path = self.selected_file_var.get().strip()
+        
+        if not file_path:
+            messagebox.showerror("Hiba", "Válassz ki egy Excel fájlt!")
+            return
+        
+        # Időpont választás ablak
+        schedule_window = tk.Toplevel(self.frame)
+        schedule_window.title("Ütemezett Futtatás")
+        schedule_window.geometry("400x300")
+        schedule_window.transient(self.frame)
+        schedule_window.grab_set()
+        
+        # TODO: Implementáld a scheduling UI-t
+        ttk.Label(schedule_window, text="Ütemezett futtatás funkció fejlesztés alatt").pack(pady=50)
+        ttk.Button(schedule_window, text="Bezárás", command=schedule_window.destroy).pack()
+    
+    def submit_batch_task(self):
+        """Batch feldolgozás beküldése"""
+        # Több fájl választás
+        file_paths = filedialog.askopenfilenames(
+            title="Válassz Excel fájlokat batch feldolgozáshoz",
+            filetypes=[
+                ("Excel files", "*.xlsx *.xls"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not file_paths:
+            return
+        
+        try:
+            priority_str = self.priority_var.get()
+            priority = TaskPriority[priority_str]
+            
+            task_id = self.background_client.submit_batch_processing_task(
+                list(file_paths), priority=priority
+            )
+            
+            messagebox.showinfo(
+                "Siker",
+                f"Batch task sikeresen beküldve!\n\n"
+                f"Task ID: {task_id}\n"
+                f"Fájlok száma: {len(file_paths)}\n"
+                f"Prioritás: {priority_str}"
+            )
+            
+            # Task lista frissítése
+            self.refresh_background_tasks()
+            
+        except Exception as e:
+            messagebox.showerror("Hiba", f"Batch task beküldés hiba: {str(e)}")
+    
+    def refresh_background_tasks(self):
+        """Háttér taskok listájának frissítése"""
+        if not self.background_client or not hasattr(self, 'background_tasks_tree'):
+            return
+        
+        try:
+            # Treeview tisztítása
+            for item in self.background_tasks_tree.get_children():
+                self.background_tasks_tree.delete(item)
+            
+            # Taskok lekérdezése
+            tasks = self.background_client.get_all_tasks(limit=50)
+            
+            for task in tasks:
+                # Állapot ikon
+                status = task['status']
+                if status == 'running':
+                    status_display = "🔄 Fut"
+                elif status == 'completed':
+                    status_display = "✅ Kész"
+                elif status == 'failed':
+                    status_display = "❌ Hiba"
+                elif status == 'pending':
+                    status_display = "⏳ Várakozik"
+                elif status == 'scheduled':
+                    status_display = "⏰ Ütemezett"
+                elif status == 'cancelled':
+                    status_display = "⏹ Megszakítva"
+                else:
+                    status_display = f"❓ {status}"
+                
+                # Progress formázás
+                progress = task.get('progress', 0)
+                progress_display = f"{progress:.1f}%"
+                
+                # Dátum formázás
+                created_at = task.get('created_at', '')
+                if created_at:
+                    try:
+                        created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        created_display = created_dt.strftime('%m-%d %H:%M')
+                    except:
+                        created_display = created_at[:16]
+                else:
+                    created_display = ''
+                
+                self.background_tasks_tree.insert("", "end", values=(
+                    task['task_id'][:20],  # Task ID rövidítve
+                    task['task_type'],
+                    task['task_name'][:30],  # Név rövidítve
+                    status_display,
+                    progress_display,
+                    created_display
+                ))
+            
+        except Exception as e:
+            app_logger.error(f"Background tasks refresh hiba: {e}")
+    
+    def cancel_selected_task(self):
+        """Kiválasztott task megszakítása"""
+        selection = self.background_tasks_tree.selection()
+        if not selection:
+            messagebox.showwarning("Figyelem", "Válassz ki egy task-ot!")
+            return
+        
+        item = self.background_tasks_tree.item(selection[0])
+        task_id = item['values'][0]  # Task ID az első oszlopban
+        
+        result = messagebox.askyesno(
+            "Megerősítés",
+            f"Biztosan meg akarod szakítani ezt a task-ot?\n\nTask ID: {task_id}"
+        )
+        
+        if result:
+            try:
+                success = self.background_client.cancel_task(task_id)
+                
+                if success:
+                    messagebox.showinfo("Siker", "Task sikeresen megszakítva!")
+                    self.refresh_background_tasks()
+                else:
+                    messagebox.showwarning("Figyelem", "Task nem szakítható meg (már fut vagy befejezett)!")
+                    
+            except Exception as e:
+                messagebox.showerror("Hiba", f"Task megszakítás hiba: {str(e)}")
+    
+    def show_task_details(self):
+        """Task részletek megjelenítése"""
+        selection = self.background_tasks_tree.selection()
+        if not selection:
+            messagebox.showwarning("Figyelem", "Válassz ki egy task-ot!")
+            return
+        
+        item = self.background_tasks_tree.item(selection[0])
+        task_id = item['values'][0]  # Task ID az első oszlopban
+        
+        try:
+            task_status = self.background_client.get_task_status(task_id)
+            
+            if task_status:
+                # Task részletek ablak
+                details_window = tk.Toplevel(self.frame)
+                details_window.title(f"Task Részletek - {task_id}")
+                details_window.geometry("600x500")
+                details_window.transient(self.frame)
+                details_window.grab_set()
+                
+                # Scrollable text widget
+                text_frame = ttk.Frame(details_window, padding=10)
+                text_frame.pack(fill='both', expand=True)
+                
+                details_text = scrolledtext.ScrolledText(
+                    text_frame,
+                    wrap=tk.WORD,
+                    font=('Consolas', 10)
+                )
+                details_text.pack(fill='both', expand=True)
+                
+                # Task részletek formázása
+                details_content = f"""TASK RÉSZLETEK
+{"="*60}
+
+Task ID: {task_status['task_id']}
+Típus: {task_status['task_type']}
+Név: {task_status['task_name']}
+Fájl: {task_status.get('file_path', 'N/A')}
+
+ÁLLAPOT INFORMÁCIÓK
+{"-"*30}
+Állapot: {task_status['status']}
+Progress: {task_status['progress']:.1f}%
+Prioritás: {task_status.get('priority', 'N/A')}
+
+IDŐPONTOK
+{"-"*30}
+Létrehozva: {task_status.get('created_at', 'N/A')}
+Elindítva: {task_status.get('started_at', 'N/A')}
+Befejezve: {task_status.get('completed_at', 'N/A')}
+
+HIBÁK
+{"-"*30}
+Hibaüzenet: {task_status.get('error_message', 'Nincs hiba')}
+"""
+                
+                details_text.insert(tk.END, details_content)
+                details_text.config(state='disabled')
+                
+                # Bezárás gomb
+                ttk.Button(
+                    details_window,
+                    text="Bezárás",
+                    command=details_window.destroy
+                ).pack(pady=10)
+                
+            else:
+                messagebox.showerror("Hiba", "Task részletek nem találhatók!")
+                
+        except Exception as e:
+            messagebox.showerror("Hiba", f"Task részletek lekérdezési hiba: {str(e)}")
+    
+    def cleanup_old_tasks(self):
+        """Régi taskok törlése"""
+        result = messagebox.askyesno(
+            "Megerősítés",
+            "Biztosan törölni akarod a 30 napnál régebbi befejezett task-okat?\n\n"
+            "Ez a művelet nem visszavonható!"
+        )
+        
+        if result:
+            try:
+                cleanup_result = self.background_client.cleanup_old_tasks(days_to_keep=30)
+                
+                deleted_tasks = cleanup_result.get('deleted_tasks', 0)
+                deleted_notifications = cleanup_result.get('deleted_notifications', 0)
+                
+                messagebox.showinfo(
+                    "Cleanup Befejezve",
+                    f"Törölt taskok: {deleted_tasks}\n"
+                    f"Törölt értesítések: {deleted_notifications}"
+                )
+                
+                self.refresh_background_tasks()
+                
+            except Exception as e:
+                messagebox.showerror("Hiba", f"Cleanup hiba: {str(e)}")
+    
     def cleanup(self):
         """Tisztítja fel az erőforrásokat"""
         try:
+            # Háttér client cleanup
+            if self.background_client:
+                self.background_client.stop_notification_polling()
+            
             # Dashboard leállítása
             if self.dashboard_process:
                 self.stop_dashboard()
