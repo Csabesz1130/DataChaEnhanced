@@ -140,13 +140,13 @@ class ExamplesMenuTab:
         
         # Tab-szerű navigáció
         self.nav_var = tk.StringVar(value="examples")
-                    nav_buttons = [
-                ("examples", "📚 Tanpéldák", self.show_examples_view),
-                ("dashboard", "📊 Dashboard", self.show_dashboard_view),
-                ("background", "🔄 Háttér Taskok", self.show_background_view),
-                ("testing", "🔧 Tesztelés", self.show_testing_view),
-                ("results", "📋 Eredmények", self.show_results_view)
-            ]
+        nav_buttons = [
+            ("examples", "📚 Tanpéldák", self.show_examples_view),
+            ("dashboard", "📊 Dashboard", self.show_dashboard_view),
+            ("background", "🔄 Háttér Taskok", self.show_background_view),
+            ("testing", "🔧 Tesztelés", self.show_testing_view),
+            ("results", "📋 Eredmények", self.show_results_view)
+        ]
         
         for nav_id, nav_text, nav_command in nav_buttons:
             btn = ttk.Radiobutton(
