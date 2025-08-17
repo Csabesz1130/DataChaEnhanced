@@ -1073,6 +1073,18 @@ class SignalAnalyzerApp:
             placeholder_frame = ttk.Frame(self.notebook)
             ttk.Label(placeholder_frame, text="AI Excel Learning Demo module unavailable", justify='center').pack(padx=20, pady=20)
             self.notebook.add(placeholder_frame, text='AI Excel Learning Demo', state='disabled')
+        
+        # Add Examples Menu tab with deferred import
+        try:
+            from src.gui.examples_menu_tab import ExamplesMenuTab
+            self.tabs['examples_menu'] = ExamplesMenuTab(self.notebook, self)
+            self.notebook.add(self.tabs['examples_menu'].frame, text='🎯 Kész Tanpéldák')
+            app_logger.info("Successfully loaded Examples Menu tab.")
+        except Exception as e:
+            app_logger.warning(f"Examples Menu tab not available: {e}")
+            placeholder_frame = ttk.Frame(self.notebook)
+            ttk.Label(placeholder_frame, text="Examples Menu module unavailable", justify='center').pack(padx=20, pady=20)
+            self.notebook.add(placeholder_frame, text='🎯 Kész Tanpéldák', state='disabled')
     
     def reset_point_tracker(self):
         """
@@ -2415,6 +2427,14 @@ class SignalAnalyzerApp:
                     app_logger.info("Excel Learning tab cleaned up")
                 except Exception as e:
                     app_logger.warning(f"Error cleaning up Excel Learning tab: {e}")
+            
+            # Cleanup Examples Menu tab if available
+            if 'examples_menu' in self.tabs and hasattr(self.tabs['examples_menu'], 'cleanup'):
+                try:
+                    self.tabs['examples_menu'].cleanup()
+                    app_logger.info("Examples Menu tab cleaned up")
+                except Exception as e:
+                    app_logger.warning(f"Error cleaning up Examples Menu tab: {e}")
             
             # Clear all data
             self.clear_all_data()
