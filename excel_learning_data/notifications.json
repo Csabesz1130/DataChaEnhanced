@@ -48,5 +48,55 @@
       }
     },
     "read": false
+  },
+  {
+    "notification_id": "8506d899-0444-4c2f-920d-ffd3f8087af9",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-15 14:13:05.904521",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "8b2128ec-3247-495c-8400-7b321f23efd3",
+    "task_id": "f5625c4d-a561-4a8d-bd95-28c4d825d13d",
+    "notification_type": "task_started",
+    "message": "Task f5625c4d-a561-4a8d-bd95-28c4d825d13d submitted for eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-15 14:26:30.383198",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "ec6b697a-66f2-4b1e-bf16-21b658a7f8cd",
+    "task_id": "f5625c4d-a561-4a8d-bd95-28c4d825d13d",
+    "notification_type": "task_started",
+    "message": "Processing eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-15 14:26:30.383348",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "774edc1c-1f55-45b3-928b-afc48793a999",
+    "task_id": "f5625c4d-a561-4a8d-bd95-28c4d825d13d",
+    "notification_type": "task_completed",
+    "message": "Task completed: eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-15 14:26:31.027865",
+    "data": {
+      "result_summary": {
+        "excel_analysis": {
+          "sheets_analyzed": 6,
+          "total_cells": 5063,
+          "formulas_found": 0
+        },
+        "formula_learning": {
+          "formulas_learned": 0
+        },
+        "chart_learning": {
+          "charts_learned": 0
+        }
+      }
+    },
+    "read": false
   }
 ]

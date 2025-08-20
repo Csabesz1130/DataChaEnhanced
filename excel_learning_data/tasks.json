@@ -91,5 +91,98 @@
       "submitted_by": "gui",
       "submitted_at": "2025-08-10T02:45:13.180878"
     }
+  },
+  {
+    "task_id": "f5625c4d-a561-4a8d-bd95-28c4d825d13d",
+    "file_path": "C:/Users/csaba/Documents/eredm\u00e9nyek_control.xlsx",
+    "task_type": "full_pipeline",
+    "priority": 3,
+    "created_at": "2025-08-15 14:26:30.383136",
+    "started_at": "2025-08-15 14:26:30.383314",
+    "completed_at": "2025-08-15 14:26:31.027774",
+    "status": "completed",
+    "progress": 100.0,
+    "result": {
+      "excel_analysis": {
+        "file_path": "C:/Users/csaba/Documents/eredm\u00e9nyek_control.xlsx",
+        "file_size": 158158,
+        "sheets": [
+          {
+            "name": "20130313",
+            "max_row": 210,
+            "max_column": 8,
+            "cells_with_data": 808,
+            "formulas": []
+          },
+          {
+            "name": "20130406",
+            "max_row": 210,
+            "max_column": 7,
+            "cells_with_data": 1210,
+            "formulas": []
+          },
+          {
+            "name": "20130709",
+            "max_row": 210,
+            "max_column": 3,
+            "cells_with_data": 411,
+            "formulas": []
+          },
+          {
+            "name": "20130911",
+            "max_row": 210,
+            "max_column": 3,
+            "cells_with_data": 411,
+            "formulas": []
+          },
+          {
+            "name": "20131113",
+            "max_row": 210,
+            "max_column": 22,
+            "cells_with_data": 1417,
+            "formulas": []
+          },
+          {
+            "name": "20131122",
+            "max_row": 209,
+            "max_column": 9,
+            "cells_with_data": 806,
+            "formulas": []
+          }
+        ],
+        "formulas": [],
+        "charts": [],
+        "summary": {
+          "total_sheets": 6,
+          "total_cells": 5063,
+          "total_formulas": 0,
+          "analysis_timestamp": "2025-08-15T14:26:30.814193"
+        },
+        "task_metadata": {
+          "task_id": "f5625c4d-a561-4a8d-bd95-28c4d825d13d",
+          "task_type": "full_pipeline",
+          "processing_time": "2025-08-15T14:26:30.814211"
+        }
+      },
+      "formula_learning": {
+        "learned_formulas": [],
+        "total_formulas": 0,
+        "analysis_method": "simplified_pattern_recognition"
+      },
+      "chart_learning": {
+        "learned_charts": [],
+        "chart_detection_method": "simplified",
+        "note": "Full chart learning requires additional dependencies"
+      },
+      "pipeline_summary": {
+        "total_components": 3,
+        "processing_complete": true
+      }
+    },
+    "error": null,
+    "metadata": {
+      "submitted_by": "gui",
+      "submitted_at": "2025-08-15T14:26:30.382965"
+    }
   }
 ]
