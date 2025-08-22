@@ -1,0 +1,8 @@
+{
+  "status": "running",
+  "pid": 34512,
+  "timestamp": "2025-08-22T04:13:20.628089",
+  "active_tasks": 0,
+  "queue_size": 0,
+  "workers": 3
+}

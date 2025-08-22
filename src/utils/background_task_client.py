@@ -51,7 +51,7 @@ class BackgroundTaskClient:
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(exist_ok=True)
         
-        self.db_path = self.storage_dir / "tasks.db"
+        self.db_path = self.storage_dir / "background_tasks.db"
         self.status_path = self.storage_dir / "service_status.json"
         
         # Notification callbacks
@@ -339,7 +339,21 @@ class BackgroundTaskClient:
     def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Task állapot lekérdezése"""
         try:
+            # Ellenőrizzük, hogy létezik-e az adatbázis és a táblák
+            if not self.db_path.exists():
+                logger.warning("Adatbázis fájl nem létezik")
+                return None
+            
             with sqlite3.connect(str(self.db_path)) as conn:
+                # Ellenőrizzük, hogy létezik-e a tasks tábla
+                cursor = conn.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='tasks'
+                """)
+                if not cursor.fetchone():
+                    logger.warning("Tasks tábla nem létezik")
+                    return None
+                
                 conn.row_factory = sqlite3.Row
                 cursor = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,))
                 row = cursor.fetchone()
@@ -369,7 +383,21 @@ class BackgroundTaskClient:
                      limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Összes task lekérdezése"""
         try:
+            # Ellenőrizzük, hogy létezik-e az adatbázis és a táblák
+            if not self.db_path.exists():
+                logger.warning("Adatbázis fájl nem létezik")
+                return []
+            
             with sqlite3.connect(str(self.db_path)) as conn:
+                # Ellenőrizzük, hogy létezik-e a tasks tábla
+                cursor = conn.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='tasks'
+                """)
+                if not cursor.fetchone():
+                    logger.warning("Tasks tábla nem létezik")
+                    return []
+                
                 conn.row_factory = sqlite3.Row
                 
                 if status_filter:
@@ -424,7 +452,21 @@ class BackgroundTaskClient:
     def cancel_task(self, task_id: str) -> bool:
         """Task megszakítása"""
         try:
+            # Ellenőrizzük, hogy létezik-e az adatbázis és a táblák
+            if not self.db_path.exists():
+                logger.warning("Adatbázis fájl nem létezik")
+                return False
+            
             with sqlite3.connect(str(self.db_path)) as conn:
+                # Ellenőrizzük, hogy létezik-e a tasks tábla
+                cursor = conn.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='tasks'
+                """)
+                if not cursor.fetchone():
+                    logger.warning("Tasks tábla nem létezik")
+                    return False
+                
                 cursor = conn.execute("""
                     UPDATE tasks SET status = 'cancelled' 
                     WHERE task_id = ? AND status IN ('pending', 'scheduled')
@@ -445,7 +487,21 @@ class BackgroundTaskClient:
     def get_notifications(self, unread_only: bool = False, limit: int = 100) -> List[Dict[str, Any]]:
         """Értesítések lekérdezése"""
         try:
+            # Ellenőrizzük, hogy létezik-e az adatbázis és a táblák
+            if not self.db_path.exists():
+                logger.warning("Adatbázis fájl nem létezik")
+                return []
+            
             with sqlite3.connect(str(self.db_path)) as conn:
+                # Ellenőrizzük, hogy létezik-e a notifications tábla
+                cursor = conn.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='notifications'
+                """)
+                if not cursor.fetchone():
+                    logger.warning("Notifications tábla nem létezik")
+                    return []
+                
                 conn.row_factory = sqlite3.Row
                 
                 if unread_only:

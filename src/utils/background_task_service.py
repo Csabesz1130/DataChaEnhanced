@@ -111,7 +111,7 @@ class BackgroundTaskService:
         self.check_interval = check_interval
         
         # File paths
-        self.db_path = self.storage_dir / "tasks.db"
+        self.db_path = self.storage_dir / "background_tasks.db"
         self.lock_path = self.storage_dir / "service.lock"
         self.pid_path = self.storage_dir / "service.pid"
         self.status_path = self.storage_dir / "service_status.json"
@@ -1036,38 +1036,42 @@ def start_service_daemon():
         return False
     
     try:
-        # Fork a new process
-        if os.fork() == 0:
-            # Child process
-            os.setsid()  # Create new session
+        if os.name == 'nt':  # Windows
+            # Windows - egyszerű subprocess
+            script_path = os.path.abspath(__file__)
+            subprocess.Popen([
+                sys.executable, script_path, "--daemon"
+            ], creationflags=subprocess.CREATE_NEW_CONSOLE)
             
-            # Redirect standard streams
-            with open('/dev/null', 'r') as devnull:
-                os.dup2(devnull.fileno(), sys.stdin.fileno())
-            
-            with open('background_tasks/service.log', 'a') as logfile:
-                os.dup2(logfile.fileno(), sys.stdout.fileno())
-                os.dup2(logfile.fileno(), sys.stderr.fileno())
-            
-            # Start service
-            service = BackgroundTaskService()
-            service.start_service()
-        else:
-            # Parent process
-            time.sleep(2)  # Wait for child to start
-            print("Háttér task szolgáltatás elindítva daemon módban")
+            time.sleep(3)
+            print("Háttér task szolgáltatás elindítva Windows környezetben")
             return True
-            
-    except OSError:
-        # Windows - egyszerű subprocess
-        script_path = os.path.abspath(__file__)
-        subprocess.Popen([
-            sys.executable, script_path, "--daemon"
-        ], creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
-        
-        time.sleep(3)
-        print("Háttér task szolgáltatás elindítva")
-        return True
+        else:
+            # Unix/Linux - fork használata
+            if os.fork() == 0:
+                # Child process
+                os.setsid()  # Create new session
+                
+                # Redirect standard streams
+                with open('/dev/null', 'r') as devnull:
+                    os.dup2(devnull.fileno(), sys.stdin.fileno())
+                
+                with open('background_tasks/service.log', 'a') as logfile:
+                    os.dup2(logfile.fileno(), sys.stdout.fileno())
+                    os.dup2(logfile.fileno(), sys.stderr.fileno())
+                
+                # Start service
+                service = BackgroundTaskService()
+                service.start_service()
+            else:
+                # Parent process
+                time.sleep(2)  # Wait for child to start
+                print("Háttér task szolgáltatás elindítva daemon módban")
+                return True
+                
+    except Exception as e:
+        print(f"Szolgáltatás indítási hiba: {e}")
+        return False
 
 def stop_service():
     """Szolgáltatás leállítása"""
@@ -1083,20 +1087,26 @@ def stop_service():
         
         # Terminate signal küldése
         try:
-            os.kill(pid, signal.SIGTERM)
-            time.sleep(2)
-            
-            # Ellenőrizzük, hogy leállt-e
-            if not psutil.pid_exists(pid):
-                print("Szolgáltatás sikeresen leállítva")
-                return True
+            if os.name == 'nt':  # Windows
+                # Windows - taskkill használata
+                subprocess.run(['taskkill', '/PID', str(pid), '/F'], 
+                             capture_output=True, timeout=10)
             else:
-                # Force kill
-                os.kill(pid, signal.SIGKILL)
-                print("Szolgáltatás erőszakosan leállítva")
-                return True
+                # Unix/Linux - signal küldése
+                os.kill(pid, signal.SIGTERM)
+                time.sleep(2)
                 
-        except ProcessLookupError:
+                # Ellenőrizzük, hogy leállt-e
+                if not psutil.pid_exists(pid):
+                    print("Szolgáltatás sikeresen leállítva")
+                    return True
+                else:
+                    # Force kill
+                    os.kill(pid, signal.SIGKILL)
+                    print("Szolgáltatás erőszakosan leállítva")
+                    return True
+                
+        except (ProcessLookupError, subprocess.TimeoutExpired):
             print("Szolgáltatás már leállt")
             return True
             
