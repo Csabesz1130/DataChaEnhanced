@@ -48,5 +48,14 @@
       }
     },
     "read": false
+  },
+  {
+    "notification_id": "1dfb1206-f3b6-465a-88ab-f6e4dc8e4113",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-25 14:54:11.126268",
+    "data": {},
+    "read": false
   }
 ]

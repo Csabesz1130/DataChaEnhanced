@@ -5,6 +5,9 @@ import numpy as np
 from src.gui.range_selection_utils import RangeSelectionManager
 from src.gui.direct_spike_removal import remove_spikes_from_processor
 import os, time
+from src.gui.curve_fitting_gui import CurveFittingPanel
+from src.analysis.curve_fitting_manager import CurveFittingManager
+import tkinter as tk
 print(f"action_potential_tab.py last modified: {time.ctime(os.path.getmtime(__file__))}")
 
 class ActionPotentialTab:
@@ -16,6 +19,8 @@ class ActionPotentialTab:
         # Create main frame
         self.frame = ttk.LabelFrame(parent, text="Action Potential Analysis")
         self.frame.pack(fill='both', expand=True, padx=5, pady=5)
+
+        self.curve_fitting_panel = None
         
         # Create canvas and scrollbar for scrolling
         self.canvas = tk.Canvas(self.frame, width=260)
@@ -401,6 +406,43 @@ class ActionPotentialTab:
                         self.depol_start_slider, self.depol_end_slider]:
                 if hasattr(self, slider):
                     slider.configure(state=state)
+
+    def initialize_curve_fitting(self):
+        """Initialize curve fitting functionality after plot is created."""
+        if self.fig and self.ax and self.main_frame:
+            # Create curve fitting panel
+            self.curve_fitting_panel = CurveFittingPanel(self.main_frame, self.main_app)
+            
+            # Initialize the fitting manager with the plot
+            if hasattr(self, 'fig') and hasattr(self, 'ax'):
+                self.curve_fitting_panel.initialize_fitting_manager(self.fig, self.ax)
+                
+            # Update curve data if processor exists
+            if hasattr(self.main_app, 'action_potential_processor'):
+                self.curve_fitting_panel.update_curve_data()
+
+    def setup_curve_fitting_panel(self, fig, ax, main_app):
+        """
+        Initialize curve fitting panel with external figure/axes.
+        Call this from main app after creating the plot.
+        """
+        from src.gui.curve_fitting_gui import CurveFittingPanel
+        
+        # Create the panel in the scrollable frame
+        self.curve_fitting_panel = CurveFittingPanel(self.scrollable_frame, main_app)
+        
+        # Initialize with the provided figure and axes
+        self.curve_fitting_panel.initialize_fitting_manager(fig, ax)
+        
+        # Store references
+        self.fig = fig
+        self.ax = ax
+        self.main_app = main_app
+
+    def update_curve_fitting_data(self):
+        """Update curve fitting data after analysis."""
+        if hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel:
+            self.curve_fitting_panel.update_curve_data()
 
     def get_results_dict(self):
         """Get the current analysis results as a dictionary, including range manager integrals."""
@@ -818,6 +860,28 @@ class ActionPotentialTab:
         )
         self.progress.pack(fill='x', pady=2)
         ttk.Label(progress_frame, textvariable=self.status_text).pack(anchor='w')
+
+    def fix_canvas_sizing(self):
+        """Fix canvas sizing to allow proper zooming."""
+        if hasattr(self, 'canvas'):
+            # Make canvas properly resizable
+            self.canvas.get_tk_widget().pack_forget()
+            self.canvas.get_tk_widget().pack(fill='both', expand=True)
+            
+            # Update figure size on resize
+            def on_canvas_resize(event=None):
+                if event and event.width > 0 and event.height > 0:
+                    # Convert pixels to inches (assuming 100 DPI)
+                    width_inches = event.width / 100
+                    height_inches = event.height / 100
+                    
+                    # Update figure size
+                    if hasattr(self, 'fig'):
+                        self.fig.set_size_inches(width_inches, height_inches, forward=False)
+                        self.canvas.draw_idle()
+            
+            # Bind resize event
+            self.canvas.get_tk_widget().bind('<Configure>', on_canvas_resize)
 
     def on_remove_spikes_click(self):
         """
