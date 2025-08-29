@@ -408,18 +408,27 @@ class ActionPotentialTab:
                     slider.configure(state=state)
 
     def initialize_curve_fitting(self):
-        """Initialize curve fitting functionality after plot is created."""
-        if self.fig and self.ax and self.main_frame:
-            # Create curve fitting panel
-            self.curve_fitting_panel = CurveFittingPanel(self.main_frame, self.main_app)
-            
-            # Initialize the fitting manager with the plot
-            if hasattr(self, 'fig') and hasattr(self, 'ax'):
+        """Initialize curve fitting functionality after plot and tabs are created."""
+        try:
+            if (hasattr(self, 'fig') and hasattr(self, 'ax') and 
+                hasattr(self, 'action_potential_tab')):
+                
+                # Create curve fitting panel in the action potential tab's scrollable frame
+                parent_frame = self.action_potential_tab.scrollable_frame
+                
+                # Create the panel
+                self.curve_fitting_panel = CurveFittingPanel(parent_frame, self)
+                
+                # Initialize with the main app's figure and axes
                 self.curve_fitting_panel.initialize_fitting_manager(self.fig, self.ax)
                 
-            # Update curve data if processor exists
-            if hasattr(self.main_app, 'action_potential_processor'):
-                self.curve_fitting_panel.update_curve_data()
+                # Store reference in action potential tab too
+                self.action_potential_tab.curve_fitting_panel = self.curve_fitting_panel
+                
+                app_logger.info("Curve fitting panel initialized successfully")
+                
+        except Exception as e:
+            app_logger.error(f"Error initializing curve fitting: {str(e)}")
 
     def setup_curve_fitting_panel(self, fig, ax, main_app):
         """

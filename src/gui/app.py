@@ -30,6 +30,7 @@ from src.gui.simplified_set_exporter import add_set_export_to_toolbar
 from src.gui.batch_set_exporter import add_set_export_to_toolbar
 from src.gui.multi_file_analysis import add_multi_file_analysis_to_toolbar
 from src.gui.curve_fitting_gui import CurveFittingPanel
+from src.utils.hot_reload import initialize_hot_reload, stop_hot_reload
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -71,6 +72,9 @@ class SignalAnalyzerApp:
         self.setup_plot()
         self.setup_plot_interaction()
         self.setup_tabs()
+
+        # Setup hot reload for development
+        self.setup_hot_reload()
 
         # Setup memory management
         self.setup_memory_management()
@@ -788,6 +792,40 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error showing history window: {str(e)}")
             messagebox.showerror("Error", f"Failed to show history: {str(e)}")
+
+    def setup_hot_reload(self):
+        """Setup hot reload system for development."""
+        try:
+            import os
+            # Get project root directory (assuming main app is in project root)
+            project_root = os.path.dirname(os.path.abspath(__file__))
+            
+            # Initialize hot reload with callback to refresh components
+            success = initialize_hot_reload(
+                project_root=project_root,
+                callback=self.on_code_reloaded
+            )
+            
+            if success:
+                app_logger.info("🔥 Hot reload enabled - modify code without restarting!")
+            else:
+                app_logger.warning("Hot reload failed to initialize")
+                
+        except Exception as e:
+            app_logger.error(f"Hot reload setup failed: {e}")
+    
+    def on_code_reloaded(self):
+        """Called after code is hot reloaded - refresh components if needed."""
+        try:
+            # Refresh curve fitting manager if it exists
+            if hasattr(self, 'curve_fitting_panel'):
+                app_logger.info("Code reloaded - curve fitting refreshed")
+            
+            # Add any other component refreshes here
+            app_logger.info("✅ Hot reload complete")
+            
+        except Exception as e:
+            app_logger.error(f"Error in reload callback: {e}")
 
     def show_history(self):
         """Show the analysis history window."""
@@ -2504,7 +2542,10 @@ class SignalAnalyzerApp:
         """Handle application closing with proper cleanup"""
         try:
             app_logger.info("Application closing - performing cleanup")
-            
+
+            # Stop hot reload
+            stop_hot_reload()
+
             # Cleanup Excel Learning tab if available
             if 'excel_learning' in self.tabs and hasattr(self.tabs['excel_learning'], 'cleanup'):
                 try:
