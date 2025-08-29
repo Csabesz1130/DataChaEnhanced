@@ -49,7 +49,7 @@ class StoredChunk(Base):
     chunk_type = Column(String(32))
     source_location = Column(String(256))
     confidence = Column(Float)
-    metadata = Column(JSON)
+    chunk_metadata = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class SearchStrategy(Enum):
