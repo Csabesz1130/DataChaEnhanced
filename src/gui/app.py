@@ -29,7 +29,7 @@ from src.gui.direct_spike_removal import remove_spikes_from_processor
 from src.gui.simplified_set_exporter import add_set_export_to_toolbar
 from src.gui.batch_set_exporter import add_set_export_to_toolbar
 from src.gui.multi_file_analysis import add_multi_file_analysis_to_toolbar
-
+from src.gui.curve_fitting_gui import CurveFittingPanel
 
 class SignalAnalyzerApp:
     def __init__(self, master):
@@ -82,6 +82,12 @@ class SignalAnalyzerApp:
         
         # Add CSV export functionality
         add_csv_export_buttons(self)
+
+        # Fix window sizing issues
+        self.fix_window_sizing()
+    
+        # Initialize curve fitting (after plot and tabs are created)
+        self.master.after(500, self.initialize_curve_fitting)
         
         app_logger.info("Application initialized successfully with memory optimization")
 
@@ -251,6 +257,84 @@ class SignalAnalyzerApp:
             app_logger.error(f"Error in periodic cleanup: {str(e)}")
             # Still schedule next cleanup even if this one failed
             self.master.after(30000, self.periodic_cleanup)
+
+    def initialize_curve_fitting(self):
+        """Initialize curve fitting functionality after plot and tabs are created."""
+        try:
+            if (hasattr(self, 'fig') and hasattr(self, 'ax') and 
+                hasattr(self, 'action_potential_tab')):
+                
+                # Create curve fitting panel in the action potential tab's scrollable frame
+                parent_frame = self.action_potential_tab.scrollable_frame
+                
+                # Create the panel
+                self.curve_fitting_panel = CurveFittingPanel(parent_frame, self)
+                
+                # Initialize with the main app's figure and axes
+                self.curve_fitting_panel.initialize_fitting_manager(self.fig, self.ax)
+                
+                # Store reference in action potential tab too
+                self.action_potential_tab.curve_fitting_panel = self.curve_fitting_panel
+                
+                app_logger.info("Curve fitting panel initialized successfully")
+                
+        except Exception as e:
+            app_logger.error(f"Error initializing curve fitting: {str(e)}")
+
+    def fix_window_sizing(self):
+        """Fix window sizing to allow proper zooming and resizing."""
+        try:
+            # Remove size constraints and make properly resizable
+            self.master.minsize(800, 600)
+            self.master.resizable(True, True)
+            
+            # Set window to 80% of screen size
+            screen_width = self.master.winfo_screenwidth()
+            screen_height = self.master.winfo_screenheight()
+            
+            window_width = int(screen_width * 0.8)
+            window_height = int(screen_height * 0.8)
+            
+            # Center window
+            x = (screen_width - window_width) // 2
+            y = (screen_height - window_height) // 2
+            
+            self.master.geometry(f"{window_width}x{window_height}+{x}+{y}")
+            
+            # Add zoom controls
+            def zoom_in(event=None):
+                w, h = self.master.winfo_width(), self.master.winfo_height()
+                new_w, new_h = int(w*1.1), int(h*1.1)
+                # Limit to screen size
+                new_w = min(new_w, screen_width - 100)
+                new_h = min(new_h, screen_height - 100)
+                self.master.geometry(f"{new_w}x{new_h}")
+            
+            def zoom_out(event=None):
+                w, h = self.master.winfo_width(), self.master.winfo_height()
+                new_w = max(800, int(w*0.9))
+                new_h = max(600, int(h*0.9))
+                self.master.geometry(f"{new_w}x{new_h}")
+            
+            def reset_zoom(event=None):
+                self.master.geometry(f"{window_width}x{window_height}+{x}+{y}")
+            
+            def toggle_fullscreen(event=None):
+                current = self.master.attributes('-fullscreen')
+                self.master.attributes('-fullscreen', not current)
+            
+            # Bind keyboard shortcuts
+            self.master.bind('<Control-plus>', zoom_in)
+            self.master.bind('<Control-equal>', zoom_in)  # For keyboards without numpad
+            self.master.bind('<Control-minus>', zoom_out)
+            self.master.bind('<Control-0>', reset_zoom)
+            self.master.bind('<F11>', toggle_fullscreen)
+            self.master.bind('<Escape>', lambda e: self.master.attributes('-fullscreen', False))
+            
+            app_logger.info("Window sizing fixed with zoom controls (Ctrl+/-, F11, Ctrl+0)")
+            
+        except Exception as e:
+            app_logger.error(f"Error fixing window sizing: {str(e)}")
 
     def cleanup_matplotlib_figures(self):
         """Clean up matplotlib figures to prevent memory leaks"""
@@ -1683,6 +1767,19 @@ class SignalAnalyzerApp:
             if hasattr(self.action_potential_tab, 'set_processor'):
                 self.action_potential_tab.set_processor(self.action_potential_processor)
 
+            try:
+                # Update curve fitting data if available
+                if (hasattr(self, 'curve_fitting_panel') and 
+                    self.curve_fitting_panel and 
+                    hasattr(self, 'action_potential_processor') and
+                    self.action_potential_processor):
+                    
+                    self.curve_fitting_panel.update_curve_data()
+                    app_logger.debug("Curve fitting data updated after analysis")
+                    
+            except Exception as e:
+                app_logger.error(f"Error updating curve fitting data: {str(e)}")
+
             # --- ADD HISTORY ENTRY HERE ---
             # If we have a history manager and no errors, store the analysis results.
             if self.history_manager:
@@ -1706,6 +1803,18 @@ class SignalAnalyzerApp:
             messagebox.showerror("Error", f"Analysis failed: {str(e)}")
             if hasattr(self.action_potential_tab, 'disable_points_ui'):
                 self.action_potential_tab.disable_points_ui()
+
+    def update_curve_fitting_after_processor_change(self):
+        """Update curve fitting when processor data changes."""
+        try:
+            if (hasattr(self, 'curve_fitting_panel') and 
+                self.curve_fitting_panel and
+                hasattr(self, 'action_potential_processor')):
+                
+                self.curve_fitting_panel.update_curve_data()
+                
+        except Exception as e:
+            app_logger.error(f"Error updating curve fitting after processor change: {str(e)}")
 
     def plot_action_potential(self, processed_data, time_data):
         """Plot action potential analysis results"""
