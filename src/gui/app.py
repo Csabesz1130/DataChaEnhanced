@@ -56,6 +56,12 @@ class SignalAnalyzerApp:
 
         self.use_regression_hyperpol = tk.BooleanVar(value=False)
         self.use_regression_depol = tk.BooleanVar(value=False)
+
+        self.saved_plot_limits = {
+        'xlim': None,
+        'ylim': None,
+        'auto_restore': True  # Flag to enable/disable auto-restore
+        }
         
         # Create main layout
         self.setup_main_layout()
@@ -827,6 +833,101 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error in reload callback: {e}")
 
+    def save_current_plot_limits(self):
+        """Save current plot axis limits for restoration."""
+        try:
+            if hasattr(self, 'ax'):
+                self.saved_plot_limits['xlim'] = self.ax.get_xlim()
+                self.saved_plot_limits['ylim'] = self.ax.get_ylim()
+                app_logger.debug(f"Saved plot limits: x={self.saved_plot_limits['xlim']}, y={self.saved_plot_limits['ylim']}")
+        except Exception as e:
+            app_logger.debug(f"Error saving plot limits: {e}")
+
+    def restore_plot_limits(self):
+        """Restore previously saved plot axis limits."""
+        try:
+            if (hasattr(self, 'ax') and self.saved_plot_limits['auto_restore'] and 
+                self.saved_plot_limits['xlim'] is not None and 
+                self.saved_plot_limits['ylim'] is not None):
+                
+                self.ax.set_xlim(self.saved_plot_limits['xlim'])
+                self.ax.set_ylim(self.saved_plot_limits['ylim'])
+                app_logger.debug(f"Restored plot limits: x={self.saved_plot_limits['xlim']}, y={self.saved_plot_limits['ylim']}")
+                return True
+        except Exception as e:
+            app_logger.debug(f"Error restoring plot limits: {e}")
+        return False
+
+    def toggle_auto_restore_limits(self, enable=None):
+        """Toggle automatic restoration of plot limits."""
+        if enable is None:
+            self.saved_plot_limits['auto_restore'] = not self.saved_plot_limits['auto_restore']
+        else:
+            self.saved_plot_limits['auto_restore'] = enable
+        
+        app_logger.info(f"Auto-restore plot limits: {self.saved_plot_limits['auto_restore']}")
+        return self.saved_plot_limits['auto_restore']
+
+    def clear_saved_limits(self):
+        """Clear saved plot limits."""
+        self.saved_plot_limits['xlim'] = None
+        self.saved_plot_limits['ylim'] = None
+        app_logger.debug("Cleared saved plot limits")
+
+    def setup_plot_context_menu(self):
+        """Setup right-click context menu for plot state management."""
+        try:
+            import tkinter as tk
+            
+            def on_right_click(event):
+                if event.inaxes != self.ax:
+                    return
+                
+                # Create context menu
+                context_menu = tk.Menu(self.master, tearoff=0)
+                
+                # Add auto-restore toggle
+                auto_restore_text = "Disable Auto-Zoom Restore" if self.saved_plot_limits['auto_restore'] else "Enable Auto-Zoom Restore"
+                context_menu.add_command(
+                    label=auto_restore_text,
+                    command=lambda: self.toggle_auto_restore_limits()
+                )
+                
+                context_menu.add_separator()
+                
+                # Add manual save/restore options
+                context_menu.add_command(
+                    label="Save Current Zoom",
+                    command=self.save_current_plot_limits
+                )
+                
+                context_menu.add_command(
+                    label="Restore Saved Zoom",
+                    command=lambda: [self.restore_plot_limits(), self.canvas.draw_idle()]
+                )
+                
+                context_menu.add_command(
+                    label="Clear Saved Zoom",
+                    command=self.clear_saved_limits
+                )
+                
+                # Show menu
+                try:
+                    context_menu.tk_popup(event.guiEvent.x_root, event.guiEvent.y_root)
+                except:
+                    pass
+                finally:
+                    context_menu.grab_release()
+            
+            # Connect right-click event
+            self.canvas.mpl_connect('button_press_event', 
+                lambda event: on_right_click(event) if event.button == 3 else None)
+            
+            app_logger.debug("Plot context menu for zoom state management enabled")
+            
+        except Exception as e:
+            app_logger.error(f"Error setting up plot context menu: {e}")
+
     def show_history(self):
         """Show the analysis history window."""
         try:
@@ -1132,6 +1233,8 @@ class SignalAnalyzerApp:
         # Initialize point tracker with status bar variable
         from src.utils.point_counter import CurvePointTracker
         self.point_tracker = CurvePointTracker(self.fig, self.ax, self.point_status_var)
+        self.setup_plot_context_menu()
+        app_logger.info("Plot setup complete with zoom state preservation")
 
     def setup_tabs(self):
         """Setup the control tabs"""

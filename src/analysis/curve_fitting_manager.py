@@ -149,7 +149,7 @@ class CurveFittingManager:
         logger.debug("Event handler disconnected")
     
     def _on_click(self, event):
-        """Handle mouse click events for point selection."""
+        """Handle mouse click events for point selection with enhanced features."""
         if not self.is_active or not self.selection_mode or not event.inaxes:
             return
         
@@ -161,34 +161,65 @@ class CurveFittingManager:
         # Extract curve type from selection mode
         curve_type = self.selection_mode.split('_')[1]  # 'hyperpol' or 'depol'
         
-        # Find nearest point on the specified curve
-        point_info = self._find_nearest_point(event.xdata, event.ydata, curve_type)
-        if not point_info:
+        # Use enhanced point finding
+        point_result = self._find_nearest_point_enhanced(event.xdata, event.ydata, curve_type)
+        if not point_result:
             logger.debug("No nearby point found on curve")
             return
         
-        index, time, value = point_info
-        logger.info(f"Selected point: index={index}, time={time:.3f}s, value={value:.2f}pA")
+        index, time, value, point_info = point_result
+        logger.info(f"Selected point: index={index}, time={time:.3f}s, value={value:.2f}pA, precise={point_info.get('precision_mode', False)}")
         
         # Handle different selection modes
         if 'linear' in self.selection_mode:
             points = self.selected_points[curve_type]['linear_points']
             if len(points) < 2:
-                points.append({'index': index, 'time': time, 'value': value})
-                self._add_selection_marker(time * 1000, value, f'P{len(points)}', 'red')
+                point_data = {
+                    'index': index, 
+                    'time': time, 
+                    'value': value,
+                    'info': point_info
+                }
+                points.append(point_data)
+                self._add_enhanced_selection_marker(
+                    time * 1000, value, f'P{len(points)}', 'red', point_info
+                )
                 
                 if len(points) == 2:
-                    # Perform linear fit
-                    self._fit_linear(curve_type)
-                    self._stop_selection()
-                    if self.on_fit_complete:
-                        self.on_fit_complete(curve_type, 'linear')
+                    # Offer toggle option before fitting
+                    try:
+                        import tkinter as tk
+                        from tkinter import messagebox
+                        
+                        result = messagebox.askyesnocancel(
+                            "Confirm Selection",
+                            f"Selected points for {curve_type} linear fit:\n"
+                            f"P1: Point #{points[0]['index']+1}\n"
+                            f"P2: Point #{points[1]['index']+1}\n\n"
+                            f"Proceed with fitting?"
+                        )
+                        
+                        if result is True:
+                            self._fit_linear(curve_type)
+                            self._stop_selection()
+                            if self.on_fit_complete:
+                                self.on_fit_complete(curve_type, 'linear')
+                        elif result is False:
+                            self._toggle_point_selection(curve_type, points)
+                        # If None (cancel), do nothing and allow more selection
+                            
+                    except Exception as e:
+                        # Fallback to automatic fitting
+                        self._fit_linear(curve_type)
+                        self._stop_selection()
+                        if self.on_fit_complete:
+                            self.on_fit_complete(curve_type, 'linear')
         
         elif 'exp' in self.selection_mode:
             self.selected_points[curve_type]['exp_point'] = {
-                'index': index, 'time': time, 'value': value
+                'index': index, 'time': time, 'value': value, 'info': point_info
             }
-            self._add_selection_marker(time * 1000, value, 'P3', 'blue')
+            self._add_enhanced_selection_marker(time * 1000, value, 'P3', 'blue', point_info)
             
             # Perform exponential fit
             self._fit_exponential(curve_type)
@@ -548,3 +579,300 @@ class CurveFittingManager:
     def is_exp_fit_complete(self, curve_type: str) -> bool:
         """Check if exponential fit is complete for the given curve type."""
         return self.fitted_curves[curve_type]['exp_params'] is not None
+    
+    def _setup_hover_tooltips(self):
+        """Setup hover tooltips for fitted lines."""
+        if not hasattr(self, 'hover_annotation'):
+            self.hover_annotation = None
+        
+        # Connect hover event
+        if not hasattr(self, 'hover_cid'):
+            self.hover_cid = self.fig.canvas.mpl_connect('motion_notify_event', self._on_hover)
+
+    def _on_hover(self, event):
+        """Handle mouse hover events over fitted lines."""
+        if event.inaxes != self.ax:
+            self._hide_tooltip()
+            return
+        
+        # Check if hovering over any fitted line
+        tooltip_text = None
+        
+        # Check linear fits
+        for line in self.plot_elements['linear_fits']:
+            if self._is_hovering_over_line(event, line):
+                # Determine which curve this line belongs to
+                curve_type = self._get_curve_type_from_line(line)
+                if curve_type:
+                    params = self.fitted_curves[curve_type]['linear_params']
+                    if params:
+                        slope = params['slope']
+                        intercept = params['intercept']
+                        r_squared = self.fitted_curves[curve_type]['r_squared_linear']
+                        tooltip_text = f"Linear: y = {slope:.6f}x + {intercept:.6f}\nR² = {r_squared:.4f}"
+                        break
+        
+        # Check exponential fits if no linear fit found
+        if not tooltip_text:
+            for line in self.plot_elements['exp_fits']:
+                if self._is_hovering_over_line(event, line):
+                    curve_type = self._get_curve_type_from_line(line)
+                    if curve_type:
+                        params = self.fitted_curves[curve_type]['exp_params']
+                        if params:
+                            A = params['A']
+                            tau = params['tau']
+                            r_squared = self.fitted_curves[curve_type]['r_squared_exp']
+                            model_type = params['model_type']
+                            if model_type == 'decay':
+                                tooltip_text = f"Exp Decay: y = {A:.6f} × exp(-t/{tau:.6f})\nR² = {r_squared:.4f}\nτ = {tau*1000:.3f} ms"
+                            else:
+                                tooltip_text = f"Exp Rise: y = {A:.6f} × (1 - exp(-t/{tau:.6f}))\nR² = {r_squared:.4f}\nτ = {tau*1000:.3f} ms"
+                            break
+        
+        if tooltip_text:
+            self._show_tooltip(event.xdata, event.ydata, tooltip_text)
+        else:
+            self._hide_tooltip()
+
+    def _is_hovering_over_line(self, event, line):
+        """Check if mouse is hovering over a line with tolerance."""
+        try:
+            # Get line data
+            xdata, ydata = line.get_data()
+            if len(xdata) == 0:
+                return False
+            
+            # Find closest point on line to mouse
+            mouse_x, mouse_y = event.xdata, event.ydata
+            distances = np.sqrt((xdata - mouse_x)**2 + (ydata - mouse_y)**2)
+            min_distance = np.min(distances)
+            
+            # Set tolerance based on axis ranges
+            x_range = self.ax.get_xlim()[1] - self.ax.get_xlim()[0]
+            y_range = self.ax.get_ylim()[1] - self.ax.get_ylim()[0]
+            tolerance = max(x_range * 0.02, y_range * 0.02)  # 2% of axis range
+            
+            return min_distance < tolerance
+        except:
+            return False
+
+    def _get_curve_type_from_line(self, target_line):
+        """Determine which curve type a line belongs to based on its properties."""
+        try:
+            color = target_line.get_color()
+            label = target_line.get_label()
+            
+            # Check based on color and label patterns
+            if 'hyperpol' in label.lower() or color in ['darkblue', 'blue', 'navy']:
+                return 'hyperpol'
+            elif 'depol' in label.lower() or color in ['darkred', 'red', 'maroon']:
+                return 'depol'
+            
+            # Fallback: check which list the line is in and match with curve data
+            for curve_type in ['hyperpol', 'depol']:
+                if (self.fitted_curves[curve_type]['linear_params'] or 
+                    self.fitted_curves[curve_type]['exp_params']):
+                    return curve_type
+            
+            return None
+        except:
+            return None
+
+    def _show_tooltip(self, x, y, text):
+        """Show tooltip at specified coordinates."""
+        try:
+            if self.hover_annotation:
+                self.hover_annotation.remove()
+            
+            self.hover_annotation = self.ax.annotate(
+                text,
+                xy=(x, y),
+                xytext=(20, 20),
+                textcoords='offset points',
+                bbox=dict(boxstyle="round,pad=0.5", facecolor='lightyellow', 
+                        edgecolor='orange', alpha=0.9),
+                fontsize=10,
+                zorder=100
+            )
+            self.fig.canvas.draw_idle()
+        except Exception as e:
+            logger.error(f"Error showing tooltip: {e}")
+
+    def _hide_tooltip(self):
+        """Hide the hover tooltip."""
+        try:
+            if self.hover_annotation:
+                self.hover_annotation.remove()
+                self.hover_annotation = None
+                self.fig.canvas.draw_idle()
+        except:
+            pass
+
+    def _disconnect_hover_events(self):
+        """Disconnect hover event handlers."""
+        if hasattr(self, 'hover_cid') and self.hover_cid:
+            self.fig.canvas.mpl_disconnect(self.hover_cid)
+            self.hover_cid = None
+
+    def _is_in_points_view_mode(self, curve_type):
+        """Check if we're in a points view mode for the specified curve type."""
+        try:
+            # Access the main app's action potential tab to check display mode
+            main_app = self._get_main_app()
+            if not main_app or not hasattr(main_app, 'action_potential_tab'):
+                return False
+            
+            # Check the modified display mode (purple curves)
+            if hasattr(main_app.action_potential_tab, 'modified_display_mode'):
+                mode = main_app.action_potential_tab.modified_display_mode.get()
+                return mode in ['points', 'all_points']
+            return False
+        except Exception as e:
+            logger.debug(f"Error checking points view mode: {e}")
+            return False
+
+    def _get_main_app(self):
+        """Get reference to main application."""
+        try:
+            # Try to get main app reference through various paths
+            if hasattr(self, 'main_app'):
+                return self.main_app
+            
+            # Try to get it from the figure's parent widgets
+            import tkinter as tk
+            widgets = self.fig.canvas.get_tk_widget().winfo_children()
+            for widget in widgets:
+                if hasattr(widget, 'action_potential_tab'):
+                    return widget
+            
+            return None
+        except:
+            return None
+
+    def _find_nearest_point_enhanced(self, x_click: float, y_click: float, curve_type: str) -> Optional[Tuple[int, float, float, dict]]:
+        """Enhanced point finding with visual feedback and point info."""
+        data = self.curve_data[curve_type]['data']
+        times = self.curve_data[curve_type]['times']
+        
+        if data is None or times is None or len(data) == 0:
+            return None
+        
+        # Convert click coordinates
+        x_click_seconds = x_click / 1000.0
+        
+        # Find nearest point with enhanced precision
+        distances = np.abs(times - x_click_seconds)
+        nearest_idx = np.argmin(distances)
+        
+        # Check if in points view mode for more precise selection
+        if self._is_in_points_view_mode(curve_type):
+            # In points mode, use tighter tolerances and prefer exact point matches
+            time_tolerance = max(0.001, np.ptp(times) * 0.005)  # 0.5% of range or 1ms
+            data_tolerance = max(5.0, np.ptp(data) * 0.02)      # 2% of range or 5pA
+            
+            # Check if we're close enough to the nearest point
+            time_diff = abs(times[nearest_idx] - x_click_seconds)
+            data_diff = abs(data[nearest_idx] - y_click)
+            
+            if time_diff <= time_tolerance and data_diff <= data_tolerance:
+                # Return enhanced point info
+                point_info = {
+                    'index': nearest_idx,
+                    'time': times[nearest_idx],
+                    'value': data[nearest_idx],
+                    'time_ms': times[nearest_idx] * 1000,
+                    'distance': np.sqrt(time_diff**2 + data_diff**2),
+                    'precision_mode': True
+                }
+                return nearest_idx, times[nearest_idx], data[nearest_idx], point_info
+        else:
+            # Regular mode with standard tolerances
+            time_range = np.ptp(times)
+            data_range = np.ptp(data)
+            
+            if time_range == 0 or data_range == 0:
+                return None
+            
+            # Normalized distance calculation
+            time_distances = (times - x_click_seconds) / time_range
+            data_distances = (data - y_click) / data_range
+            combined_distances = np.sqrt(time_distances**2 + data_distances**2)
+            
+            if combined_distances[nearest_idx] <= 0.1:  # 10% threshold
+                point_info = {
+                    'index': nearest_idx,
+                    'time': times[nearest_idx],
+                    'value': data[nearest_idx],
+                    'time_ms': times[nearest_idx] * 1000,
+                    'distance': combined_distances[nearest_idx],
+                    'precision_mode': False
+                }
+                return nearest_idx, times[nearest_idx], data[nearest_idx], point_info
+        
+        return None
+
+    def _add_enhanced_selection_marker(self, time_ms: float, value: float, label: str, color: str, point_info: dict):
+        """Add enhanced selection marker with additional information."""
+        # Determine marker size and style based on precision mode
+        if point_info.get('precision_mode', False):
+            marker_size = 100  # Larger for precise point selection
+            edge_width = 3
+            alpha = 1.0
+        else:
+            marker_size = 80
+            edge_width = 2
+            alpha = 0.9
+        
+        # Add point marker with enhanced visibility
+        marker = self.ax.scatter(time_ms, value, c=color, s=marker_size,
+                            marker='o', edgecolors='white', linewidth=edge_width, 
+                            zorder=10, alpha=alpha)
+        
+        # Add text label with point information
+        info_text = f"{label}\nPoint {point_info['index']+1}\n{time_ms:.1f}ms, {value:.2f}pA"
+        if point_info.get('precision_mode'):
+            info_text += "\n(Precise)"
+        
+        text = self.ax.annotate(info_text, (time_ms, value),
+                            xytext=(10, 10), textcoords='offset points',
+                            fontsize=9, color=color, fontweight='bold',
+                            bbox=dict(boxstyle="round,pad=0.4", facecolor='white', 
+                                    edgecolor=color, alpha=0.9),
+                            zorder=11)
+        
+        self.plot_elements['selected_points'].extend([marker, text])
+        self.fig.canvas.draw_idle()
+        
+        logger.debug(f"Added enhanced marker {label} at point {point_info['index']+1}")
+
+    def _toggle_point_selection(self, curve_type: str, current_points: list):
+        """Allow toggling between selected points."""
+        if len(current_points) < 2:
+            return
+        
+        # Create toggle dialog
+        try:
+            import tkinter as tk
+            from tkinter import messagebox, simpledialog
+            
+            # Get current point info
+            p1_info = current_points[0]
+            p2_info = current_points[1]
+            
+            message = (f"Current points for {curve_type}:\n\n"
+                    f"Point 1: #{p1_info['index']+1} at {p1_info['time']*1000:.1f}ms, {p1_info['value']:.2f}pA\n"
+                    f"Point 2: #{p2_info['index']+1} at {p2_info['time']*1000:.1f}ms, {p2_info['value']:.2f}pA\n\n"
+                    f"Would you like to reselect any points?")
+            
+            result = messagebox.askyesnocancel("Point Selection", message)
+            if result is True:
+                # User wants to reselect - clear current points and restart
+                self.selected_points[curve_type]['linear_points'] = []
+                self._clear_selection_markers()
+                self.start_linear_selection(curve_type)
+                logger.info(f"Restarting point selection for {curve_type}")
+        except Exception as e:
+            logger.error(f"Error in point toggling: {e}")
+
+    
