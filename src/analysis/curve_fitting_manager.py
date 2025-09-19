@@ -442,26 +442,6 @@ class CurveFittingManager:
         except Exception as e:
             logger.error(f"Exponential fitting failed for {curve_type}: {str(e)}")
     
-    def _plot_linear_fit(self, curve_type: str, times: np.ndarray, fitted_data: np.ndarray):
-        """Plot linear fit on the axes."""
-        color = 'darkblue' if curve_type == 'hyperpol' else 'darkred'
-        line = self.ax.plot(times * 1000, fitted_data, '--',
-                           color=color, linewidth=2, alpha=0.8,
-                           label=f'{curve_type.title()} Linear')[0]
-        self.plot_elements['linear_fits'].append(line)
-        self.ax.legend()
-        self.fig.canvas.draw_idle()
-    
-    def _plot_exp_fit(self, curve_type: str, times: np.ndarray, fitted_data: np.ndarray):
-        """Plot exponential fit on the axes."""
-        color = 'navy' if curve_type == 'hyperpol' else 'maroon'
-        line = self.ax.plot(times * 1000, fitted_data, ':',
-                           color=color, linewidth=2, alpha=0.8,
-                           label=f'{curve_type.title()} Exp')[0]
-        self.plot_elements['exp_fits'].append(line)
-        self.ax.legend()
-        self.fig.canvas.draw_idle()
-    
     def _stop_selection(self):
         """Stop point selection mode."""
         self._disconnect_events()
@@ -581,139 +561,261 @@ class CurveFittingManager:
         return self.fitted_curves[curve_type]['exp_params'] is not None
     
     def _setup_hover_tooltips(self):
-        """Setup hover tooltips for fitted lines."""
-        if not hasattr(self, 'hover_annotation'):
-            self.hover_annotation = None
-        
-        # Connect hover event
-        if not hasattr(self, 'hover_cid'):
+        """Setup hover tooltips for fitted lines with robust event handling."""
+        try:
+            # Disconnect any existing hover events first
+            self._disconnect_hover_events()
+            
+            if not hasattr(self, 'hover_annotation'):
+                self.hover_annotation = None
+            
+            # Connect hover event with improved error handling
             self.hover_cid = self.fig.canvas.mpl_connect('motion_notify_event', self._on_hover)
+            logger.debug("Hover tooltips setup completed")
+            
+        except Exception as e:
+            logger.error(f"Error setting up hover tooltips: {e}")
 
     def _on_hover(self, event):
-        """Handle mouse hover events over fitted lines."""
-        if event.inaxes != self.ax:
-            self._hide_tooltip()
-            return
-        
-        # Check if hovering over any fitted line
-        tooltip_text = None
-        
-        # Check linear fits
-        for line in self.plot_elements['linear_fits']:
-            if self._is_hovering_over_line(event, line):
-                # Determine which curve this line belongs to
-                curve_type = self._get_curve_type_from_line(line)
-                if curve_type:
-                    params = self.fitted_curves[curve_type]['linear_params']
-                    if params:
-                        slope = params['slope']
-                        intercept = params['intercept']
-                        r_squared = self.fitted_curves[curve_type]['r_squared_linear']
-                        tooltip_text = f"Linear: y = {slope:.6f}x + {intercept:.6f}\nR² = {r_squared:.4f}"
-                        break
-        
-        # Check exponential fits if no linear fit found
-        if not tooltip_text:
-            for line in self.plot_elements['exp_fits']:
+        """Handle mouse hover events over fitted lines with improved detection."""
+        try:
+            if not event.inaxes or event.inaxes != self.ax:
+                self._hide_tooltip()
+                return
+            
+            # Check if hovering over any fitted line with better tolerance
+            tooltip_text = None
+            hovered_line = None
+            
+            # Check linear fits first
+            for line in self.plot_elements['linear_fits']:
                 if self._is_hovering_over_line(event, line):
                     curve_type = self._get_curve_type_from_line(line)
                     if curve_type:
-                        params = self.fitted_curves[curve_type]['exp_params']
-                        if params:
-                            A = params['A']
-                            tau = params['tau']
-                            r_squared = self.fitted_curves[curve_type]['r_squared_exp']
-                            model_type = params['model_type']
-                            if model_type == 'decay':
-                                tooltip_text = f"Exp Decay: y = {A:.6f} × exp(-t/{tau:.6f})\nR² = {r_squared:.4f}\nτ = {tau*1000:.3f} ms"
-                            else:
-                                tooltip_text = f"Exp Rise: y = {A:.6f} × (1 - exp(-t/{tau:.6f}))\nR² = {r_squared:.4f}\nτ = {tau*1000:.3f} ms"
+                        params = self.fitted_curves[curve_type]['linear_params']
+                        r_squared = self.fitted_curves[curve_type]['r_squared_linear']
+                        if params and r_squared is not None:
+                            slope = params['slope']
+                            intercept = params['intercept']
+                            tooltip_text = f"Linear Fit ({curve_type.title()})\ny = {slope:.6f}x + {intercept:.6f}\nR² = {r_squared:.4f}\nSlope: {slope:.6f} pA/s"
+                            hovered_line = line
                             break
-        
-        if tooltip_text:
-            self._show_tooltip(event.xdata, event.ydata, tooltip_text)
-        else:
+            
+            # Check exponential fits if no linear fit found
+            if not tooltip_text:
+                for line in self.plot_elements['exp_fits']:
+                    if self._is_hovering_over_line(event, line):
+                        curve_type = self._get_curve_type_from_line(line)
+                        if curve_type:
+                            params = self.fitted_curves[curve_type]['exp_params']
+                            r_squared = self.fitted_curves[curve_type]['r_squared_exp']
+                            if params and r_squared is not None:
+                                A = params['A']
+                                tau = params['tau']
+                                model_type = params['model_type']
+                                
+                                if model_type == 'decay':
+                                    equation = f"y = {A:.6f} × exp(-t/{tau:.6f})"
+                                    tooltip_text = f"Exponential Decay ({curve_type.title()})\n{equation}\nR² = {r_squared:.4f}\nA = {A:.6f} pA\nτ = {tau*1000:.3f} ms"
+                                else:
+                                    equation = f"y = {A:.6f} × (1 - exp(-t/{tau:.6f}))"
+                                    tooltip_text = f"Exponential Rise ({curve_type.title()})\n{equation}\nR² = {r_squared:.4f}\nA = {A:.6f} pA\nτ = {tau*1000:.3f} ms"
+                                
+                                hovered_line = line
+                                break
+            
+            if tooltip_text and hovered_line:
+                self._show_tooltip(event.xdata, event.ydata, tooltip_text)
+            else:
+                self._hide_tooltip()
+                
+        except Exception as e:
+            logger.error(f"Error in hover handler: {e}")
             self._hide_tooltip()
 
     def _is_hovering_over_line(self, event, line):
-        """Check if mouse is hovering over a line with tolerance."""
+        """Check if mouse is hovering over a line with improved tolerance."""
         try:
             # Get line data
             xdata, ydata = line.get_data()
             if len(xdata) == 0:
                 return False
             
-            # Find closest point on line to mouse
+            # Get mouse position
             mouse_x, mouse_y = event.xdata, event.ydata
-            distances = np.sqrt((xdata - mouse_x)**2 + (ydata - mouse_y)**2)
-            min_distance = np.min(distances)
+            if mouse_x is None or mouse_y is None:
+                return False
             
-            # Set tolerance based on axis ranges
-            x_range = self.ax.get_xlim()[1] - self.ax.get_xlim()[0]
-            y_range = self.ax.get_ylim()[1] - self.ax.get_ylim()[0]
-            tolerance = max(x_range * 0.02, y_range * 0.02)  # 2% of axis range
-            
-            return min_distance < tolerance
-        except:
+            # Convert to display coordinates for better accuracy
+            try:
+                # Transform data coordinates to display coordinates
+                display_coords = self.ax.transData.transform(list(zip(xdata, ydata)))
+                mouse_display = self.ax.transData.transform([(mouse_x, mouse_y)])[0]
+                
+                # Calculate distances in display coordinates
+                distances = np.sqrt((display_coords[:, 0] - mouse_display[0])**2 + 
+                                   (display_coords[:, 1] - mouse_display[1])**2)
+                min_distance = np.min(distances)
+                
+                # Use pixel-based tolerance (more consistent)
+                pixel_tolerance = 10  # 10 pixels
+                return min_distance < pixel_tolerance
+                
+            except:
+                # Fallback to data coordinate distance
+                distances = np.sqrt((xdata - mouse_x)**2 + (ydata - mouse_y)**2)
+                min_distance = np.min(distances)
+                
+                # Set tolerance based on axis ranges
+                x_range = self.ax.get_xlim()[1] - self.ax.get_xlim()[0]
+                y_range = self.ax.get_ylim()[1] - self.ax.get_ylim()[0]
+                tolerance = max(x_range * 0.02, y_range * 0.02)  # 2% of axis range
+                
+                return min_distance < tolerance
+                
+        except Exception as e:
+            logger.error(f"Error checking line hover: {e}")
             return False
 
     def _get_curve_type_from_line(self, target_line):
-        """Determine which curve type a line belongs to based on its properties."""
+        """Determine which curve type a line belongs to with improved detection."""
         try:
+            # Get line properties
             color = target_line.get_color()
             label = target_line.get_label()
+            linestyle = target_line.get_linestyle()
             
-            # Check based on color and label patterns
-            if 'hyperpol' in label.lower() or color in ['darkblue', 'blue', 'navy']:
+            # Check based on color patterns and labels
+            if any(keyword in label.lower() for keyword in ['hyperpol', 'hyper']):
                 return 'hyperpol'
-            elif 'depol' in label.lower() or color in ['darkred', 'red', 'maroon']:
+            elif any(keyword in label.lower() for keyword in ['depol', 'depo']):
                 return 'depol'
             
-            # Fallback: check which list the line is in and match with curve data
+            # Check based on color patterns
+            blue_colors = ['darkblue', 'blue', 'navy', '#000080', '#00008B', '#191970']
+            red_colors = ['darkred', 'red', 'maroon', '#800000', '#8B0000', '#DC143C']
+            
+            if any(color.lower().startswith(c) for c in blue_colors) or color in blue_colors:
+                return 'hyperpol'
+            elif any(color.lower().startswith(c) for c in red_colors) or color in red_colors:
+                return 'depol'
+            
+            # Fallback: check which list the line is in
             for curve_type in ['hyperpol', 'depol']:
                 if (self.fitted_curves[curve_type]['linear_params'] or 
                     self.fitted_curves[curve_type]['exp_params']):
                     return curve_type
             
             return None
-        except:
+            
+        except Exception as e:
+            logger.error(f"Error determining curve type: {e}")
             return None
 
     def _show_tooltip(self, x, y, text):
-        """Show tooltip at specified coordinates."""
+        """Show tooltip at specified coordinates with improved positioning."""
         try:
+            # Remove existing tooltip
             if self.hover_annotation:
                 self.hover_annotation.remove()
+            
+            # Calculate tooltip position to avoid going off-screen
+            xlim = self.ax.get_xlim()
+            ylim = self.ax.get_ylim()
+            
+            # Offset tooltip to avoid cursor overlap
+            offset_x = 15
+            offset_y = 15
+            
+            # Adjust offset if near edges
+            if x > xlim[1] * 0.7:  # Near right edge
+                offset_x = -80
+            if y > ylim[1] * 0.7:  # Near top edge
+                offset_y = -60
             
             self.hover_annotation = self.ax.annotate(
                 text,
                 xy=(x, y),
-                xytext=(20, 20),
+                xytext=(offset_x, offset_y),
                 textcoords='offset points',
-                bbox=dict(boxstyle="round,pad=0.5", facecolor='lightyellow', 
-                        edgecolor='orange', alpha=0.9),
-                fontsize=10,
-                zorder=100
+                bbox=dict(
+                    boxstyle="round,pad=0.5", 
+                    facecolor='lightyellow', 
+                    edgecolor='orange', 
+                    alpha=0.95,
+                    linewidth=1
+                ),
+                fontsize=9,
+                fontfamily='monospace',  # Fixed-width font for better alignment
+                zorder=1000,
+                ha='left',
+                va='bottom'
             )
+            
+            # Force canvas update
             self.fig.canvas.draw_idle()
+            
         except Exception as e:
             logger.error(f"Error showing tooltip: {e}")
 
     def _hide_tooltip(self):
-        """Hide the hover tooltip."""
+        """Hide the hover tooltip with error handling."""
         try:
             if self.hover_annotation:
                 self.hover_annotation.remove()
                 self.hover_annotation = None
                 self.fig.canvas.draw_idle()
-        except:
-            pass
+        except Exception as e:
+            # Silently handle tooltip removal errors
+            self.hover_annotation = None
 
     def _disconnect_hover_events(self):
-        """Disconnect hover event handlers."""
-        if hasattr(self, 'hover_cid') and self.hover_cid:
-            self.fig.canvas.mpl_disconnect(self.hover_cid)
-            self.hover_cid = None
+        """Disconnect hover event handlers with error handling."""
+        try:
+            if hasattr(self, 'hover_cid') and self.hover_cid:
+                self.fig.canvas.mpl_disconnect(self.hover_cid)
+                self.hover_cid = None
+                logger.debug("Hover events disconnected")
+        except Exception as e:
+            logger.error(f"Error disconnecting hover events: {e}")
+
+    def _plot_linear_fit(self, curve_type: str, times: np.ndarray, fitted_data: np.ndarray):
+        """Plot linear fit on the axes with automatic hover setup."""
+        try:
+            color = 'darkblue' if curve_type == 'hyperpol' else 'darkred'
+            line = self.ax.plot(times * 1000, fitted_data, '--',
+                               color=color, linewidth=2, alpha=0.8,
+                               label=f'{curve_type.title()} Linear')[0]
+            self.plot_elements['linear_fits'].append(line)
+            self.ax.legend()
+            self.fig.canvas.draw_idle()
+            
+            # Setup hover tooltips after adding the line
+            self._setup_hover_tooltips()
+            
+            logger.debug(f"Linear fit plotted for {curve_type} with hover enabled")
+            
+        except Exception as e:
+            logger.error(f"Error plotting linear fit: {e}")
+
+    def _plot_exp_fit(self, curve_type: str, times: np.ndarray, fitted_data: np.ndarray):
+        """Plot exponential fit on the axes with automatic hover setup."""
+        try:
+            color = 'navy' if curve_type == 'hyperpol' else 'maroon'
+            line = self.ax.plot(times * 1000, fitted_data, ':',
+                               color=color, linewidth=2, alpha=0.8,
+                               label=f'{curve_type.title()} Exp')[0]
+            self.plot_elements['exp_fits'].append(line)
+            self.ax.legend()
+            self.fig.canvas.draw_idle()
+            
+            # Setup hover tooltips after adding the line
+            self._setup_hover_tooltips()
+            
+            logger.debug(f"Exponential fit plotted for {curve_type} with hover enabled")
+            
+        except Exception as e:
+            logger.error(f"Error plotting exponential fit: {e}")
 
     def _is_in_points_view_mode(self, curve_type):
         """Check if we're in a points view mode for the specified curve type."""

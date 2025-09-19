@@ -1644,6 +1644,8 @@ class SignalAnalyzerApp:
             
             # Clear existing data using the clear method
             self.clear_all_data()
+
+            self.clear_saved_limits()
             
             # Force cleanup before loading new data
             gc.collect()
@@ -1683,7 +1685,7 @@ class SignalAnalyzerApp:
                 app_logger.info(f"Detected V2 voltage from filename: {voltage} mV")
                 self.action_potential_tab.V2.set(voltage)
             
-            self.update_plot()
+            self.update_plot(force_full_range=True)
             filename = os.path.basename(filepath)
             self.status_var.set(f"Loaded: {filename}")
             
@@ -1714,6 +1716,7 @@ class SignalAnalyzerApp:
             messagebox.showerror("Error", f"Failed to load data: {str(e)}")
             # Clean up on error
             self.clear_all_data()
+            self.clear_saved_limits()
 
     def on_filter_change(self, filters):
         """Handle changes in filter settings with memory optimization"""
@@ -1826,7 +1829,7 @@ class SignalAnalyzerApp:
 
         try:
             app_logger.debug(f"Starting action potential analysis with params: {params}")
-            
+            self.clear_saved_limits()
             # Initialize the processor
             self.action_potential_processor = ActionPotentialProcessor(
                 self.filtered_data,
@@ -1895,7 +1898,8 @@ class SignalAnalyzerApp:
                 normalized_curve,
                 normalized_times,
                 average_curve,
-                average_curve_times
+                average_curve_times,
+                force_full_range=True
             )
 
             # Update results in the UI
@@ -2097,12 +2101,16 @@ class SignalAnalyzerApp:
         y = self.master.winfo_rooty() + (self.master.winfo_height() - height) // 2
         dialog.geometry(f"+{x}+{y}")
 
-    def update_plot(self, view_params=None):
-        """Update plot with memory-efficient rendering and proper axis configuration"""
+    def update_plot(self, view_params=None, force_full_range=False):
+        """Update plot with memory-efficient rendering and preserved zoom state."""
         if self.data is None:
             return
             
         try:
+            # Only save current limits if NOT forcing full range (i.e., not loading new data)
+            if not force_full_range:
+                self.save_current_plot_limits()
+            
             # Clear previous plot to free memory
             self.ax.clear()
             
@@ -2131,12 +2139,30 @@ class SignalAnalyzerApp:
             # Configure grid
             self.ax.grid(True, alpha=0.3)
             
-            # Handle axis limits
-            if view_params.get('use_interval'):
+            # Handle axis limits with preservation
+            limits_applied = False
+            
+            # Force full range for new data loading
+            if force_full_range:
+                # Show full data range when loading new data
+                if self.time_data is not None and self.data is not None:
+                    self.ax.set_xlim(self.time_data[0], self.time_data[-1])
+                    self.ax.set_ylim(np.min(self.data) * 1.05, np.max(self.data) * 1.05)  # Add 5% padding
+                    limits_applied = True
+                    app_logger.debug("Applied full range limits for new data")
+            elif view_params.get('use_interval'):
                 self.ax.set_xlim(view_params['t_min'], view_params['t_max'])
+                limits_applied = True
             
             if view_params.get('use_custom_ylim'):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
+                limits_applied = True
+            
+            # ONLY restore saved limits if no explicit limits were applied AND not forcing full range
+            if not limits_applied and not force_full_range:
+                restored = self.restore_plot_limits()
+                if restored:
+                    app_logger.debug("Plot zoom state preserved")
             
             # Add legend if multiple traces
             handles, labels = self.ax.get_legend_handles_labels()
@@ -2144,16 +2170,16 @@ class SignalAnalyzerApp:
                 self.ax.legend(loc='best')
             
             # Optimize plot for memory
-            self.fig.tight_layout(pad=2.0)  # Add padding to prevent label cutoff
+            self.fig.tight_layout(pad=2.0)
             
             # Draw with memory optimization
-            self.canvas.draw_idle()  # Use idle drawing to reduce memory pressure
+            self.canvas.draw_idle()
             
             # Force cleanup after plotting
             gc.collect()
             
         except Exception as e:
-            app_logger.error(f"Error updating plot: {str(e)}")
+            app_logger.error(f"Error updating plot: {e}")
 
     def _downsample_for_plot(self, time_data, signal_data, max_points=10000):
         """Downsample data for plotting to reduce memory usage"""
@@ -2459,12 +2485,18 @@ class SignalAnalyzerApp:
         normalized_curve,
         normalized_times,
         average_curve,
-        average_curve_times
+        average_curve_times,
+        force_full_range=False,
+        force_auto_scale=False
     ):
-        """Update the main plot with all processed data and curves with memory optimization."""
+        """Update the main plot with all processed data and curves with preserved zoom state."""
         try:
             if not hasattr(self, 'action_potential_tab'):
                 return
+
+            # Only save current limits if NOT forcing full range or auto-scaling
+            if not force_full_range and not force_auto_scale:
+                self.save_current_plot_limits()
 
             # Clear plot and force cleanup
             self.ax.clear()
@@ -2519,11 +2551,36 @@ class SignalAnalyzerApp:
             # Add legend
             self.ax.legend()
 
-            # Apply view limits AFTER axis configuration
-            if view_params.get('use_custom_ylim', False):
+            # Apply view limits with improved logic
+            limits_applied = False
+            
+            # Handle forced full range (for new data)
+            if force_full_range and self.time_data is not None and self.data is not None:
+                self.ax.set_xlim(self.time_data[0] * 1000, self.time_data[-1] * 1000)
+                self.ax.set_ylim(np.min(self.data) * 1.05, np.max(self.data) * 1.05)
+                limits_applied = True
+                app_logger.debug("Applied full range limits for processed data display")
+                
+            # Handle auto-scaling for analysis results
+            elif force_auto_scale:
+                # Calculate appropriate limits based on visible data
+                self._apply_auto_scale_limits(display_options)
+                limits_applied = True
+                app_logger.debug("Applied auto-scale limits for analysis results")
+                
+            # Apply explicit view parameters
+            elif view_params.get('use_custom_ylim', False):
                 self.ax.set_ylim(view_params['y_min'], view_params['y_max'])
-            if view_params.get('use_interval', False):
+                limits_applied = True
+            elif view_params.get('use_interval', False):
                 self.ax.set_xlim(view_params['t_min'] * 1000, view_params['t_max'] * 1000)
+                limits_applied = True
+
+            # ONLY restore saved limits if no explicit limits were applied and not forcing any scaling
+            if not limits_applied and not force_full_range and not force_auto_scale:
+                restored = self.restore_plot_limits()
+                if restored:
+                    app_logger.debug("Plot zoom state preserved")
 
             # Use tight layout with padding to prevent label cutoff
             self.fig.tight_layout(pad=2.0)
@@ -2535,12 +2592,90 @@ class SignalAnalyzerApp:
             # Force cleanup after plotting
             gc.collect()
             
-            app_logger.debug("Plot updated with all processed data and integration ranges")
+            app_logger.debug("Plot updated with preserved zoom state")
 
         except Exception as e:
-            app_logger.error(f"Error updating plot with processed data: {str(e)}")
+            app_logger.error(f"Error updating plot with processed data: {e}")
             gc.collect()  # Cleanup on error
             raise
+
+    def _apply_auto_scale_limits(self, display_options):
+        """Apply intelligent auto-scaling based on visible data."""
+        try:
+            # Collect all visible data to determine appropriate limits
+            all_y_data = []
+            all_x_data = []
+            
+            # Collect data from visible curves
+            if display_options.get('show_red_curve', True) and self.filtered_data is not None:
+                all_y_data.extend(self.filtered_data)
+                all_x_data.extend(self.time_data * 1000)
+            
+            if (display_options.get('show_processed', True) and 
+                hasattr(self, 'processed_data') and self.processed_data is not None):
+                all_y_data.extend(self.processed_data)
+                all_x_data.extend(self.time_data * 1000)
+            
+            # Include orange curve
+            if (display_options.get('show_average', True) and 
+                hasattr(self, 'orange_curve') and self.orange_curve is not None):
+                all_y_data.extend(self.orange_curve)
+                all_x_data.extend(self.orange_curve_times * 1000)
+            
+            # Include normalized curves
+            if (display_options.get('show_normalized', True) and 
+                hasattr(self, 'normalized_curve') and self.normalized_curve is not None):
+                all_y_data.extend(self.normalized_curve)
+                all_x_data.extend(self.normalized_curve_times * 1000)
+            
+            # Include purple curves
+            if (display_options.get('show_modified', True) and 
+                hasattr(self, 'action_potential_processor') and self.action_potential_processor):
+                
+                if hasattr(self.action_potential_processor, 'modified_hyperpol'):
+                    hyperpol = self.action_potential_processor.modified_hyperpol
+                    hyperpol_times = self.action_potential_processor.modified_hyperpol_times
+                    if hyperpol is not None and hyperpol_times is not None:
+                        all_y_data.extend(hyperpol)
+                        all_x_data.extend(hyperpol_times * 1000)
+                
+                if hasattr(self.action_potential_processor, 'modified_depol'):
+                    depol = self.action_potential_processor.modified_depol
+                    depol_times = self.action_potential_processor.modified_depol_times
+                    if depol is not None and depol_times is not None:
+                        all_y_data.extend(depol)
+                        all_x_data.extend(depol_times * 1000)
+            
+            # Calculate limits with padding
+            if all_y_data and all_x_data:
+                y_min, y_max = np.min(all_y_data), np.max(all_y_data)
+                x_min, x_max = np.min(all_x_data), np.max(all_x_data)
+                
+                # Add 5% padding
+                y_range = y_max - y_min
+                x_range = x_max - x_min
+                
+                y_padding = y_range * 0.05 if y_range > 0 else abs(y_max) * 0.1
+                x_padding = x_range * 0.02 if x_range > 0 else abs(x_max) * 0.02
+                
+                self.ax.set_xlim(x_min - x_padding, x_max + x_padding)
+                self.ax.set_ylim(y_min - y_padding, y_max + y_padding)
+                
+                app_logger.debug(f"Auto-scale applied: x=({x_min:.1f}, {x_max:.1f}), y=({y_min:.1f}, {y_max:.1f})")
+            else:
+                # Fallback to matplotlib auto-scaling
+                self.ax.relim()
+                self.ax.autoscale(True)
+                app_logger.debug("Used matplotlib auto-scaling as fallback")
+        
+        except Exception as e:
+            app_logger.error(f"Error in auto-scaling: {str(e)}")
+            # Fallback to matplotlib auto-scaling
+            try:
+                self.ax.relim()
+                self.ax.autoscale(True)
+            except:
+                pass
 
     def export_data(self):
         """Export the current data to a CSV file with detailed sections and integral values"""
