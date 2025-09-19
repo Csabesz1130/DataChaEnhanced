@@ -111,5 +111,32 @@
     "timestamp": "2025-09-01 10:05:37.072961",
     "data": {},
     "read": false
+  },
+  {
+    "notification_id": "ea86ba98-9839-4f77-920f-00c55fc6ea91",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-19 22:09:59.515131",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "7dfdaac2-52ce-487b-9c0a-d97f9dd18bfe",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-19 22:17:13.723662",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "96998b97-0aba-4af4-83c0-059c11cbc14d",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-19 22:26:04.892779",
+    "data": {},
+    "read": false
   }
 ]

@@ -469,6 +469,34 @@ class CurveFittingManager:
         
         logger.info(f"Applied linear {operation} correction to {curve_type}")
         
+        # Update the processor with corrected data and refresh plot
+        if hasattr(self, 'main_app') and self.main_app:
+            processor = getattr(self.main_app, 'action_potential_processor', None)
+            if processor:
+                if curve_type == 'hyperpol':
+                    processor.modified_hyperpol = corrected_data
+                elif curve_type == 'depol':
+                    processor.modified_depol = corrected_data
+                
+                # Reload the plot
+                if hasattr(self.main_app, 'update_plot_with_processed_data'):
+                    try:
+                        self.main_app.update_plot_with_processed_data(
+                            getattr(processor, 'processed_data', None),
+                            getattr(processor, 'orange_curve', None),
+                            getattr(processor, 'orange_times', None),
+                            getattr(processor, 'normalized_curve', None),
+                            getattr(processor, 'normalized_curve_times', None),
+                            getattr(processor, 'average_curve', None),
+                            getattr(processor, 'average_curve_times', None)
+                        )
+                        logger.info(f"Plot refreshed after {curve_type} correction")
+                    except Exception as e:
+                        logger.error(f"Failed to refresh plot: {str(e)}")
+                        # Try alternative plot update method
+                        if hasattr(self.main_app, 'update_plot'):
+                            self.main_app.update_plot()
+        
         return {
             'times': times,
             'original': data,

@@ -115,6 +115,12 @@ class CurveFittingPanel:
         
         ttk.Button(frame, text="Clear", 
                   command=lambda: self.clear_fits(curve_type)).pack(fill='x', pady=2)
+        
+        # Add Reset to Original button
+        setattr(self, f'{curve_type}_reset_original_btn',
+                ttk.Button(frame, text="🔄 Reset to Original",
+                          command=lambda: self.reset_to_original(curve_type)))
+        getattr(self, f'{curve_type}_reset_original_btn').pack(fill='x', pady=2)
     
     def _create_results_display(self, parent):
         """Create compact results display."""
@@ -162,6 +168,11 @@ class CurveFittingPanel:
         
         self.fitting_manager = CurveFittingManager(figure, ax)
         self.fitting_manager.on_fit_complete = self.on_fitting_completed
+        
+        # Add reference to main app for plot refresh functionality
+        if hasattr(self, 'main_app'):
+            self.fitting_manager.main_app = self.main_app
+        
         self.update_curve_data()
         logger.info("Fitting manager initialized")
     
@@ -230,6 +241,64 @@ class CurveFittingPanel:
         self.status_var.set("Fits cleared")
         self._enable_all_buttons()
     
+    def reset_to_original(self, curve_type: str):
+        """Reset the curve to its original state before any corrections."""
+        try:
+            if not self.fitting_manager:
+                messagebox.showwarning("Warning", "No fitting manager available")
+                return
+            
+            # Get the processor
+            processor = getattr(self.main_app, 'action_potential_processor', None)
+            if not processor:
+                messagebox.showwarning("Warning", "No processor data available")
+                return
+            
+            # Reset the modified curve to original
+            if curve_type == 'hyperpol':
+                if hasattr(processor, 'hyperpol') and hasattr(processor, 'hyperpol_times'):
+                    processor.modified_hyperpol = processor.hyperpol.copy()
+                    processor.modified_hyperpol_times = processor.hyperpol_times.copy()
+                    logger.info("Reset hyperpol curve to original")
+                else:
+                    messagebox.showwarning("Warning", "No original hyperpol data available")
+                    return
+            elif curve_type == 'depol':
+                if hasattr(processor, 'depol') and hasattr(processor, 'depol_times'):
+                    processor.modified_depol = processor.depol.copy()
+                    processor.modified_depol_times = processor.depol_times.copy()
+                    logger.info("Reset depol curve to original")
+                else:
+                    messagebox.showwarning("Warning", "No original depol data available")
+                    return
+            
+            # Reload the plot
+            if hasattr(self.main_app, 'update_plot_with_processed_data'):
+                try:
+                    self.main_app.update_plot_with_processed_data(
+                        getattr(processor, 'processed_data', None),
+                        getattr(processor, 'orange_curve', None),
+                        getattr(processor, 'orange_times', None),
+                        getattr(processor, 'normalized_curve', None),
+                        getattr(processor, 'normalized_curve_times', None),
+                        getattr(processor, 'average_curve', None),
+                        getattr(processor, 'average_curve_times', None)
+                    )
+                    logger.info(f"Plot refreshed after {curve_type} reset to original")
+                except Exception as e:
+                    logger.error(f"Failed to refresh plot after reset: {str(e)}")
+                    # Try alternative plot update method
+                    if hasattr(self.main_app, 'update_plot'):
+                        self.main_app.update_plot()
+            
+            # Update status
+            self.status_var.set(f"{curve_type.title()} curve reset to original")
+            messagebox.showinfo("Success", f"{curve_type.title()} curve has been reset to its original state")
+            
+        except Exception as e:
+            logger.error(f"Failed to reset {curve_type} to original: {str(e)}")
+            messagebox.showerror("Error", f"Failed to reset {curve_type} to original: {str(e)}")
+    
     def apply_corrections(self):
         """Apply linear corrections to curves."""
         if not self.fitting_manager:
@@ -239,8 +308,8 @@ class CurveFittingPanel:
         
         for curve_type in ['hyperpol', 'depol']:
             if self.fitting_manager.fitted_curves[curve_type]['linear_params']:
-                # Hyperpol: subtract trend, Depol: add trend
-                operation = 'subtract' if curve_type == 'hyperpol' else 'add'
+                # Both curves should subtract the linear trend to remove drift
+                operation = 'subtract'
                 result = self.fitting_manager.apply_linear_correction(curve_type, operation)
                 if result:
                     corrections_applied.append(f"{curve_type}: {operation}")
@@ -347,8 +416,8 @@ class CurveFittingPanel:
     
     def _disable_buttons_except(self, except_button: str):
         """Disable all buttons except the specified one."""
-        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn',
-                  'depol_linear_btn', 'depol_exp_btn']
+        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn', 'hyperpol_reset_original_btn',
+                  'depol_linear_btn', 'depol_exp_btn', 'depol_reset_original_btn']
         
         for btn_name in buttons:
             if btn_name != except_button:
@@ -358,8 +427,8 @@ class CurveFittingPanel:
     
     def _enable_all_buttons(self):
         """Enable all buttons."""
-        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn',
-                  'depol_linear_btn', 'depol_exp_btn']
+        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn', 'hyperpol_reset_original_btn',
+                  'depol_linear_btn', 'depol_exp_btn', 'depol_reset_original_btn']
         
         for btn_name in buttons:
             btn = getattr(self, btn_name, None)
