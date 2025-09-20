@@ -29,10 +29,10 @@ class CurveFittingManager:
         self.ax = ax
         
         # Point selection states
-        self.selection_mode = None  # 'linear_hyperpol', 'linear_depol', 'exp_hyperpol', 'exp_depol'
+        self.selection_mode = None  # 'linear_hyperpol', 'linear_depol', 'exp_hyperpol', 'exp_depol', 'integration_hyperpol', 'integration_depol'
         self.selected_points = {
-            'hyperpol': {'linear_points': [], 'exp_points': []},
-            'depol': {'linear_points': [], 'exp_points': []}
+            'hyperpol': {'linear_points': [], 'exp_points': [], 'integration_points': []},
+            'depol': {'linear_points': [], 'exp_points': [], 'integration_points': []}
         }
         
         # Fitted parameters
@@ -127,13 +127,41 @@ class CurveFittingManager:
         logger.info(f"Click 2 points on the {curve_type} purple curve for exponential fit")
         return True
     
+    def start_integration_selection(self, curve_type: str):
+        """Start selecting two points for integration range."""
+        if curve_type not in ['hyperpol', 'depol']:
+            logger.error(f"Invalid curve type: {curve_type}")
+            return False
+        
+        # Check if we have data
+        if self.curve_data[curve_type]['data'] is None:
+            logger.warning(f"No data available for {curve_type}")
+            return False
+        
+        logger.info(f"Starting integration selection for {curve_type}")
+        logger.debug(f"Figure: {self.fig}, Axes: {self.ax}")
+        
+        self.selection_mode = f'integration_{curve_type}'
+        self.selected_points[curve_type]['integration_points'] = []
+        self._clear_selection_markers()
+        self._connect_events()
+        self.is_active = True
+        
+        logger.info(f"Integration selection active: {self.is_active}, mode: {self.selection_mode}")
+        
+        logger.info(f"Started integration range selection for {curve_type}")
+        logger.info(f"Click 2 points on the {curve_type} purple curve to define integration range")
+        return True
+    
     def _connect_events(self):
         """Connect matplotlib click events."""
         if self.click_cid:
+            logger.debug(f"Disconnecting existing event handler: {self.click_cid}")
             self.fig.canvas.mpl_disconnect(self.click_cid)
         
+        logger.debug(f"Connecting new event handler to figure: {self.fig}")
         self.click_cid = self.fig.canvas.mpl_connect('button_press_event', self._on_click)
-        logger.debug("Event handler connected")
+        logger.info(f"Event handler connected with ID: {self.click_cid}")
     
     def _disconnect_events(self):
         """Disconnect matplotlib events."""
@@ -145,16 +173,22 @@ class CurveFittingManager:
     
     def _on_click(self, event):
         """Handle mouse click events for point selection with enhanced features."""
+        logger.info(f"Click event received: active={self.is_active}, mode={self.selection_mode}, inaxes={event.inaxes}, button={event.button}")
+        
         if not self.is_active or not self.selection_mode or not event.inaxes:
+            logger.info(f"Click ignored: active={self.is_active}, mode={self.selection_mode}, inaxes={event.inaxes}")
             return
         
         if event.inaxes != self.ax:
+            logger.info(f"Click ignored: wrong axes")
             return
         
-        logger.debug(f"Click detected at ({event.xdata:.1f}, {event.ydata:.1f})")
+        logger.info(f"Click detected at ({event.xdata:.1f}, {event.ydata:.1f}) in mode {self.selection_mode}")
         
         # Extract curve type from selection mode
-        curve_type = self.selection_mode.split('_')[1]  # 'hyperpol' or 'depol'
+        # For 'integration_hyperpol', 'linear_hyperpol', 'exp_hyperpol' -> split gives ['integration', 'hyperpol'], ['linear', 'hyperpol'], ['exp', 'hyperpol']
+        # We want the last part (index 1) which is always the curve type
+        curve_type = self.selection_mode.split('_')[-1]  # 'hyperpol' or 'depol'
         
         # Use enhanced point finding
         point_result = self._find_nearest_point_enhanced(event.xdata, event.ydata, curve_type)
@@ -232,6 +266,30 @@ class CurveFittingManager:
                 # Continue collecting points
                 remaining = 2 - len(self.selected_points[curve_type]['exp_points'])
                 logger.info(f"Selected point {len(self.selected_points[curve_type]['exp_points'])}/2. Click {remaining} more point(s)")
+        
+        elif 'integration' in self.selection_mode:
+            logger.info(f"Integration point selection for {curve_type}: index={index}, time={time:.3f}s, value={value:.2f}pA")
+            # Add point to integration points list
+            point_data = {
+                'index': index, 'time': time, 'value': value, 'info': point_info
+            }
+            self.selected_points[curve_type]['integration_points'].append(point_data)
+            
+            # Add visual marker
+            marker_label = f'I{len(self.selected_points[curve_type]["integration_points"])}'
+            self._add_enhanced_selection_marker(time * 1000, value, marker_label, 'green', point_info)
+            
+            # Check if we have enough points
+            if len(self.selected_points[curve_type]['integration_points']) >= 2:
+                # Calculate integration
+                self._calculate_integration(curve_type)
+                self._stop_selection()
+                if self.on_fit_complete:
+                    self.on_fit_complete(curve_type, 'integration')
+            else:
+                # Continue collecting points
+                remaining = 2 - len(self.selected_points[curve_type]['integration_points'])
+                logger.info(f"Selected integration point {len(self.selected_points[curve_type]['integration_points'])}/2. Click {remaining} more point(s)")
     
     def _find_nearest_point(self, x_click: float, y_click: float, curve_type: str) -> Optional[Tuple[int, float, float]]:
         """Find the nearest point on the specified curve to the clicked location."""
@@ -446,6 +504,66 @@ class CurveFittingManager:
         except Exception as e:
             logger.error(f"Exponential fitting failed for {curve_type}: {str(e)}")
     
+    def _calculate_integration(self, curve_type: str):
+        """Calculate integration between two selected points."""
+        integration_points = self.selected_points[curve_type]['integration_points']
+        if len(integration_points) < 2:
+            logger.error("Need 2 points for integration calculation")
+            return
+        
+        data = self.curve_data[curve_type]['data']
+        times = self.curve_data[curve_type]['times']
+        
+        # Get data between the two selected points
+        start_idx = min(integration_points[0]['index'], integration_points[1]['index'])
+        end_idx = max(integration_points[0]['index'], integration_points[1]['index'])
+        
+        time_segment = times[start_idx:end_idx+1]
+        data_segment = data[start_idx:end_idx+1]
+        
+        if len(time_segment) < 2:
+            logger.error("Not enough points for integration")
+            return
+        
+        # Calculate integration using trapezoidal rule
+        # Convert time to milliseconds for proper units (pA * ms = pC)
+        time_ms = time_segment * 1000
+        integral = np.trapz(data_segment, time_ms)
+        
+        # Store integration results
+        if not hasattr(self, 'integration_results'):
+            self.integration_results = {}
+        
+        self.integration_results[curve_type] = {
+            'integral': integral,
+            'start_idx': start_idx,
+            'end_idx': end_idx,
+            'start_time': time_segment[0],
+            'end_time': time_segment[-1],
+            'start_time_ms': time_ms[0],
+            'end_time_ms': time_ms[-1],
+            'data_points': len(data_segment)
+        }
+        
+        logger.info(f"Integration for {curve_type}:")
+        logger.info(f"  Range: {time_ms[0]:.2f} - {time_ms[-1]:.2f} ms")
+        logger.info(f"  Points: {len(data_segment)}")
+        logger.info(f"  Integral: {integral:.3f} pC")
+        
+        # Notify main app about integration update
+        if hasattr(self, 'main_app') and self.main_app:
+            self._update_integration_display()
+    
+    def _update_integration_display(self):
+        """Update integration display in the main app."""
+        try:
+            if hasattr(self.main_app, 'action_potential_tab'):
+                action_potential_tab = self.main_app.action_potential_tab
+                if hasattr(action_potential_tab, 'update_integration_values'):
+                    action_potential_tab.update_integration_values(self.integration_results)
+        except Exception as e:
+            logger.error(f"Failed to update integration display: {str(e)}")
+    
     def _stop_selection(self):
         """Stop point selection mode."""
         self._disconnect_events()
@@ -472,6 +590,10 @@ class CurveFittingManager:
             corrected_data = data + linear_trend
         
         logger.info(f"Applied linear {operation} correction to {curve_type}")
+        
+        # Update the curve data in this manager with corrected data
+        self.curve_data[curve_type]['data'] = corrected_data
+        logger.info(f"Updated curve data for {curve_type} with corrected values")
         
         # Update the processor with corrected data and refresh plot
         if hasattr(self, 'main_app') and self.main_app:
@@ -529,7 +651,8 @@ class CurveFittingManager:
             }
             self.selected_points[ctype] = {
                 'linear_points': [],
-                'exp_points': []
+                'exp_points': [],
+                'integration_points': []
             }
         
         # Clear plot elements

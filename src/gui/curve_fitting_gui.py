@@ -124,6 +124,12 @@ class CurveFittingPanel:
                 ttk.Button(frame, text="🔄 Reset to Original",
                           command=lambda: self.reset_to_original(curve_type)))
         getattr(self, f'{curve_type}_reset_original_btn').pack(fill='x', pady=2)
+        
+        # Add Integration Range Selection button
+        setattr(self, f'{curve_type}_integration_btn',
+                ttk.Button(frame, text="📏 Select Integration Range",
+                          command=lambda: self.start_integration_selection(curve_type)))
+        getattr(self, f'{curve_type}_integration_btn').pack(fill='x', pady=2)
     
     def _create_results_display(self, parent):
         """Create compact results display."""
@@ -259,6 +265,16 @@ class CurveFittingPanel:
         self.status_var.set(f"Click 2 points on {curve_type} curve for exponential fit")
         self._disable_buttons_except(f'{curve_type}_exp_btn')
     
+    def start_integration_selection(self, curve_type: str):
+        """Start integration range selection for the specified curve."""
+        if not self.fitting_manager:
+            messagebox.showerror("Error", "Fitting manager not initialized")
+            return
+        
+        self.fitting_manager.start_integration_selection(curve_type)
+        self.status_var.set(f"Click 2 points on {curve_type} curve to define integration range")
+        self._disable_buttons_except(f'{curve_type}_integration_btn')
+    
     def clear_fits(self, curve_type: Optional[str]):
         """Clear fitting results."""
         if self.fitting_manager:
@@ -303,6 +319,16 @@ class CurveFittingPanel:
                 processor.modified_depol_times = processor.original_depol_times.copy()
                 logger.info(f"After reset - modified_depol: {processor.modified_depol}")
                 logger.info("Reset depol curve to original")
+            
+            # Update the curve data in the fitting manager with the reset data
+            if curve_type == 'hyperpol':
+                self.fitting_manager.curve_data['hyperpol']['data'] = processor.modified_hyperpol.copy()
+                self.fitting_manager.curve_data['hyperpol']['times'] = processor.modified_hyperpol_times.copy()
+                logger.info("Updated fitting manager curve data for hyperpol with reset values")
+            elif curve_type == 'depol':
+                self.fitting_manager.curve_data['depol']['data'] = processor.modified_depol.copy()
+                self.fitting_manager.curve_data['depol']['times'] = processor.modified_depol_times.copy()
+                logger.info("Updated fitting manager curve data for depol with reset values")
             
             # Reload the plot with preserved zoom state
             if hasattr(self.main_app, 'update_plot_with_processed_data'):
@@ -477,8 +503,8 @@ class CurveFittingPanel:
     
     def _disable_buttons_except(self, except_button: str):
         """Disable all buttons except the specified one."""
-        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn', 'hyperpol_reset_original_btn',
-                  'depol_linear_btn', 'depol_exp_btn', 'depol_reset_original_btn']
+        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn', 'hyperpol_reset_original_btn', 'hyperpol_integration_btn',
+                  'depol_linear_btn', 'depol_exp_btn', 'depol_reset_original_btn', 'depol_integration_btn']
         
         for btn_name in buttons:
             if btn_name != except_button:
@@ -488,8 +514,8 @@ class CurveFittingPanel:
     
     def _enable_all_buttons(self):
         """Enable all buttons."""
-        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn', 'hyperpol_reset_original_btn',
-                  'depol_linear_btn', 'depol_exp_btn', 'depol_reset_original_btn']
+        buttons = ['hyperpol_linear_btn', 'hyperpol_exp_btn', 'hyperpol_reset_original_btn', 'hyperpol_integration_btn',
+                  'depol_linear_btn', 'depol_exp_btn', 'depol_reset_original_btn', 'depol_integration_btn']
         
         for btn_name in buttons:
             btn = getattr(self, btn_name, None)

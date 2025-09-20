@@ -499,6 +499,40 @@ class ActionPotentialTab:
         
         return results
 
+    def update_integration_values(self, integration_results):
+        """Update integration values from curve fitting manager."""
+        try:
+            if not integration_results:
+                return
+            
+            # Update hyperpol integration if available
+            if 'hyperpol' in integration_results:
+                hyperpol_data = integration_results['hyperpol']
+                hyperpol_value = f"{hyperpol_data['integral']:.3f} pC"
+                self.hyperpol_result.set(hyperpol_value)
+                app_logger.info(f"Updated hyperpol integration: {hyperpol_value}")
+            
+            # Update depol integration if available
+            if 'depol' in integration_results:
+                depol_data = integration_results['depol']
+                depol_value = f"{depol_data['integral']:.3f} pC"
+                self.depol_result.set(depol_value)
+                app_logger.info(f"Updated depol integration: {depol_value}")
+            
+            # Calculate total integral
+            total_integral = 0
+            if 'hyperpol' in integration_results:
+                total_integral += integration_results['hyperpol']['integral']
+            if 'depol' in integration_results:
+                total_integral += integration_results['depol']['integral']
+            
+            if total_integral != 0:
+                self.integral_result.set(f"{total_integral:.3f} pC")
+                app_logger.info(f"Updated total integral: {total_integral:.3f} pC")
+            
+        except Exception as e:
+            app_logger.error(f"Failed to update integration values: {str(e)}")
+
     def update_range_display(self):
         """Update the display of current integration ranges."""
         if not hasattr(self, 'range_display'):
