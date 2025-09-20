@@ -171,7 +171,9 @@ def _reload_plot(main_app):
                             
                             method(processed_data, orange_curve, orange_times, 
                                   normalized_curve, normalized_times, 
-                                  average_curve, average_times)
+                                  average_curve, average_times,
+                                  force_full_range=False,
+                                  force_auto_scale=False)
                         else:
                             method()
                     else:

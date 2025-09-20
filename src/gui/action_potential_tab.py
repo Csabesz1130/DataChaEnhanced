@@ -1235,6 +1235,7 @@ class ActionPotentialTab:
         """Handle changes in display options."""
         try:
             params = self.get_parameters()
+            params['visibility_update'] = True  # Flag as visibility-only update to preserve zoom
             self.update_callback(params)
         except Exception as e:
             app_logger.error(f"Error handling display change: {str(e)}")

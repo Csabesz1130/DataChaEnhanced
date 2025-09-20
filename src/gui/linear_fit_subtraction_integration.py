@@ -280,7 +280,9 @@ class LinearFitSubtractionIntegration:
                         if method_name == 'update_plot_with_processed_data':
                             method(processed_data, orange_curve, orange_times, 
                                   normalized_curve, normalized_times, 
-                                  average_curve, average_times)
+                                  average_curve, average_times,
+                                  force_full_range=False,
+                                  force_auto_scale=False)
                         else:
                             method()
                         

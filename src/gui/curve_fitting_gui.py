@@ -85,8 +85,11 @@ class CurveFittingPanel:
                   command=lambda: self.clear_fits(None)).pack(side='left', padx=2)
         ttk.Button(global_frame, text="💾 Export Results", 
                   command=self.export_results).pack(side='left', padx=2)
-        ttk.Button(global_frame, text="📈 Apply Corrections", 
-                  command=self.apply_corrections).pack(side='left', padx=2)
+        # Apply corrections buttons - separate for each curve type
+        ttk.Button(global_frame, text="📈 Apply Hyperpol", 
+                  command=lambda: self.apply_corrections('hyperpol')).pack(side='left', padx=2)
+        ttk.Button(global_frame, text="📈 Apply Depol", 
+                  command=lambda: self.apply_corrections('depol')).pack(side='left', padx=2)
         
         # Status bar
         status_frame = ttk.Frame(main_frame)
@@ -185,6 +188,9 @@ class CurveFittingPanel:
         if not processor:
             return
         
+        # Store original data if not already stored
+        self._store_original_data(processor)
+        
         # Update hyperpol data
         if (hasattr(processor, 'modified_hyperpol') and 
             processor.modified_hyperpol is not None):
@@ -202,6 +208,28 @@ class CurveFittingPanel:
                 processor.modified_depol,
                 processor.modified_depol_times
             )
+    
+    def _store_original_data(self, processor):
+        """Store original curve data for reset functionality."""
+        try:
+            # Store hyperpol original data if not already stored
+            if (hasattr(processor, 'modified_hyperpol') and hasattr(processor, 'modified_hyperpol_times') and
+                processor.modified_hyperpol is not None and
+                (not hasattr(processor, 'original_hyperpol') or processor.original_hyperpol is None)):
+                processor.original_hyperpol = processor.modified_hyperpol.copy()
+                processor.original_hyperpol_times = processor.modified_hyperpol_times.copy()
+                logger.info("Stored original hyperpol data")
+            
+            # Store depol original data if not already stored
+            if (hasattr(processor, 'modified_depol') and hasattr(processor, 'modified_depol_times') and
+                processor.modified_depol is not None and
+                (not hasattr(processor, 'original_depol') or processor.original_depol is None)):
+                processor.original_depol = processor.modified_depol.copy()
+                processor.original_depol_times = processor.modified_depol_times.copy()
+                logger.info("Stored original depol data")
+                
+        except Exception as e:
+            logger.error(f"Failed to store original data: {str(e)}")
     
     def start_linear_fitting(self, curve_type: str):
         """Start linear fitting for the specified curve."""
@@ -254,27 +282,34 @@ class CurveFittingPanel:
                 messagebox.showwarning("Warning", "No processor data available")
                 return
             
+            # Check if we have original data stored
+            original_data_attr = f'original_{curve_type}'
+            original_times_attr = f'original_{curve_type}_times'
+            
+            if not (hasattr(processor, original_data_attr) and hasattr(processor, original_times_attr)):
+                messagebox.showwarning("Warning", f"No original {curve_type} data available. Please run analysis first.")
+                return
+            
             # Reset the modified curve to original
             if curve_type == 'hyperpol':
-                if hasattr(processor, 'hyperpol') and hasattr(processor, 'hyperpol_times'):
-                    processor.modified_hyperpol = processor.hyperpol.copy()
-                    processor.modified_hyperpol_times = processor.hyperpol_times.copy()
-                    logger.info("Reset hyperpol curve to original")
-                else:
-                    messagebox.showwarning("Warning", "No original hyperpol data available")
-                    return
+                logger.info(f"Before reset - modified_hyperpol: {processor.modified_hyperpol}")
+                logger.info(f"Before reset - original_hyperpol: {processor.original_hyperpol}")
+                processor.modified_hyperpol = processor.original_hyperpol.copy()
+                processor.modified_hyperpol_times = processor.original_hyperpol_times.copy()
+                logger.info(f"After reset - modified_hyperpol: {processor.modified_hyperpol}")
+                logger.info("Reset hyperpol curve to original")
             elif curve_type == 'depol':
-                if hasattr(processor, 'depol') and hasattr(processor, 'depol_times'):
-                    processor.modified_depol = processor.depol.copy()
-                    processor.modified_depol_times = processor.depol_times.copy()
-                    logger.info("Reset depol curve to original")
-                else:
-                    messagebox.showwarning("Warning", "No original depol data available")
-                    return
+                logger.info(f"Before reset - modified_depol: {processor.modified_depol}")
+                logger.info(f"Before reset - original_depol: {processor.original_depol}")
+                processor.modified_depol = processor.original_depol.copy()
+                processor.modified_depol_times = processor.original_depol_times.copy()
+                logger.info(f"After reset - modified_depol: {processor.modified_depol}")
+                logger.info("Reset depol curve to original")
             
-            # Reload the plot
+            # Reload the plot with preserved zoom state
             if hasattr(self.main_app, 'update_plot_with_processed_data'):
                 try:
+                    # Explicitly preserve zoom by setting force_full_range=False and force_auto_scale=False
                     self.main_app.update_plot_with_processed_data(
                         getattr(processor, 'processed_data', None),
                         getattr(processor, 'orange_curve', None),
@@ -282,9 +317,11 @@ class CurveFittingPanel:
                         getattr(processor, 'normalized_curve', None),
                         getattr(processor, 'normalized_curve_times', None),
                         getattr(processor, 'average_curve', None),
-                        getattr(processor, 'average_curve_times', None)
+                        getattr(processor, 'average_curve_times', None),
+                        force_full_range=False,
+                        force_auto_scale=False
                     )
-                    logger.info(f"Plot refreshed after {curve_type} reset to original")
+                    logger.info(f"Plot refreshed after {curve_type} reset to original with preserved zoom")
                 except Exception as e:
                     logger.error(f"Failed to refresh plot after reset: {str(e)}")
                     # Try alternative plot update method
@@ -299,32 +336,58 @@ class CurveFittingPanel:
             logger.error(f"Failed to reset {curve_type} to original: {str(e)}")
             messagebox.showerror("Error", f"Failed to reset {curve_type} to original: {str(e)}")
     
-    def apply_corrections(self):
+    def apply_corrections(self, curve_type=None):
         """Apply linear corrections to curves."""
         if not self.fitting_manager:
             return
         
         corrections_applied = []
         
-        for curve_type in ['hyperpol', 'depol']:
-            if self.fitting_manager.fitted_curves[curve_type]['linear_params']:
+        # If curve_type is specified, only apply to that curve
+        curves_to_process = [curve_type] if curve_type else ['hyperpol', 'depol']
+        
+        for curve in curves_to_process:
+            if self.fitting_manager.fitted_curves[curve]['linear_params']:
                 # Both curves should subtract the linear trend to remove drift
                 operation = 'subtract'
-                result = self.fitting_manager.apply_linear_correction(curve_type, operation)
+                result = self.fitting_manager.apply_linear_correction(curve, operation)
                 if result:
-                    corrections_applied.append(f"{curve_type}: {operation}")
+                    corrections_applied.append(f"{curve}: {operation}")
                     
                     # Update the processor with corrected data
                     processor = getattr(self.main_app, 'action_potential_processor', None)
                     if processor:
-                        if curve_type == 'hyperpol':
+                        if curve == 'hyperpol':
                             processor.corrected_hyperpol = result['corrected']
                         else:
                             processor.corrected_depol = result['corrected']
         
         if corrections_applied:
+            # Reload the plot with preserved zoom state after applying corrections
+            if hasattr(self.main_app, 'update_plot_with_processed_data'):
+                try:
+                    processor = getattr(self.main_app, 'action_potential_processor', None)
+                    if processor:
+                        self.main_app.update_plot_with_processed_data(
+                            getattr(processor, 'processed_data', None),
+                            getattr(processor, 'orange_curve', None),
+                            getattr(processor, 'orange_times', None),
+                            getattr(processor, 'normalized_curve', None),
+                            getattr(processor, 'normalized_curve_times', None),
+                            getattr(processor, 'average_curve', None),
+                            getattr(processor, 'average_curve_times', None),
+                            force_full_range=False,
+                            force_auto_scale=False
+                        )
+                        logger.info("Plot refreshed after applying corrections with preserved zoom")
+                except Exception as e:
+                    logger.error(f"Failed to refresh plot after corrections: {str(e)}")
+            
             messagebox.showinfo("Success", f"Corrections applied:\n" + "\n".join(corrections_applied))
-            self.status_var.set("Linear corrections applied")
+            if curve_type:
+                self.status_var.set(f"Linear correction applied to {curve_type}")
+            else:
+                self.status_var.set("Linear corrections applied")
         else:
             messagebox.showwarning("Warning", "No linear fits available for correction")
     

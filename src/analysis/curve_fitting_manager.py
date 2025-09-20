@@ -478,7 +478,7 @@ class CurveFittingManager:
                 elif curve_type == 'depol':
                     processor.modified_depol = corrected_data
                 
-                # Reload the plot
+                # Reload the plot with preserved zoom state
                 if hasattr(self.main_app, 'update_plot_with_processed_data'):
                     try:
                         self.main_app.update_plot_with_processed_data(
@@ -488,9 +488,11 @@ class CurveFittingManager:
                             getattr(processor, 'normalized_curve', None),
                             getattr(processor, 'normalized_curve_times', None),
                             getattr(processor, 'average_curve', None),
-                            getattr(processor, 'average_curve_times', None)
+                            getattr(processor, 'average_curve_times', None),
+                            force_full_range=False,
+                            force_auto_scale=False
                         )
-                        logger.info(f"Plot refreshed after {curve_type} correction")
+                        logger.info(f"Plot refreshed after {curve_type} correction with preserved zoom")
                     except Exception as e:
                         logger.error(f"Failed to refresh plot: {str(e)}")
                         # Try alternative plot update method

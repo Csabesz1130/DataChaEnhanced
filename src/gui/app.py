@@ -1818,7 +1818,9 @@ class SignalAnalyzerApp:
                     self.normalized_curve,
                     self.normalized_curve_times,
                     getattr(self, 'average_curve', None),
-                    getattr(self, 'average_curve_times', None)
+                    getattr(self, 'average_curve_times', None),
+                    force_full_range=False,
+                    force_auto_scale=False
                 )
             return
 
