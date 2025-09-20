@@ -253,12 +253,10 @@ class CurveFittingPanel:
             messagebox.showerror("Error", "Fitting manager not initialized")
             return
         
-        if not self.fitting_manager.fitted_curves[curve_type]['linear_params']:
-            messagebox.showwarning("Warning", f"Please perform linear fitting first for {curve_type}")
-            return
+        # No longer require linear fit for exponential fitting
         
         self.fitting_manager.start_exp_selection(curve_type)
-        self.status_var.set(f"Click 1 point on {curve_type} curve for exponential fit start")
+        self.status_var.set(f"Click 2 points on {curve_type} curve for exponential fit")
         self._disable_buttons_except(f'{curve_type}_exp_btn')
     
     def clear_fits(self, curve_type: Optional[str]):

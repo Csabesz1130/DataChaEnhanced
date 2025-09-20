@@ -31,8 +31,8 @@ class CurveFittingManager:
         # Point selection states
         self.selection_mode = None  # 'linear_hyperpol', 'linear_depol', 'exp_hyperpol', 'exp_depol'
         self.selected_points = {
-            'hyperpol': {'linear_points': [], 'exp_point': None},
-            'depol': {'linear_points': [], 'exp_point': None}
+            'hyperpol': {'linear_points': [], 'exp_points': []},
+            'depol': {'linear_points': [], 'exp_points': []}
         }
         
         # Fitted parameters
@@ -108,14 +108,9 @@ class CurveFittingManager:
         return True
     
     def start_exp_selection(self, curve_type: str):
-        """Start selecting third point for exponential fitting."""
+        """Start selecting two points for exponential fitting."""
         if curve_type not in ['hyperpol', 'depol']:
             logger.error(f"Invalid curve type: {curve_type}")
-            return False
-        
-        # Check if linear fit exists
-        if not self.fitted_curves[curve_type]['linear_params']:
-            logger.warning(f"Linear fit required before exponential fit for {curve_type}")
             return False
         
         # Check if we have data
@@ -124,12 +119,12 @@ class CurveFittingManager:
             return False
         
         self.selection_mode = f'exp_{curve_type}'
-        self.selected_points[curve_type]['exp_point'] = None
+        self.selected_points[curve_type]['exp_points'] = []
         self._connect_events()
         self.is_active = True
         
         logger.info(f"Started exponential point selection for {curve_type}")
-        logger.info(f"Click 1 point on the {curve_type} purple curve for exponential fit start")
+        logger.info(f"Click 2 points on the {curve_type} purple curve for exponential fit")
         return True
     
     def _connect_events(self):
@@ -216,16 +211,27 @@ class CurveFittingManager:
                             self.on_fit_complete(curve_type, 'linear')
         
         elif 'exp' in self.selection_mode:
-            self.selected_points[curve_type]['exp_point'] = {
+            # Add point to exponential points list
+            point_data = {
                 'index': index, 'time': time, 'value': value, 'info': point_info
             }
-            self._add_enhanced_selection_marker(time * 1000, value, 'P3', 'blue', point_info)
+            self.selected_points[curve_type]['exp_points'].append(point_data)
             
-            # Perform exponential fit
-            self._fit_exponential(curve_type)
-            self._stop_selection()
-            if self.on_fit_complete:
-                self.on_fit_complete(curve_type, 'exponential')
+            # Add visual marker
+            marker_label = f'P{len(self.selected_points[curve_type]["exp_points"])}'
+            self._add_enhanced_selection_marker(time * 1000, value, marker_label, 'blue', point_info)
+            
+            # Check if we have enough points
+            if len(self.selected_points[curve_type]['exp_points']) >= 2:
+                # Perform exponential fit
+                self._fit_exponential(curve_type)
+                self._stop_selection()
+                if self.on_fit_complete:
+                    self.on_fit_complete(curve_type, 'exponential')
+            else:
+                # Continue collecting points
+                remaining = 2 - len(self.selected_points[curve_type]['exp_points'])
+                logger.info(f"Selected point {len(self.selected_points[curve_type]['exp_points'])}/2. Click {remaining} more point(s)")
     
     def _find_nearest_point(self, x_click: float, y_click: float, curve_type: str) -> Optional[Tuple[int, float, float]]:
         """Find the nearest point on the specified curve to the clicked location."""
@@ -345,97 +351,95 @@ class CurveFittingManager:
         logger.info(f"  Intercept: {intercept:.6f} pA")
     
     def _fit_exponential(self, curve_type: str):
-        """Perform exponential fitting from the selected point to the end."""
-        exp_point = self.selected_points[curve_type]['exp_point']
-        if not exp_point:
-            logger.error("No exponential start point selected")
-            return
-        
-        linear_params = self.fitted_curves[curve_type]['linear_params']
-        if not linear_params:
-            logger.error("Linear fit required before exponential fit")
+        """Perform exponential fitting using two selected points."""
+        exp_points = self.selected_points[curve_type]['exp_points']
+        if len(exp_points) < 2:
+            logger.error("Need 2 points for exponential fitting")
             return
         
         data = self.curve_data[curve_type]['data']
         times = self.curve_data[curve_type]['times']
         
-        # Get data from exp point to end
-        start_idx = exp_point['index']
-        time_segment = times[start_idx:]
-        data_segment = data[start_idx:]
+        # Get data between the two selected points
+        start_idx = min(exp_points[0]['index'], exp_points[1]['index'])
+        end_idx = max(exp_points[0]['index'], exp_points[1]['index'])
+        
+        time_segment = times[start_idx:end_idx+1]
+        data_segment = data[start_idx:end_idx+1]
         
         if len(time_segment) < 3:
             logger.error("Not enough points for exponential fit")
             return
-        
-        # Remove linear trend
-        linear_trend = linear_params['slope'] * time_segment + linear_params['intercept']
-        detrended_data = data_segment - linear_trend
         
         # Shift time to start from 0
         time_shifted = time_segment - time_segment[0]
         
         # Choose appropriate exponential model
         if curve_type == 'hyperpol':
-            # Decay model: A * exp(-t/tau)
-            def exp_func(t, A, tau):
-                return A * np.exp(-t / tau)
+            # Decay model: A * exp(-t/tau) + C
+            def exp_func(t, A, tau, C):
+                return A * np.exp(-t / tau) + C
             
             # Initial guesses
-            A_guess = detrended_data[0]
+            A_guess = data_segment[0] - data_segment[-1]
             tau_guess = (time_shifted[-1] - time_shifted[0]) / 3
+            C_guess = data_segment[-1]
         else:
-            # Rise model: A * (1 - exp(-t/tau))
-            def exp_func(t, A, tau):
-                return A * (1 - np.exp(-t / tau))
+            # Rise model: A * (1 - exp(-t/tau)) + C
+            def exp_func(t, A, tau, C):
+                return A * (1 - np.exp(-t / tau)) + C
             
             # Initial guesses
-            A_guess = detrended_data[-1] - detrended_data[0]
+            A_guess = data_segment[-1] - data_segment[0]
             tau_guess = (time_shifted[-1] - time_shifted[0]) / 3
+            C_guess = data_segment[0]
         
         try:
             # Perform exponential fitting
             popt, pcov = curve_fit(
                 exp_func,
                 time_shifted,
-                detrended_data,
-                p0=[A_guess, tau_guess],
+                data_segment,
+                p0=[A_guess, tau_guess, C_guess],
                 maxfev=2000
             )
             
-            A_fit, tau_fit = popt
+            A_fit, tau_fit, C_fit = popt
             
             # Calculate R-squared
-            y_pred = exp_func(time_shifted, A_fit, tau_fit)
-            ss_res = np.sum((detrended_data - y_pred) ** 2)
-            ss_tot = np.sum((detrended_data - np.mean(detrended_data)) ** 2)
+            y_pred = exp_func(time_shifted, A_fit, tau_fit, C_fit)
+            ss_res = np.sum((data_segment - y_pred) ** 2)
+            ss_tot = np.sum((data_segment - np.mean(data_segment)) ** 2)
             r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
             
             # Store results
             self.fitted_curves[curve_type]['exp_params'] = {
                 'A': A_fit,
                 'tau': tau_fit,
+                'C': C_fit,
                 'start_idx': start_idx,
+                'end_idx': end_idx,
                 'start_time': time_segment[0],
+                'end_time': time_segment[-1],
                 'model_type': 'decay' if curve_type == 'hyperpol' else 'rise'
             }
             self.fitted_curves[curve_type]['r_squared_exp'] = r_squared
             
-            # Generate fitted curve (with linear trend added back)
-            fitted_exp = exp_func(time_shifted, A_fit, tau_fit)
-            fitted_total = fitted_exp + linear_trend
+            # Generate fitted curve
+            fitted_exp = exp_func(time_shifted, A_fit, tau_fit, C_fit)
             
             self.fitted_curves[curve_type]['exp_curve'] = {
                 'times': time_segment,
-                'data': fitted_total
+                'data': fitted_exp
             }
             
             # Plot the fitted curve
-            self._plot_exp_fit(curve_type, time_segment, fitted_total)
+            self._plot_exp_fit(curve_type, time_segment, fitted_exp)
             
             logger.info(f"Exponential fit for {curve_type}:")
             logger.info(f"  A = {A_fit:.6f} pA")
             logger.info(f"  τ = {tau_fit:.6f} s ({tau_fit*1000:.3f} ms)")
+            logger.info(f"  C = {C_fit:.6f} pA")
             logger.info(f"  R² = {r_squared:.4f}")
             logger.info(f"  Model: {'decay' if curve_type == 'hyperpol' else 'rise'}")
             
@@ -525,7 +529,7 @@ class CurveFittingManager:
             }
             self.selected_points[ctype] = {
                 'linear_points': [],
-                'exp_point': None
+                'exp_points': []
             }
         
         # Clear plot elements
