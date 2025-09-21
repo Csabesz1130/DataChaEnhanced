@@ -133,7 +133,7 @@ class ActionPotentialTab:
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def setup_normalization_points(self):
-        """Setup single input field for the starting point"""
+        """Setup single input field for the starting point with simulation feature"""
         norm_frame = ttk.LabelFrame(self.scrollable_frame, text="Normalization Point")
         norm_frame.pack(fill='x', padx=5, pady=5)
 
@@ -145,10 +145,19 @@ class ActionPotentialTab:
         norm_entry = ttk.Entry(point_frame, textvariable=self.norm_point, width=10)
         norm_entry.pack(side='left', padx=5)
         
+        # Simulation button
+        self.simulate_button = ttk.Button(
+            point_frame, 
+            text="Find Optimal Point", 
+            command=self.run_starting_point_simulation,
+            width=15
+        )
+        self.simulate_button.pack(side='left', padx=5)
+        
         # Info label
         ttk.Label(
             norm_frame,
-            text="Leave blank to use default value (35)",
+            text="Leave blank to use default value (35). Click 'Find Optimal Point' to simulate best starting point.",
             font=('TkDefaultFont', 8, 'italic')
         ).pack(pady=2)
 
@@ -1426,3 +1435,79 @@ class ActionPotentialTab:
         except Exception as e:
             app_logger.error(f"Error resetting tab: {str(e)}")
             raise
+
+    def run_starting_point_simulation(self):
+        """Run starting point simulation to find optimal value."""
+        try:
+            # Check if we have data available
+            app = self.parent.master
+            if not hasattr(app, 'filtered_data') or app.filtered_data is None:
+                messagebox.showwarning("No Data", "Please load data first before running simulation.")
+                return
+            
+            if not hasattr(app, 'time_data') or app.time_data is None:
+                messagebox.showwarning("No Data", "Time data not available for simulation.")
+                return
+            
+            # Disable simulation button during processing
+            self.simulate_button.state(['disabled'])
+            self.simulate_button.config(text="Running Simulation...")
+            
+            # Get current parameters
+            current_params = self.get_parameters()
+            
+            # Create and show simulation dialog
+            self._show_simulation_dialog(app.filtered_data, app.time_data, current_params)
+            
+        except Exception as e:
+            app_logger.error(f"Error running starting point simulation: {str(e)}")
+            messagebox.showerror("Simulation Error", f"Failed to run simulation: {str(e)}")
+        finally:
+            # Re-enable simulation button
+            if hasattr(self, 'simulate_button'):
+                self.simulate_button.state(['!disabled'])
+                self.simulate_button.config(text="Find Optimal Point")
+    
+    def _show_simulation_dialog(self, data, time_data, params):
+        """Show the simulation dialog window."""
+        try:
+            # Create simulation dialog window
+            dialog = tk.Toplevel(self.parent)
+            dialog.title("Starting Point Simulation")
+            dialog.geometry("800x600")
+            dialog.transient(self.parent)
+            dialog.grab_set()
+            
+            # Center the dialog
+            dialog.update_idletasks()
+            x = (dialog.winfo_screenwidth() // 2) - (800 // 2)
+            y = (dialog.winfo_screenheight() // 2) - (600 // 2)
+            dialog.geometry(f"800x600+{x}+{y}")
+            
+            # Create simulation GUI
+            from src.analysis.starting_point_simulator import StartingPointSimulationGUI
+            sim_gui = StartingPointSimulationGUI(dialog, data, time_data, params)
+            
+            # Add close handler
+            def on_close():
+                dialog.destroy()
+            
+            dialog.protocol("WM_DELETE_WINDOW", on_close)
+            
+            # Add apply button handler
+            def apply_recommendation():
+                recommended_point = sim_gui.get_recommended_starting_point()
+                if recommended_point is not None:
+                    # Update the starting point in the tab
+                    self.norm_point.set(str(recommended_point))
+                    messagebox.showinfo("Applied", f"Starting point set to {recommended_point}")
+                    dialog.destroy()
+                else:
+                    messagebox.showwarning("No Recommendation", "No recommendation available to apply")
+            
+            # Override the apply method to close dialog
+            sim_gui.apply_recommendation = apply_recommendation
+            
+        except Exception as e:
+            app_logger.error(f"Error showing simulation dialog: {str(e)}")
+            messagebox.showerror("Dialog Error", f"Failed to show simulation dialog: {str(e)}")
