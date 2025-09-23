@@ -154,10 +154,23 @@ class ActionPotentialTab:
         )
         self.simulate_button.pack(side='left', padx=5)
         
+        # Auto-optimization checkbox
+        auto_opt_frame = ttk.Frame(norm_frame)
+        auto_opt_frame.pack(fill='x', padx=5, pady=2)
+        
+        self.auto_optimize = tk.BooleanVar(value=True)
+        auto_opt_check = ttk.Checkbutton(
+            auto_opt_frame,
+            text="Auto-optimize starting point",
+            variable=self.auto_optimize,
+            command=self.on_auto_optimize_change
+        )
+        auto_opt_check.pack(side='left')
+        
         # Info label
         ttk.Label(
             norm_frame,
-            text="Leave blank to use default value (35). Click 'Find Optimal Point' to simulate best starting point.",
+            text="Leave blank to use default value (35). Auto-optimization finds the best starting point automatically.",
             font=('TkDefaultFont', 8, 'italic')
         ).pack(pady=2)
 
@@ -773,6 +786,9 @@ class ActionPotentialTab:
             # Single normalization point
             self.norm_point = tk.StringVar()
             
+            # Auto-optimization setting
+            self.auto_optimize = tk.BooleanVar(value=True)
+            
         except Exception as e:
             app_logger.error(f"Error initializing variables: {str(e)}")
             raise
@@ -1319,6 +1335,7 @@ class ActionPotentialTab:
                 'V1': self.V1.get(),
                 'V2': self.V2.get(),
                 'use_alternative_method': self.integration_method.get() == "alternative",
+                'auto_optimize_starting_point': self.auto_optimize.get(),
                 'integration_ranges': self.get_integration_ranges(),
                 'display_options': {
                     'show_noisy_original': self.show_noisy_original.get(),
@@ -1441,11 +1458,53 @@ class ActionPotentialTab:
         try:
             # Check if we have data available
             app = self.parent.master
-            if not hasattr(app, 'filtered_data') or app.filtered_data is None:
+            
+            # Debug logging
+            app_logger.info(f"Starting point simulation requested")
+            app_logger.info(f"Checking data availability:")
+            app_logger.info(f"  filtered_data: {app.filtered_data is not None}")
+            app_logger.info(f"  time_data: {app.time_data is not None}")
+            if app.filtered_data is not None:
+                app_logger.info(f"  filtered_data length: {len(app.filtered_data)}")
+            if app.time_data is not None:
+                app_logger.info(f"  time_data length: {len(app.time_data)}")
+            
+            # Also check if we have the data property
+            app_logger.info(f"  hasattr filtered_data: {hasattr(app, 'filtered_data')}")
+            app_logger.info(f"  hasattr time_data: {hasattr(app, 'time_data')}")
+            app_logger.info(f"  app type: {type(app)}")
+            app_logger.info(f"  app dir: {[attr for attr in dir(app) if 'data' in attr.lower()]}")
+            
+            # Get data with fallback methods
+            filtered_data = None
+            time_data = None
+            
+            # Try property access first
+            if hasattr(app, 'filtered_data') and app.filtered_data is not None:
+                filtered_data = app.filtered_data
+                app_logger.info("Using filtered_data from property")
+            elif hasattr(app, '_filtered_data') and app._filtered_data is not None:
+                filtered_data = app._filtered_data
+                app_logger.info("Using filtered_data from private attribute")
+            elif hasattr(app, 'data') and app.data is not None:
+                filtered_data = app.data
+                app_logger.info("Using raw data as filtered_data")
+            
+            if hasattr(app, 'time_data') and app.time_data is not None:
+                time_data = app.time_data
+                app_logger.info("Using time_data from property")
+            elif hasattr(app, '_time_data') and app._time_data is not None:
+                time_data = app._time_data
+                app_logger.info("Using time_data from private attribute")
+            
+            # Check if we have both datasets
+            if filtered_data is None:
+                app_logger.warning("No filtered data available for simulation")
                 messagebox.showwarning("No Data", "Please load data first before running simulation.")
                 return
             
-            if not hasattr(app, 'time_data') or app.time_data is None:
+            if time_data is None:
+                app_logger.warning("No time data available for simulation")
                 messagebox.showwarning("No Data", "Time data not available for simulation.")
                 return
             
@@ -1457,7 +1516,7 @@ class ActionPotentialTab:
             current_params = self.get_parameters()
             
             # Create and show simulation dialog
-            self._show_simulation_dialog(app.filtered_data, app.time_data, current_params)
+            self._show_simulation_dialog(filtered_data, time_data, current_params)
             
         except Exception as e:
             app_logger.error(f"Error running starting point simulation: {str(e)}")
@@ -1511,3 +1570,21 @@ class ActionPotentialTab:
         except Exception as e:
             app_logger.error(f"Error showing simulation dialog: {str(e)}")
             messagebox.showerror("Dialog Error", f"Failed to show simulation dialog: {str(e)}")
+
+    def on_auto_optimize_change(self):
+        """Handle changes to auto-optimization checkbox."""
+        try:
+            auto_optimize = self.auto_optimize.get()
+            
+            # Enable/disable manual simulation button based on auto-optimization
+            if hasattr(self, 'simulate_button'):
+                if auto_optimize:
+                    self.simulate_button.config(text="Find Optimal Point (Manual)")
+                    # Show info about auto-optimization
+                    app_logger.info("Auto-optimization enabled - starting point will be optimized automatically")
+                else:
+                    self.simulate_button.config(text="Find Optimal Point")
+                    app_logger.info("Auto-optimization disabled - manual optimization available")
+            
+        except Exception as e:
+            app_logger.error(f"Error handling auto-optimize change: {str(e)}")

@@ -1686,6 +1686,12 @@ class SignalAnalyzerApp:
                 self.action_potential_tab.V2.set(voltage)
             
             self.update_plot(force_full_range=True)
+            
+            # Debug: Log data availability after loading
+            app_logger.info(f"Data loaded successfully:")
+            app_logger.info(f"  time_data: {self.time_data is not None} (length: {len(self.time_data) if self.time_data is not None else 0})")
+            app_logger.info(f"  data: {self.data is not None} (length: {len(self.data) if self.data is not None else 0})")
+            app_logger.info(f"  filtered_data: {self.filtered_data is not None} (length: {len(self.filtered_data) if self.filtered_data is not None else 0})")
             filename = os.path.basename(filepath)
             self.status_var.set(f"Loaded: {filename}")
             
@@ -1824,8 +1830,14 @@ class SignalAnalyzerApp:
                 )
             return
 
+        # Debug: Log data availability at analysis start
+        app_logger.info(f"Action potential analysis requested:")
+        app_logger.info(f"  filtered_data: {self.filtered_data is not None} (length: {len(self.filtered_data) if self.filtered_data is not None else 0})")
+        app_logger.info(f"  time_data: {self.time_data is not None} (length: {len(self.time_data) if self.time_data is not None else 0})")
+        
         # Validate data availability
         if self.filtered_data is None:
+            app_logger.warning("No filtered data available for analysis")
             messagebox.showwarning("Analysis", "No filtered data available")
             return
 
@@ -1850,7 +1862,8 @@ class SignalAnalyzerApp:
                 average_curve_times,
                 results
             ) = self.action_potential_processor.process_signal(
-                use_alternative_method=params.get('use_alternative_method', False)
+                use_alternative_method=params.get('use_alternative_method', False),
+                auto_optimize_starting_point=params.get('auto_optimize_starting_point', True)
             )
 
             # Check for pipeline failure
