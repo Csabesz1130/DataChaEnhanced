@@ -1292,8 +1292,8 @@ def integrate_curves_separately(self, ranges, method="direct", linreg_params=Non
             'depol_area': f"{depol_integral:.6f}",
             'capacitance_nF': f"{capacitance:.6f}",
             'purple_integral_value': (
-                f"Hyperpol={hyperpol_integral:.6f} pC, "
-                f"Depol={depol_integral:.6f} pC, "
+                f"Hyperpol={hyperpol_integral:.6f} fC, "
+                f"Depol={depol_integral:.6f} fC, "
                 f"Cap={capacitance:.6f} nF"
             )
         }

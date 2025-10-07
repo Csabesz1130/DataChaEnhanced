@@ -414,6 +414,11 @@ class SignalAnalyzerApp:
         # Clear processor
         self.action_potential_processor = None
         
+        # Clear Action Potential tab results
+        if hasattr(self, 'action_potential_tab') and self.action_potential_tab:
+            self.action_potential_tab.reset()
+            app_logger.info("🔄 Action Potential tab cleared")
+        
         # Clear file reference
         self.current_file = None
         
@@ -803,8 +808,13 @@ class SignalAnalyzerApp:
         """Setup hot reload system for development."""
         try:
             import os
-            # Get project root directory (assuming main app is in project root)
-            project_root = os.path.dirname(os.path.abspath(__file__))
+            # Get project root directory (repository root that contains `src/`)
+            # __file__ -> src/gui/app.py; we need three levels up -> project root
+            project_root = os.path.dirname(
+                os.path.dirname(
+                    os.path.dirname(os.path.abspath(__file__))
+                )
+            )
             
             # Initialize hot reload with callback to refresh components
             success = initialize_hot_reload(
@@ -823,15 +833,255 @@ class SignalAnalyzerApp:
     def on_code_reloaded(self):
         """Called after code is hot reloaded - refresh components if needed."""
         try:
-            # Refresh curve fitting manager if it exists
-            if hasattr(self, 'curve_fitting_panel'):
-                app_logger.info("Code reloaded - curve fitting refreshed")
+            app_logger.info("🔄 Hot reload triggered - refreshing components...")
             
-            # Add any other component refreshes here
-            app_logger.info("✅ Hot reload complete")
+            # 1. Refresh analysis processors
+            self._refresh_analysis_processors()
+            
+            # 2. Refresh UI tabs and panels
+            self._refresh_ui_components()
+            
+            # 3. Refresh plot and data if loaded
+            self._refresh_plot_and_data()
+            
+            # 4. Refresh curve fitting if active
+            self._refresh_curve_fitting()
+            
+            # 5. Refresh window manager
+            self._refresh_window_manager()
+            
+            app_logger.info("✅ Hot reload complete - all components refreshed")
             
         except Exception as e:
             app_logger.error(f"Error in reload callback: {e}")
+    
+    def _refresh_analysis_processors(self):
+        """Refresh analysis processors and related components."""
+        try:
+            # Re-import and refresh action potential processor
+            if hasattr(self, 'action_potential_processor') and self.action_potential_processor:
+                # Re-import the module to get updated classes
+                import importlib
+                import src.analysis.action_potential as ap_module
+                importlib.reload(ap_module)
+                
+                # Create new processor instance with updated code
+                self.action_potential_processor = ap_module.ActionPotentialProcessor()
+                app_logger.info("🔄 Action potential processor refreshed")
+            
+            # Refresh other analysis modules
+            analysis_modules = [
+                'src.analysis.linear_fit_subtractor',
+                'src.analysis.curve_fitting',
+                'src.analysis.signal_processing',
+                'src.analysis.baseline_correction',
+                'src.analysis.normalization',
+                'src.analysis.spike_detection',
+                'src.analysis.peak_detection'
+            ]
+            
+            for module_name in analysis_modules:
+                try:
+                    import importlib
+                    module = importlib.import_module(module_name)
+                    importlib.reload(module)
+                    app_logger.info(f"🔄 {module_name} refreshed")
+                except Exception as e:
+                    app_logger.debug(f"{module_name} refresh skipped: {e}")
+            
+            # Refresh filtering modules
+            try:
+                import importlib
+                import src.filtering.filtering as filter_module
+                importlib.reload(filter_module)
+                app_logger.info("🔄 Filtering module refreshed")
+            except Exception as e:
+                app_logger.debug(f"Filtering module refresh skipped: {e}")
+                
+        except Exception as e:
+            app_logger.error(f"Error refreshing analysis processors: {e}")
+    
+    def _refresh_ui_components(self):
+        """Refresh UI tabs and panels."""
+        try:
+            # Refresh action potential tab
+            if hasattr(self, 'action_potential_tab') and self.action_potential_tab:
+                # Re-import the tab module
+                import importlib
+                import src.gui.action_potential_tab as apt_module
+                importlib.reload(apt_module)
+                
+                # Recreate the tab with updated code
+                old_tab = self.action_potential_tab
+                self.action_potential_tab = apt_module.ActionPotentialTab(self.notebook, self.on_action_potential_analysis)
+                
+                # Replace in notebook
+                for i, tab_id in enumerate(self.notebook.tabs()):
+                    if self.notebook.tab(tab_id, "text") == "Action Potential":
+                        self.notebook.forget(tab_id)
+                        self.notebook.insert(i, self.action_potential_tab.frame, text="Action Potential")
+                        break
+                
+                # Update tabs dictionary
+                self.tabs['action_potential'] = self.action_potential_tab
+                app_logger.info("🔄 Action potential tab refreshed")
+            
+            # Refresh other tabs
+            self._refresh_tab('filter', 'Filters')
+            self._refresh_tab('analysis', 'Analysis') 
+            self._refresh_tab('view', 'View')
+            
+            # Refresh AI Analysis tab if exists
+            if 'ai_analysis' in self.tabs:
+                self._refresh_tab('ai_analysis', 'AI Analysis')
+                
+        except Exception as e:
+            app_logger.error(f"Error refreshing UI components: {e}")
+    
+    def _refresh_tab(self, tab_key, tab_text):
+        """Refresh a specific tab."""
+        try:
+            if tab_key in self.tabs:
+                # Find the tab in notebook and replace it
+                for i, tab_id in enumerate(self.notebook.tabs()):
+                    if self.notebook.tab(tab_id, "text") == tab_text:
+                        self.notebook.forget(tab_id)
+                        
+                        # Re-import and recreate the tab
+                        if tab_key == 'filter':
+                            import importlib
+                            import src.gui.filter_tab as ft_module
+                            importlib.reload(ft_module)
+                            new_tab = ft_module.FilterTab(self.notebook, self.on_filter_change)
+                        elif tab_key == 'analysis':
+                            import importlib
+                            import src.gui.analysis_tab as at_module
+                            importlib.reload(at_module)
+                            new_tab = at_module.AnalysisTab(self.notebook, self.on_analysis_update)
+                        elif tab_key == 'view':
+                            import importlib
+                            import src.gui.view_tab as vt_module
+                            importlib.reload(vt_module)
+                            new_tab = vt_module.ViewTab(self.notebook, self.on_view_change)
+                        elif tab_key == 'ai_analysis':
+                            import importlib
+                            import src.gui.ai_analysis_tab as aat_module
+                            importlib.reload(aat_module)
+                            new_tab = aat_module.AIAnalysisTab(self.notebook, self)
+                        else:
+                            return
+                        
+                        self.notebook.insert(i, new_tab.frame, text=tab_text)
+                        self.tabs[tab_key] = new_tab
+                        app_logger.info(f"🔄 {tab_text} tab refreshed")
+                        break
+        except Exception as e:
+            app_logger.debug(f"Error refreshing {tab_key} tab: {e}")
+    
+    def _refresh_plot_and_data(self):
+        """Refresh plot and reprocess data if loaded."""
+        try:
+            if hasattr(self, 'data') and self.data is not None:
+                app_logger.info("🔄 Reprocessing data with updated analysis code...")
+                
+                # Re-apply current filters if any
+                if hasattr(self, 'current_filters') and self.current_filters:
+                    self._apply_current_filters()
+                
+                # Reprocess any existing analysis results
+                self._reprocess_existing_analysis()
+                
+                # Refresh the plot
+                self.refresh_plot()
+                
+                app_logger.info("🔄 Plot and data refreshed with updated code")
+        except Exception as e:
+            app_logger.error(f"Error refreshing plot and data: {e}")
+    
+    def _reprocess_existing_analysis(self):
+        """Reprocess existing analysis with updated code."""
+        try:
+            # If action potential analysis was done, re-run it
+            if hasattr(self, 'action_potential_processor') and self.action_potential_processor:
+                if hasattr(self, '_processed_data') and self._processed_data is not None:
+                    app_logger.info("🔄 Reprocessing action potential analysis...")
+                    # The processor will use updated code when called again
+                    
+            # If curve fitting was done, re-run it
+            if hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel:
+                app_logger.info("🔄 Reprocessing curve fitting...")
+                # Curve fitting will use updated code when called again
+                
+        except Exception as e:
+            app_logger.error(f"Error reprocessing analysis: {e}")
+    
+    def _refresh_curve_fitting(self):
+        """Refresh curve fitting components."""
+        try:
+            if hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel:
+                # Re-import curve fitting modules
+                import importlib
+                try:
+                    import src.gui.curve_fitting_gui as cfg_module
+                    importlib.reload(cfg_module)
+                    app_logger.info("🔄 Curve fitting GUI refreshed")
+                except Exception as e:
+                    app_logger.debug(f"Curve fitting refresh skipped: {e}")
+                
+                # Reinitialize curve fitting if needed
+                if hasattr(self, 'initialize_curve_fitting'):
+                    self.master.after(100, self.initialize_curve_fitting)
+                    
+        except Exception as e:
+            app_logger.error(f"Error refreshing curve fitting: {e}")
+    
+    def _refresh_window_manager(self):
+        """Refresh window manager and related components."""
+        try:
+            if hasattr(self, 'window_manager') and self.window_manager:
+                # Re-import window manager
+                import importlib
+                import src.gui.window_manager as wm_module
+                importlib.reload(wm_module)
+                app_logger.info("🔄 Window manager refreshed")
+        except Exception as e:
+            app_logger.error(f"Error refreshing window manager: {e}")
+    
+    def _apply_current_filters(self):
+        """Re-apply current filters with updated filtering code."""
+        try:
+            if not self.current_filters:
+                return
+                
+            # Re-import filtering modules
+            import importlib
+            import src.filtering.filtering as filter_module
+            importlib.reload(filter_module)
+            
+            # Re-apply filters
+            self._filtered_data = filter_module.combined_filter(
+                self.data, 
+                self.current_filters
+            )
+            
+            app_logger.info("🔄 Filters reapplied with updated code")
+        except Exception as e:
+            app_logger.error(f"Error reapplying filters: {e}")
+    
+    def refresh_plot(self):
+        """Refresh the plot with current data and settings."""
+        try:
+            if hasattr(self, 'ax') and self.ax:
+                # Clear and redraw the plot
+                self.ax.clear()
+                
+                # Redraw with current data
+                if hasattr(self, 'data') and self.data is not None:
+                    self.update_plot()
+                    
+                app_logger.info("🔄 Plot refreshed")
+        except Exception as e:
+            app_logger.error(f"Error refreshing plot: {e}")
 
     def save_current_plot_limits(self):
         """Save current plot axis limits for restoration."""
@@ -1234,7 +1484,216 @@ class SignalAnalyzerApp:
         from src.utils.point_counter import CurvePointTracker
         self.point_tracker = CurvePointTracker(self.fig, self.ax, self.point_status_var)
         self.setup_plot_context_menu()
+        
+        # Setup drag and drop functionality
+        self.setup_drag_and_drop()
+        
         app_logger.info("Plot setup complete with zoom state preservation")
+
+    def setup_drag_and_drop(self):
+        """Setup drag and drop functionality for file loading."""
+        try:
+            # Enable drag and drop on the canvas widget
+            canvas_widget = self.canvas.get_tk_widget()
+            
+            # Bind drag and drop events
+            canvas_widget.bind("<Button-1>", self._on_drag_start)
+            canvas_widget.bind("<B1-Motion>", self._on_drag_motion)
+            canvas_widget.bind("<ButtonRelease-1>", self._on_drag_release)
+            
+            # Windows-specific drag and drop
+            try:
+                # Enable drag and drop on Windows
+                canvas_widget.tk.call('tk', 'windowingsystem')
+                canvas_widget.bind("<B1-Motion>", self._on_drag_motion)
+                canvas_widget.bind("<ButtonRelease-1>", self._on_drag_release)
+                
+                # Alternative: Use tkinterdnd2 if available
+                try:
+                    from tkinterdnd2 import DND_FILES, TkinterDnD
+                    # Enable drag and drop with tkinterdnd2
+                    canvas_widget.drop_target_register(DND_FILES)
+                    canvas_widget.dnd_bind('<<Drop>>', self._on_file_drop)
+                    app_logger.info("🖱️ Drag and drop enabled with tkinterdnd2")
+                except ImportError:
+                    # Fallback to basic drag detection
+                    self._setup_basic_drag_drop(canvas_widget)
+                    app_logger.info("🖱️ Basic drag and drop enabled")
+            except Exception as e:
+                app_logger.debug(f"Advanced drag and drop not available: {e}")
+                self._setup_basic_drag_drop(canvas_widget)
+                app_logger.info("🖱️ Basic drag and drop enabled")
+                
+        except Exception as e:
+            app_logger.error(f"Error setting up drag and drop: {e}")
+    
+    def _setup_basic_drag_drop(self, widget):
+        """Setup basic drag and drop detection."""
+        # Visual feedback for drag operations
+        widget.bind("<Enter>", self._on_drag_enter)
+        widget.bind("<Leave>", self._on_drag_leave)
+        widget.bind("<Button-1>", self._on_drag_start)
+        widget.bind("<B1-Motion>", self._on_drag_motion)
+        widget.bind("<ButtonRelease-1>", self._on_drag_release)
+    
+    def _on_drag_enter(self, event):
+        """Handle drag enter event."""
+        try:
+            # Change cursor to indicate drop zone
+            event.widget.configure(cursor="hand2")
+            app_logger.debug("Drag enter - plot area ready for file drop")
+        except Exception as e:
+            app_logger.debug(f"Drag enter error: {e}")
+    
+    def _on_drag_leave(self, event):
+        """Handle drag leave event."""
+        try:
+            # Reset cursor
+            event.widget.configure(cursor="")
+        except Exception as e:
+            app_logger.debug(f"Drag leave error: {e}")
+    
+    def _on_drag_start(self, event):
+        """Handle drag start event."""
+        try:
+            self.drag_start_x = event.x
+            self.drag_start_y = event.y
+            self.drag_in_progress = False
+        except Exception as e:
+            app_logger.debug(f"Drag start error: {e}")
+    
+    def _on_drag_motion(self, event):
+        """Handle drag motion event."""
+        try:
+            if hasattr(self, 'drag_start_x'):
+                # Check if this is a significant drag movement
+                dx = abs(event.x - self.drag_start_x)
+                dy = abs(event.y - self.drag_start_y)
+                
+                if dx > 5 or dy > 5:  # Threshold for drag detection
+                    self.drag_in_progress = True
+                    # Change cursor to indicate drag operation
+                    event.widget.configure(cursor="hand2")
+        except Exception as e:
+            app_logger.debug(f"Drag motion error: {e}")
+    
+    def _on_drag_release(self, event):
+        """Handle drag release event."""
+        try:
+            if hasattr(self, 'drag_in_progress') and self.drag_in_progress:
+                # This was a drag operation, not a click
+                app_logger.debug("Drag operation completed")
+            else:
+                # This was a click, not a drag
+                app_logger.debug("Click operation completed")
+            
+            # Reset drag state
+            if hasattr(self, 'drag_in_progress'):
+                delattr(self, 'drag_in_progress')
+            if hasattr(self, 'drag_start_x'):
+                delattr(self, 'drag_start_x')
+            if hasattr(self, 'drag_start_y'):
+                delattr(self, 'drag_start_y')
+                
+            # Reset cursor
+            event.widget.configure(cursor="")
+        except Exception as e:
+            app_logger.debug(f"Drag release error: {e}")
+    
+    def _on_file_drop(self, event):
+        """Handle file drop event (tkinterdnd2)."""
+        try:
+            # Get dropped files
+            files = event.data.split()
+            if files:
+                # Take the first file
+                filepath = files[0].strip('{}')  # Remove braces if present
+                app_logger.info(f"🖱️ File dropped: {filepath}")
+                
+                # Load the file
+                self._load_dropped_file(filepath)
+        except Exception as e:
+            app_logger.error(f"Error handling file drop: {e}")
+    
+    def _load_dropped_file(self, filepath):
+        """Load a dropped file."""
+        try:
+            # Validate file extension
+            if not filepath.lower().endswith('.atf'):
+                app_logger.warning(f"⚠️ Dropped file is not an ATF file: {filepath}")
+                messagebox.showwarning(
+                    "Invalid File Type", 
+                    "Please drop an ATF file (.atf extension).\n\n"
+                    f"Dropped file: {filepath}"
+                )
+                return
+            
+            # Check if file exists
+            if not os.path.exists(filepath):
+                app_logger.error(f"❌ Dropped file does not exist: {filepath}")
+                messagebox.showerror("File Not Found", f"The file does not exist:\n{filepath}")
+                return
+            
+            app_logger.info(f"📁 Loading dropped file: {filepath}")
+            
+            # Clear existing data
+            self.clear_all_data()
+            self.clear_saved_limits()
+            
+            # Force cleanup before loading new data
+            gc.collect()
+            
+            # Store current file path
+            self.current_file = filepath
+            
+            # Load with memory optimization
+            atf_handler = ATFHandler(filepath)
+            atf_handler.load_atf()
+            
+            # Get data and store using properties
+            new_time_data = atf_handler.get_column("Time")
+            new_data = atf_handler.get_column("#1")
+            
+            self.time_data = new_time_data
+            self.data = new_data
+            self.filtered_data = new_data.copy()
+            
+            # Clean up handler
+            del atf_handler
+            gc.collect()
+            
+            # Update view limits
+            self.view_tab.update_limits(
+                t_min=self.time_data[0],
+                t_max=self.time_data[-1],
+                v_min=np.min(self.data),
+                v_max=np.max(self.data)
+            )
+            
+            self.analysis_tab.update_data(self.data, self.time_data)
+            
+            # Clear Action Potential tab to remove previous analysis results
+            if hasattr(self, 'action_potential_tab') and self.action_potential_tab:
+                self.action_potential_tab.reset()
+                app_logger.info("🔄 Action Potential tab cleared for new file")
+            
+            # Extract voltage from filename and initialize processor if found
+            voltage = ActionPotentialProcessor.parse_voltage_from_filename(filepath)
+            if voltage is not None:
+                app_logger.info(f"Detected V2 voltage from filename: {voltage} mV")
+                self.action_potential_tab.V2.set(voltage)
+            
+            self.update_plot(force_full_range=True)
+            
+            # Show success message
+            filename = os.path.basename(filepath)
+            messagebox.showinfo("File Loaded", f"Successfully loaded:\n{filename}")
+            
+            app_logger.info(f"✅ File loaded successfully via drag and drop: {filename}")
+            
+        except Exception as e:
+            app_logger.error(f"Error loading dropped file: {e}")
+            messagebox.showerror("Load Error", f"Failed to load file:\n{str(e)}")
 
     def setup_tabs(self):
         """Setup the control tabs"""
@@ -1678,6 +2137,11 @@ class SignalAnalyzerApp:
             )
             
             self.analysis_tab.update_data(self.data, self.time_data)
+            
+            # Clear Action Potential tab to remove previous analysis results
+            if hasattr(self, 'action_potential_tab') and self.action_potential_tab:
+                self.action_potential_tab.reset()
+                app_logger.info("🔄 Action Potential tab cleared for new file")
             
             # Extract voltage from filename and initialize processor if found
             voltage = ActionPotentialProcessor.parse_voltage_from_filename(filepath)
