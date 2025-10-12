@@ -87,7 +87,7 @@ class SignalAnalyzerApp:
 
         # Hot reload debouncing
         self._last_reload_time = 0
-        self._reload_debounce_delay = 2.0  # Minimum 2 seconds between reloads
+        self._reload_debounce_delay = 0.5  # Minimum 0.5 seconds between reloads
         self._hot_reload_enabled = True  # Can be disabled if too disruptive
 
         # Setup memory management
@@ -933,19 +933,21 @@ class SignalAnalyzerApp:
                 return
 
             self._last_reload_time = current_time
-            app_logger.info("🔄 Hot reload triggered - selective refresh...")
+            app_logger.info("🔄 Hot reload triggered - smart refresh...")
 
-            # Only refresh analysis processors (most important for code changes)
+            # 1. Refresh analysis processors (most important for code changes)
             self._refresh_analysis_processors()
 
-            # Only refresh plot and data if loaded (preserves UI state)
+            # 2. Refresh UI components without tab switching
+            self._refresh_ui_components_smart()
+
+            # 3. Refresh plot and data if loaded (preserves UI state)
             self._refresh_plot_and_data()
 
-            # Skip UI component refresh to prevent tab switching
-            # Skip curve fitting refresh to prevent UI disruption
-            # Skip window manager refresh to prevent UI disruption
+            # 4. Refresh curve fitting if active
+            self._refresh_curve_fitting()
 
-            app_logger.info("✅ Hot reload complete - analysis code refreshed")
+            app_logger.info("✅ Hot reload complete - all components refreshed")
 
         except Exception as e:
             app_logger.error(f"Error in reload callback: {e}")
@@ -1015,47 +1017,121 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error refreshing analysis processors: {e}")
 
-    def _refresh_ui_components(self):
-        """Refresh UI tabs and panels."""
+    def _refresh_ui_components_smart(self):
+        """Refresh UI components without causing tab switching."""
         try:
+            # Remember current tab selection
+            current_tab_index = 0
+            if hasattr(self, 'notebook') and self.notebook.tabs():
+                try:
+                    current_tab_index = self.notebook.index(self.notebook.select())
+                except:
+                    current_tab_index = 0
+            
             # Refresh action potential tab
             if hasattr(self, "action_potential_tab") and self.action_potential_tab:
                 # Re-import the tab module
                 import importlib
                 import src.gui.action_potential_tab as apt_module
-
                 importlib.reload(apt_module)
 
                 # Recreate the tab with updated code
-                old_tab = self.action_potential_tab
                 self.action_potential_tab = apt_module.ActionPotentialTab(
                     self.notebook, self.on_action_potential_analysis
                 )
 
-                # Replace in notebook
-                for i, tab_id in enumerate(self.notebook.tabs()):
-                    if self.notebook.tab(tab_id, "text") == "Action Potential":
-                        self.notebook.forget(tab_id)
-                        self.notebook.insert(
-                            i, self.action_potential_tab.frame, text="Action Potential"
-                        )
-                        break
-
-                # Update tabs dictionary
+                # Replace in notebook while preserving tab order
+                self._replace_tab_smart("Action Potential", self.action_potential_tab.frame)
                 self.tabs["action_potential"] = self.action_potential_tab
                 app_logger.info("🔄 Action potential tab refreshed")
 
             # Refresh other tabs
-            self._refresh_tab("filter", "Filters")
-            self._refresh_tab("analysis", "Analysis")
-            self._refresh_tab("view", "View")
+            self._refresh_tab_smart("filter", "Filters")
+            self._refresh_tab_smart("analysis", "Analysis")
+            self._refresh_tab_smart("view", "View")
 
             # Refresh AI Analysis tab if exists
             if "ai_analysis" in self.tabs:
-                self._refresh_tab("ai_analysis", "AI Analysis")
+                self._refresh_tab_smart("ai_analysis", "AI Analysis")
+
+            # Restore current tab selection
+            if hasattr(self, 'notebook') and self.notebook.tabs():
+                try:
+                    self.notebook.select(current_tab_index)
+                except:
+                    pass
 
         except Exception as e:
             app_logger.error(f"Error refreshing UI components: {e}")
+    
+    def _replace_tab_smart(self, tab_text, new_frame):
+        """Replace a tab while preserving its position."""
+        try:
+            for i, tab_id in enumerate(self.notebook.tabs()):
+                if self.notebook.tab(tab_id, "text") == tab_text:
+                    self.notebook.forget(tab_id)
+                    self.notebook.insert(i, new_frame, text=tab_text)
+                    break
+        except Exception as e:
+            app_logger.debug(f"Error replacing tab {tab_text}: {e}")
+    
+    def _refresh_tab_smart(self, tab_key, tab_text):
+        """Refresh a specific tab without causing tab switching."""
+        try:
+            if tab_key in self.tabs:
+                # Remember current tab selection
+                current_tab_index = 0
+                if hasattr(self, 'notebook') and self.notebook.tabs():
+                    try:
+                        current_tab_index = self.notebook.index(self.notebook.select())
+                    except:
+                        current_tab_index = 0
+                
+                # Re-import and recreate the tab
+                new_tab = None
+                if tab_key == "filter":
+                    import importlib
+                    import src.gui.filter_tab as ft_module
+                    importlib.reload(ft_module)
+                    new_tab = ft_module.FilterTab(self.notebook, self.on_filter_change)
+                elif tab_key == "analysis":
+                    import importlib
+                    import src.gui.analysis_tab as at_module
+                    importlib.reload(at_module)
+                    new_tab = at_module.AnalysisTab(self.notebook, self.on_analysis_update)
+                elif tab_key == "view":
+                    import importlib
+                    import src.gui.view_tab as vt_module
+                    importlib.reload(vt_module)
+                    new_tab = vt_module.ViewTab(self.notebook, self.on_view_change)
+                elif tab_key == "ai_analysis":
+                    import importlib
+                    import src.gui.ai_analysis_tab as aat_module
+                    importlib.reload(aat_module)
+                    new_tab = aat_module.AIAnalysisTab(self.notebook, self)
+                else:
+                    return
+                
+                if new_tab:
+                    # Replace the tab
+                    self._replace_tab_smart(tab_text, new_tab.frame)
+                    self.tabs[tab_key] = new_tab
+                    app_logger.info(f"🔄 {tab_text} tab refreshed")
+                    
+                    # Restore current tab selection
+                    if hasattr(self, 'notebook') and self.notebook.tabs():
+                        try:
+                            self.notebook.select(current_tab_index)
+                        except:
+                            pass
+                            
+        except Exception as e:
+            app_logger.debug(f"Error refreshing {tab_key} tab: {e}")
+
+    def _refresh_ui_components(self):
+        """Refresh UI tabs and panels (legacy method - kept for compatibility)."""
+        # This method is kept for compatibility but redirects to smart refresh
+        self._refresh_ui_components_smart()
 
     def _refresh_tab(self, tab_key, tab_text):
         """Refresh a specific tab."""

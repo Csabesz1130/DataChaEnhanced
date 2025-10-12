@@ -170,7 +170,7 @@ class ActionPotentialTab:
         # Info label
         ttk.Label(
             norm_frame,
-            text="Leave blank to use default value (35). Auto-optimization finds the best starting point automatically.",
+            text="Leave nn blank to use default value (35). Auto-optimization finds the best starting point automatically.",
             font=('TkDefaultFont', 8, 'italic')
         ).pack(pady=2)
 
