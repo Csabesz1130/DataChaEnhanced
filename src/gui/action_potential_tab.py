@@ -62,6 +62,33 @@ class ActionPotentialTab:
         self._analysis_results = {}
         
         app_logger.debug("Action potential analysis tab initialized")
+        
+        # Mark that curve fitting needs to be initialized
+        self._curve_fitting_initialized = False
+
+    def initialize_curve_fitting_if_needed(self):
+        """Initialize curve fitting panel if not already done."""
+        if not self._curve_fitting_initialized:
+            try:
+                # Get the main app reference
+                app = self.parent.master
+                if hasattr(app, 'fig') and hasattr(app, 'ax'):
+                    from src.gui.curve_fitting_gui import CurveFittingPanel
+                    
+                    # Create the panel
+                    self.curve_fitting_panel = CurveFittingPanel(self.scrollable_frame, app)
+                    
+                    # Initialize with the main app's figure and axes
+                    self.curve_fitting_panel.initialize_fitting_manager(app.fig, app.ax)
+                    
+                    # Store reference in main app too
+                    app.curve_fitting_panel = self.curve_fitting_panel
+                    
+                    self._curve_fitting_initialized = True
+                    app_logger.info("Curve fitting panel initialized successfully")
+                    
+            except Exception as e:
+                app_logger.error(f"Error initializing curve fitting: {str(e)}")
 
     def _on_frame_configure(self, event=None):
         """Handle frame resizing"""

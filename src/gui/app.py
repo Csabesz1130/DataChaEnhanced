@@ -22,16 +22,12 @@ from src.analysis.action_potential import ActionPotentialProcessor
 from src.gui.window_manager import SignalWindowManager
 from src.utils.analysis_history_manager import AnalysisHistoryManager
 from src.gui.history_window import HistoryWindow
-from src.excel_export import add_excel_export_to_app
-from src.excel_charted.dual_curves_export_integration import (
-    add_dual_excel_export_to_app,
-)
-from src.csv_export.dual_curves_csv_export import add_csv_export_buttons
+# Export modules will be imported lazily when needed
 from src.gui.direct_spike_removal import remove_spikes_from_processor
 from src.gui.simplified_set_exporter import add_set_export_to_toolbar
 from src.gui.batch_set_exporter import add_set_export_to_toolbar
 from src.gui.multi_file_analysis import add_multi_file_analysis_to_toolbar
-from src.gui.curve_fitting_gui import CurveFittingPanel
+# CurveFittingPanel will be imported lazily when needed
 from src.utils.hot_reload import initialize_hot_reload, stop_hot_reload
 
 
@@ -82,8 +78,9 @@ class SignalAnalyzerApp:
         self.setup_plot_interaction()
         self.setup_tabs()
 
-        # Setup hot reload for development
-        self.setup_hot_reload()
+        # Setup hot reload for development (only if enabled)
+        if os.environ.get('DEV_MODE') == '1' or os.environ.get('ENABLE_HOT_RELOAD') == '1':
+            self.setup_hot_reload()
 
         # Hot reload debouncing
         self._last_reload_time = 0
@@ -93,19 +90,13 @@ class SignalAnalyzerApp:
         # Setup memory management
         self.setup_memory_management()
 
-        add_excel_export_to_app(self)
-
-        # Add the dual curves export functionality
-        add_dual_excel_export_to_app(self)
-
-        # Add CSV export functionality
-        add_csv_export_buttons(self)
+        # Export modules will be loaded lazily when first export is attempted
+        self._export_modules_loaded = False
 
         # Fix window sizing issues
         self.fix_window_sizing()
 
-        # Initialize curve fitting (after plot and tabs are created)
-        self.master.after(500, self.initialize_curve_fitting)
+        # Curve fitting will be initialized lazily when Action Potential tab is accessed
 
         app_logger.info("Application initialized successfully with memory optimization")
 
@@ -1973,41 +1964,130 @@ class SignalAnalyzerApp:
         self.notebook.add(self.view_tab.frame, text="View")
         self.notebook.add(self.action_potential_tab.frame, text="Action Potential")
 
-        # Add AI Analysis tab with deferred import to prevent circular dependencies
+        # Add AI Analysis tab with lazy loading (only load when accessed)
+        self._ai_analysis_loaded = False
+        self._ai_analysis_tab = None
+        self._ai_analysis_placeholder = ttk.Frame(self.notebook)
+        ttk.Label(
+            self._ai_analysis_placeholder,
+            text="AI Analysis (Click to load)",
+            justify="center",
+        ).pack(padx=20, pady=20)
+        self.notebook.add(self._ai_analysis_placeholder, text="AI Analysis")
+
+        # Add Excel Learning tab with lazy loading (only load when accessed)
+        self._excel_learning_loaded = False
+        self._excel_learning_tab = None
+        self._excel_learning_placeholder = ttk.Frame(self.notebook)
+        ttk.Label(
+            self._excel_learning_placeholder,
+            text="Excel Learning (Click to load)",
+            justify="center",
+        ).pack(padx=20, pady=20)
+        self.notebook.add(self._excel_learning_placeholder, text="Excel Learning")
+        
+        # Bind tab change event to lazy load tabs
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    def _on_tab_changed(self, event=None):
+        """Handle tab change events for lazy loading of heavy tabs."""
+        try:
+            # Get the currently selected tab
+            current_tab = self.notebook.select()
+            tab_text = self.notebook.tab(current_tab, "text")
+            
+            # Load AI Analysis tab if needed
+            if tab_text == "AI Analysis" and not self._ai_analysis_loaded:
+                self._load_ai_analysis_tab()
+            
+            # Load Excel Learning tab if needed
+            elif tab_text == "Excel Learning" and not self._excel_learning_loaded:
+                self._load_excel_learning_tab()
+            
+            # Initialize curve fitting when Action Potential tab is accessed
+            elif tab_text == "Action Potential" and hasattr(self, 'action_potential_tab'):
+                self.action_potential_tab.initialize_curve_fitting_if_needed()
+                
+        except Exception as e:
+            app_logger.error(f"Error in tab change handler: {e}")
+
+    def _load_ai_analysis_tab(self):
+        """Lazy load the AI Analysis tab."""
         try:
             from src.gui.ai_analysis_tab import AIAnalysisTab
-
-            self.tabs["ai_analysis"] = AIAnalysisTab(self.notebook, self)
-            self.notebook.add(self.tabs["ai_analysis"].frame, text="AI Analysis")
-            app_logger.info("Successfully loaded AI Analysis tab.")
+            
+            # Create the actual tab
+            self._ai_analysis_tab = AIAnalysisTab(self.notebook, self)
+            
+            # Replace placeholder with actual tab
+            self.notebook.forget(self._ai_analysis_placeholder)
+            self.notebook.add(self._ai_analysis_tab.frame, text="AI Analysis")
+            
+            # Store in tabs dict
+            self.tabs["ai_analysis"] = self._ai_analysis_tab
+            self._ai_analysis_loaded = True
+            
+            app_logger.info("AI Analysis tab loaded successfully")
+            
         except Exception as e:
-            app_logger.warning(f"AI Analysis tab not available: {e}")
-            placeholder_frame = ttk.Frame(self.notebook)
+            app_logger.warning(f"Failed to load AI Analysis tab: {e}")
+            # Keep placeholder with error message
+            for widget in self._ai_analysis_placeholder.winfo_children():
+                widget.destroy()
             ttk.Label(
-                placeholder_frame,
-                text="AI Analysis module unavailable",
+                self._ai_analysis_placeholder,
+                text=f"AI Analysis unavailable: {e}",
                 justify="center",
             ).pack(padx=20, pady=20)
-            self.notebook.add(placeholder_frame, text="AI Analysis", state="disabled")
 
-        # Add Excel Learning tab with deferred import
+    def _load_excel_learning_tab(self):
+        """Lazy load the Excel Learning tab."""
         try:
             from src.gui.excel_learning_tab import ExcelLearningTab
-
-            self.tabs["excel_learning"] = ExcelLearningTab(self.notebook, self)
-            self.notebook.add(self.tabs["excel_learning"].frame, text="Excel Learning")
-            app_logger.info("Successfully loaded Excel Learning tab.")
+            
+            # Create the actual tab
+            self._excel_learning_tab = ExcelLearningTab(self.notebook, self)
+            
+            # Replace placeholder with actual tab
+            self.notebook.forget(self._excel_learning_placeholder)
+            self.notebook.add(self._excel_learning_tab.frame, text="Excel Learning")
+            
+            # Store in tabs dict
+            self.tabs["excel_learning"] = self._excel_learning_tab
+            self._excel_learning_loaded = True
+            
+            app_logger.info("Excel Learning tab loaded successfully")
+            
         except Exception as e:
-            app_logger.warning(f"Excel Learning tab not available: {e}")
-            placeholder_frame = ttk.Frame(self.notebook)
+            app_logger.warning(f"Failed to load Excel Learning tab: {e}")
+            # Keep placeholder with error message
+            for widget in self._excel_learning_placeholder.winfo_children():
+                widget.destroy()
             ttk.Label(
-                placeholder_frame,
-                text="Excel Learning module unavailable",
+                self._excel_learning_placeholder,
+                text=f"Excel Learning unavailable: {e}",
                 justify="center",
             ).pack(padx=20, pady=20)
-            self.notebook.add(
-                placeholder_frame, text="Excel Learning", state="disabled"
-            )
+
+    def _load_export_modules_if_needed(self):
+        """Lazy load export modules when first export is attempted."""
+        if not self._export_modules_loaded:
+            try:
+                # Import and setup export modules
+                from src.excel_export import add_excel_export_to_app
+                from src.excel_charted.dual_curves_export_integration import add_dual_excel_export_to_app
+                from src.csv_export.dual_curves_csv_export import add_csv_export_buttons
+                
+                # Add export functionality
+                add_excel_export_to_app(self)
+                add_dual_excel_export_to_app(self)
+                add_csv_export_buttons(self)
+                
+                self._export_modules_loaded = True
+                app_logger.info("Export modules loaded successfully")
+                
+            except Exception as e:
+                app_logger.error(f"Failed to load export modules: {e}")
 
     def reset_point_tracker(self):
         """
@@ -2144,6 +2224,9 @@ class SignalAnalyzerApp:
         2) Ask user for a save filename
         3) Call processor.export_all_curves(...)
         """
+        # Load export modules if needed
+        self._load_export_modules_if_needed()
+        
         # Make sure we have a valid processor
         if not self.action_potential_processor:
             messagebox.showwarning("No Data", "Please run analysis before exporting.")
@@ -3690,6 +3773,9 @@ class SignalAnalyzerApp:
 
     def export_data(self):
         """Export the current data to a CSV file with detailed sections and integral values"""
+        # Load export modules if needed
+        self._load_export_modules_if_needed()
+        
         if self.filtered_data is None:
             messagebox.showwarning("Export", "No filtered data to export")
             return
@@ -3795,6 +3881,9 @@ class SignalAnalyzerApp:
 
     def export_figure(self):
         """Export the current figure"""
+        # Load export modules if needed
+        self._load_export_modules_if_needed()
+        
         try:
             filepath = filedialog.asksaveasfilename(
                 defaultextension=".png",
