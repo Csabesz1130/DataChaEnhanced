@@ -84,7 +84,7 @@ class SignalAnalyzerApp:
 
         # Hot reload debouncing
         self._last_reload_time = 0
-        self._reload_debounce_delay = 0.5  # Minimum 0.5 seconds between reloads
+        self._reload_debounce_delay = 2.0  # Minimum 2 seconds between reloads to prevent UI corruption
         self._hot_reload_enabled = True  # Can be disabled if too disruptive
 
         # Setup memory management
@@ -435,7 +435,7 @@ class SignalAnalyzerApp:
         # Clear Action Potential tab results
         if hasattr(self, "action_potential_tab") and self.action_potential_tab:
             self.action_potential_tab.reset()
-            app_logger.info("🔄 Action Potential tab cleared")
+            app_logger.info("Action Potential tab cleared")
 
         # Clear file reference
         self.current_file = None
@@ -834,7 +834,7 @@ class SignalAnalyzerApp:
         # Hot reload toggle button
         self.hot_reload_button = ttk.Button(
             self.toolbar_frame,
-            text="🔥 Hot Reload: ON",
+            text="Hot Reload: ON",
             command=self.toggle_hot_reload_ui,
         )
         self.hot_reload_button.pack(side="left", padx=2)
@@ -899,7 +899,7 @@ class SignalAnalyzerApp:
 
             if success:
                 app_logger.info(
-                    "🔥 Hot reload enabled - modify code without restarting!"
+                    "Hot reload enabled - modify code without restarting!"
                 )
             else:
                 app_logger.warning("Hot reload failed to initialize")
@@ -914,46 +914,60 @@ class SignalAnalyzerApp:
 
             # Check if hot reload is enabled
             if not self._hot_reload_enabled:
-                app_logger.debug("🔄 Hot reload disabled")
+                app_logger.debug("Hot reload disabled")
                 return
 
             # Debounce rapid reloads
             current_time = time.time()
             if current_time - self._last_reload_time < self._reload_debounce_delay:
-                app_logger.debug("🔄 Hot reload debounced - too frequent")
+                app_logger.debug("Hot reload debounced - too frequent")
                 return
 
             self._last_reload_time = current_time
-            app_logger.info("🔄 Hot reload triggered - smart refresh...")
+            app_logger.info("Hot reload triggered - smart refresh...")
 
             # 1. Refresh analysis processors (most important for code changes)
-            self._refresh_analysis_processors()
+            try:
+                self._refresh_analysis_processors()
+            except Exception as e:
+                app_logger.error(f"Error refreshing analysis processors: {e}")
 
-            # 2. Refresh UI components without tab switching
-            self._refresh_ui_components_smart()
+            # 2. Refresh UI components without tab switching (only if needed)
+            try:
+                self._refresh_ui_components_smart()
+            except Exception as e:
+                app_logger.error(f"Error refreshing UI components: {e}")
 
-            # 3. Refresh plot and data if loaded (preserves UI state)
-            self._refresh_plot_and_data()
+            # 3. Refresh plot and data if loaded (preserves UI state) - only if data exists
+            if hasattr(self, "data") and self.data is not None:
+                try:
+                    self._refresh_plot_and_data()
+                except Exception as e:
+                    app_logger.error(f"Error refreshing plot and data: {e}")
 
             # 4. Refresh curve fitting if active
-            self._refresh_curve_fitting()
+            try:
+                self._refresh_curve_fitting()
+            except Exception as e:
+                app_logger.error(f"Error refreshing curve fitting: {e}")
 
-            app_logger.info("✅ Hot reload complete - all components refreshed")
+            app_logger.info("Hot reload complete - all components refreshed")
 
         except Exception as e:
             app_logger.error(f"Error in reload callback: {e}")
+            # Don't let hot reload errors crash the application
 
     def toggle_hot_reload(self):
         """Toggle hot reload on/off."""
         self._hot_reload_enabled = not self._hot_reload_enabled
         status = "enabled" if self._hot_reload_enabled else "disabled"
-        app_logger.info(f"🔄 Hot reload {status}")
+        app_logger.info(f"Hot reload {status}")
         return self._hot_reload_enabled
 
     def toggle_hot_reload_ui(self):
         """Toggle hot reload with UI update."""
         enabled = self.toggle_hot_reload()
-        button_text = "🔥 Hot Reload: ON" if enabled else "❄️ Hot Reload: OFF"
+        button_text = "Hot Reload: ON" if enabled else "Hot Reload: OFF"
         self.hot_reload_button.config(text=button_text)
 
     def _refresh_analysis_processors(self):
@@ -972,7 +986,7 @@ class SignalAnalyzerApp:
 
                 # Create new processor instance with updated code
                 self.action_potential_processor = ap_module.ActionPotentialProcessor()
-                app_logger.info("🔄 Action potential processor refreshed")
+                app_logger.info("Action potential processor refreshed")
 
             # Refresh other analysis modules
             analysis_modules = [
@@ -991,7 +1005,7 @@ class SignalAnalyzerApp:
 
                     module = importlib.import_module(module_name)
                     importlib.reload(module)
-                    app_logger.info(f"🔄 {module_name} refreshed")
+                    app_logger.info(f"{module_name} refreshed")
                 except Exception as e:
                     app_logger.debug(f"{module_name} refresh skipped: {e}")
 
@@ -1001,7 +1015,7 @@ class SignalAnalyzerApp:
                 import src.filtering.filtering as filter_module
 
                 importlib.reload(filter_module)
-                app_logger.info("🔄 Filtering module refreshed")
+                app_logger.info("Filtering module refreshed")
             except Exception as e:
                 app_logger.debug(f"Filtering module refresh skipped: {e}")
 
@@ -1034,7 +1048,7 @@ class SignalAnalyzerApp:
                 # Replace in notebook while preserving tab order
                 self._replace_tab_smart("Action Potential", self.action_potential_tab.frame)
                 self.tabs["action_potential"] = self.action_potential_tab
-                app_logger.info("🔄 Action potential tab refreshed")
+                app_logger.info("Action potential tab refreshed")
 
             # Refresh other tabs
             self._refresh_tab_smart("filter", "Filters")
@@ -1107,7 +1121,7 @@ class SignalAnalyzerApp:
                     # Replace the tab
                     self._replace_tab_smart(tab_text, new_tab.frame)
                     self.tabs[tab_key] = new_tab
-                    app_logger.info(f"🔄 {tab_text} tab refreshed")
+                    app_logger.info(f"{tab_text} tab refreshed")
                     
                     # Restore current tab selection
                     if hasattr(self, 'notebook') and self.notebook.tabs():
@@ -1169,7 +1183,7 @@ class SignalAnalyzerApp:
 
                         self.notebook.insert(i, new_tab.frame, text=tab_text)
                         self.tabs[tab_key] = new_tab
-                        app_logger.info(f"🔄 {tab_text} tab refreshed")
+                        app_logger.info(f"{tab_text} tab refreshed")
                         break
         except Exception as e:
             app_logger.debug(f"Error refreshing {tab_key} tab: {e}")
@@ -1178,19 +1192,21 @@ class SignalAnalyzerApp:
         """Refresh plot and reprocess data if loaded."""
         try:
             if hasattr(self, "data") and self.data is not None:
-                app_logger.info("🔄 Reprocessing data with updated analysis code...")
+                app_logger.info("Reprocessing data with updated analysis code...")
 
-                # Re-apply current filters if any
-                if hasattr(self, "current_filters") and self.current_filters:
-                    self._apply_current_filters()
+                # Only refresh if we have valid data and plot
+                if hasattr(self, "ax") and self.ax is not None:
+                    # Re-apply current filters if any
+                    if hasattr(self, "current_filters") and self.current_filters:
+                        self._apply_current_filters()
 
-                # Reprocess any existing analysis results
-                self._reprocess_existing_analysis()
+                    # Reprocess any existing analysis results
+                    self._reprocess_existing_analysis()
 
-                # Refresh the plot
-                self.refresh_plot()
+                    # Refresh the plot more carefully
+                    self.refresh_plot()
 
-                app_logger.info("🔄 Plot and data refreshed with updated code")
+                    app_logger.info("Plot and data refreshed with updated code")
         except Exception as e:
             app_logger.error(f"Error refreshing plot and data: {e}")
 
@@ -1206,12 +1222,12 @@ class SignalAnalyzerApp:
                     hasattr(self, "_processed_data")
                     and self._processed_data is not None
                 ):
-                    app_logger.info("🔄 Reprocessing action potential analysis...")
+                    app_logger.info("Reprocessing action potential analysis...")
                     # The processor will use updated code when called again
 
             # If curve fitting was done, re-run it
             if hasattr(self, "curve_fitting_panel") and self.curve_fitting_panel:
-                app_logger.info("🔄 Reprocessing curve fitting...")
+                app_logger.info("Reprocessing curve fitting...")
                 # Curve fitting will use updated code when called again
 
         except Exception as e:
@@ -1228,7 +1244,7 @@ class SignalAnalyzerApp:
                     import src.gui.curve_fitting_gui as cfg_module
 
                     importlib.reload(cfg_module)
-                    app_logger.info("🔄 Curve fitting GUI refreshed")
+                    app_logger.info("Curve fitting GUI refreshed")
                 except Exception as e:
                     app_logger.debug(f"Curve fitting refresh skipped: {e}")
 
@@ -1248,7 +1264,7 @@ class SignalAnalyzerApp:
                 import src.gui.window_manager as wm_module
 
                 importlib.reload(wm_module)
-                app_logger.info("🔄 Window manager refreshed")
+                app_logger.info("Window manager refreshed")
         except Exception as e:
             app_logger.error(f"Error refreshing window manager: {e}")
 
@@ -1269,7 +1285,7 @@ class SignalAnalyzerApp:
                 self.data, self.current_filters
             )
 
-            app_logger.info("🔄 Filters reapplied with updated code")
+            app_logger.info("Filters reapplied with updated code")
         except Exception as e:
             app_logger.error(f"Error reapplying filters: {e}")
 
@@ -1277,14 +1293,23 @@ class SignalAnalyzerApp:
         """Refresh the plot with current data and settings."""
         try:
             if hasattr(self, "ax") and self.ax:
-                # Clear and redraw the plot
-                self.ax.clear()
-
-                # Redraw with current data
+                # Only refresh if we have valid data
                 if hasattr(self, "data") and self.data is not None:
+                    # Save current view limits
+                    self.save_current_plot_limits()
+                    
+                    # Clear and redraw the plot
+                    self.ax.clear()
                     self.update_plot()
+                    
+                    # Restore view limits
+                    self.restore_plot_limits()
+                    
+                    # Refresh the canvas
+                    if hasattr(self, "canvas"):
+                        self.canvas.draw()
 
-                app_logger.info("🔄 Plot refreshed")
+                app_logger.info("Plot refreshed")
         except Exception as e:
             app_logger.error(f"Error refreshing plot: {e}")
 
@@ -1913,7 +1938,7 @@ class SignalAnalyzerApp:
             # Clear Action Potential tab to remove previous analysis results
             if hasattr(self, "action_potential_tab") and self.action_potential_tab:
                 self.action_potential_tab.reset()
-                app_logger.info("🔄 Action Potential tab cleared for new file")
+                app_logger.info("Action Potential tab cleared for new file")
 
             # Extract voltage from filename and initialize processor if found
             voltage = ActionPotentialProcessor.parse_voltage_from_filename(filepath)
@@ -1928,7 +1953,7 @@ class SignalAnalyzerApp:
             messagebox.showinfo("File Loaded", f"Successfully loaded:\n{filename}")
 
             app_logger.info(
-                f"✅ File loaded successfully via drag and drop: {filename}"
+                f"File loaded successfully via drag and drop: {filename}"
             )
 
         except Exception as e:
@@ -2520,7 +2545,7 @@ class SignalAnalyzerApp:
             # Clear Action Potential tab to remove previous analysis results
             if hasattr(self, "action_potential_tab") and self.action_potential_tab:
                 self.action_potential_tab.reset()
-                app_logger.info("🔄 Action Potential tab cleared for new file")
+                app_logger.info("Action Potential tab cleared for new file")
 
             # Extract voltage from filename and initialize processor if found
             voltage = ActionPotentialProcessor.parse_voltage_from_filename(filepath)

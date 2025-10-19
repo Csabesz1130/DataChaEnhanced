@@ -8,7 +8,7 @@ import os, time
 from src.gui.curve_fitting_gui import CurveFittingPanel
 from src.analysis.curve_fitting_manager import CurveFittingManager
 import tkinter as tk
-print(f"action_potential_tab.py last modified: {time.ctime(os.path.getmtime(__file__))} - HOT RELOAD TEST - UPDATED AGAIN")
+print(f"action_potential_tab.py last modified: {time.ctime(os.path.getmtime(__file__))}")
 
 class ActionPotentialTab:
     def __init__(self, parent, callback):
@@ -17,7 +17,7 @@ class ActionPotentialTab:
         self.update_callback = callback
         
         # Create main frame
-        self.frame = ttk.LabelFrame(parent, text="Action Potential Analysis - HOT RELOAD WORKING!")
+        self.frame = ttk.LabelFrame(parent, text="Action Potential Analysis")
         self.frame.pack(fill='both', expand=True, padx=5, pady=5)
 
         self.curve_fitting_panel = None
@@ -197,7 +197,7 @@ class ActionPotentialTab:
         # Info label
         ttk.Label(
             norm_frame,
-            text="Leave blank nn to use default value (35). Auto-optimization finds the best starting point automatically.",
+            text="Leave blank to use default value (35). Auto-optimization finds the best starting point automatically.",
             font=('TkDefaultFont', 8, 'italic')
         ).pack(pady=2)
 

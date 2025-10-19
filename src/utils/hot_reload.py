@@ -18,6 +18,8 @@ from typing import Dict, Set, Callable, Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileModifiedEvent
 
+# Configure logging to handle Unicode properly
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class HotReloadHandler(FileSystemEventHandler):
@@ -126,6 +128,7 @@ class HotReloadManager:
                         self.callback()
                     except Exception as e:
                         logger.error(f"Reload callback failed: {e}")
+                        # Don't let callback errors crash the hot reload system
             
             time.sleep(0.1)  # Check queue every 100ms
     
@@ -165,7 +168,7 @@ class HotReloadManager:
             module = sys.modules[full_module_name]
             importlib.reload(module)
             
-            logger.info(f"✅ Reloaded: {module_name}")
+            logger.info(f"Reloaded: {module_name}")
             
         except Exception as e:
             logger.error(f"Error reloading {file_path}: {e}")

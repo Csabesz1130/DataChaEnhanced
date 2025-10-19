@@ -300,5 +300,14 @@
     "timestamp": "2025-10-19 18:24:04.202220",
     "data": {},
     "read": false
+  },
+  {
+    "notification_id": "d837e419-d30d-47ba-8f40-938d93e231ea",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-19 18:34:16.357801",
+    "data": {},
+    "read": false
   }
 ]
