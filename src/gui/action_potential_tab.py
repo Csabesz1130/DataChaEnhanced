@@ -1,10 +1,11 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from src.utils.logger import app_logger
 import numpy as np
 from src.gui.range_selection_utils import RangeSelectionManager
 from src.gui.direct_spike_removal import remove_spikes_from_processor
 import os, time
+from pathlib import Path
 from src.gui.curve_fitting_gui import CurveFittingPanel
 from src.analysis.curve_fitting_manager import CurveFittingManager
 import tkinter as tk
@@ -1285,6 +1286,12 @@ class ActionPotentialTab:
                                        text="Analyze Signal",
                                        command=self.analyze_signal)
         self.analyze_button.pack(pady=5)
+        
+        # Export button
+        self.export_button = ttk.Button(analysis_frame,
+                                      text="Export to Excel",
+                                      command=self.on_export_to_excel_click)
+        self.export_button.pack(pady=5)
 
     def analyze_signal(self):
         """Perform signal analysis with current parameters."""
@@ -1615,3 +1622,181 @@ class ActionPotentialTab:
             
         except Exception as e:
             app_logger.error(f"Error handling auto-optimize change: {str(e)}")
+
+    def collect_export_data(self) -> Dict[str, Any]:
+        """
+        Collect all data needed for Excel export.
+        
+        Returns:
+            Dict: Structured data for export
+        """
+        try:
+            # Get main app reference
+            app = self.parent.master
+            
+            # Get current filename
+            filename = getattr(app, 'current_filename', 'Unknown')
+            if hasattr(app, 'file_path') and app.file_path:
+                filename = Path(app.file_path).name
+            
+            # Get V2 voltage (depolarization voltage)
+            v2_voltage = self.V2.get()
+            
+            # Get linear capacitance
+            capacitance = self.capacitance_result.get()
+            
+            # Get fitting results if available
+            fitting_results = {}
+            if (hasattr(self, 'curve_fitting_panel') and 
+                self.curve_fitting_panel and 
+                hasattr(self.curve_fitting_panel, 'fitting_manager')):
+                fitting_results = self.curve_fitting_panel.fitting_manager.get_fitting_results()
+            
+            # Get integration results from range manager
+            integrals = {}
+            if hasattr(self, 'range_manager'):
+                integrals = self.range_manager.get_current_integrals()
+            
+            # Format data for export
+            from src.excel_export.curve_analysis_export import format_export_data
+            export_data = format_export_data(
+                fitting_results, integrals, capacitance, v2_voltage, filename
+            )
+            
+            app_logger.info("Export data collected successfully")
+            return export_data
+            
+        except Exception as e:
+            app_logger.error(f"Error collecting export data: {str(e)}")
+            return {
+                'filename': 'Unknown',
+                'v2_voltage': 0,
+                'hyperpol': {},
+                'depol': {},
+                'linear_capacitance': 0
+            }
+
+    def on_export_to_excel_click(self):
+        """Handle Export to Excel button click."""
+        try:
+            # Check if analysis has been run
+            if not self._check_analysis_available():
+                return
+            
+            # Check if curve fitting has been performed
+            if not self._check_curve_fitting_available():
+                return
+            
+            # Collect export data
+            export_data = self.collect_export_data()
+            
+            # Create backup before export
+            from src.excel_export.export_backup_manager import backup_manager
+            backup_path = backup_manager.create_backup(export_data, export_data['filename'])
+            if backup_path:
+                app_logger.info(f"Backup created: {backup_path}")
+            
+            # Open file dialog for save location
+            from tkinter import filedialog
+            filetypes = [
+                ('Excel files', '*.xlsx'),
+                ('All files', '*.*')
+            ]
+            
+            filename = export_data['filename']
+            if '.' in filename:
+                filename = filename.rsplit('.', 1)[0]
+            default_filename = f"{filename}_curve_analysis.xlsx"
+            
+            filepath = filedialog.asksaveasfilename(
+                title="Save Excel Export",
+                defaultextension=".xlsx",
+                filetypes=filetypes,
+                initialvalue=default_filename
+            )
+            
+            if not filepath:
+                return  # User cancelled
+            
+            # Export to Excel
+            from src.excel_export.curve_analysis_export import export_curve_analysis_to_excel
+            
+            success = export_curve_analysis_to_excel(export_data, filepath)
+            
+            if success:
+                messagebox.showinfo("Export Successful", f"Data exported successfully to:\n{filepath}")
+                app_logger.info(f"Excel export completed: {filepath}")
+            else:
+                messagebox.showerror("Export Failed", "Failed to export data to Excel. Check logs for details.")
+                app_logger.error("Excel export failed")
+                
+        except Exception as e:
+            app_logger.error(f"Error in Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during export:\n{str(e)}")
+
+    def _check_analysis_available(self) -> bool:
+        """Check if analysis has been run and purple curves are available."""
+        try:
+            app = self.parent.master
+            processor = getattr(app, 'action_potential_processor', None)
+            
+            if not processor:
+                messagebox.showwarning("No Analysis", "Please run 'Analyze Signal' first.")
+                return False
+            
+            # Check for purple curves
+            has_purple_curves = (
+                hasattr(processor, 'modified_hyperpol') and 
+                processor.modified_hyperpol is not None and
+                len(processor.modified_hyperpol) > 0 and
+                hasattr(processor, 'modified_depol') and 
+                processor.modified_depol is not None and
+                len(processor.modified_depol) > 0
+            )
+            
+            if not has_purple_curves:
+                messagebox.showwarning("No Purple Curves", "Purple curves are not available. Please run analysis first.")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            app_logger.error(f"Error checking analysis availability: {str(e)}")
+            return False
+
+    def _check_curve_fitting_available(self) -> bool:
+        """Check if curve fitting has been performed."""
+        try:
+            if not (hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel):
+                messagebox.showwarning("No Curve Fitting", "Curve fitting panel is not available.")
+                return False
+            
+            if not hasattr(self.curve_fitting_panel, 'fitting_manager'):
+                messagebox.showwarning("No Curve Fitting", "Curve fitting manager is not available.")
+                return False
+            
+            # Check if any fitting has been done
+            fitting_results = self.curve_fitting_panel.fitting_manager.get_fitting_results()
+            
+            if not fitting_results:
+                messagebox.showwarning("No Fitting Data", "No curve fitting has been performed. Please fit curves first.")
+                return False
+            
+            # Check if we have at least some fitting data
+            has_fitting_data = False
+            for curve_type in ['hyperpol', 'depol']:
+                if curve_type in fitting_results:
+                    curve_data = fitting_results[curve_type]
+                    if 'linear' in curve_data or 'exponential' in curve_data:
+                        has_fitting_data = True
+                        break
+            
+            if not has_fitting_data:
+                messagebox.showwarning("No Fitting Data", "No curve fitting parameters are available. Please perform curve fitting first.")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            app_logger.error(f"Error checking curve fitting availability: {str(e)}")
+            return False
