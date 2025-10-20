@@ -1,8 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
-import numpy as np
-from scipy.signal import find_peaks
 from src.utils.logger import app_logger
+
+# Heavy imports will be done lazily
+# import numpy as np
+# from scipy.signal import find_peaks
 
 class AnalysisTab:
     def __init__(self, parent, callback):
@@ -15,6 +17,10 @@ class AnalysisTab:
         """
         self.parent = parent
         self.update_callback = callback
+        
+        # Lazy import flags
+        self._numpy_imported = False
+        self._scipy_imported = False
         
         # Initialize data holders
         self.data = None
@@ -34,6 +40,22 @@ class AnalysisTab:
         self.setup_event_analysis()
         
         app_logger.debug("Analysis tab initialized")
+    
+    def _ensure_numpy(self):
+        """Lazily import numpy when needed."""
+        if not self._numpy_imported:
+            global np
+            import numpy as np
+            self._numpy_imported = True
+            app_logger.debug("Numpy imported for AnalysisTab")
+    
+    def _ensure_scipy(self):
+        """Lazily import scipy when needed."""
+        if not self._scipy_imported:
+            global find_peaks
+            from scipy.signal import find_peaks
+            self._scipy_imported = True
+            app_logger.debug("Scipy imported for AnalysisTab")
 
     def init_variables(self):
         """Initialize control variables"""
@@ -172,6 +194,9 @@ class AnalysisTab:
             return
             
         try:
+            # Ensure numpy is imported
+            self._ensure_numpy()
+            
             # Calculate basic statistics
             stats = {
                 'mean': np.mean(self.filtered_data),
@@ -203,6 +228,10 @@ class AnalysisTab:
             return
             
         try:
+            # Ensure scipy is imported
+            self._ensure_scipy()
+            self._ensure_numpy()
+            
             # Find peaks with current settings
             peaks, properties = find_peaks(
                 self.filtered_data,
@@ -251,6 +280,9 @@ class AnalysisTab:
             return
             
         try:
+            # Ensure numpy is imported
+            self._ensure_numpy()
+            
             # Find events based on threshold
             threshold = self.event_threshold.get()
             min_duration = self.min_event_duration.get()

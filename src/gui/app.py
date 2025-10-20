@@ -1,20 +1,23 @@
 import csv
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-import numpy as np
 import os
-import pandas as pd
-import matplotlib.pyplot as plt
 import gc
 import weakref
-import matplotlib
+
+# Heavy imports will be done lazily inside methods
+# from matplotlib.figure import Figure
+# from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+# import numpy as np
+# import pandas as pd
+# import matplotlib.pyplot as plt
+# import matplotlib
 
 from src.utils.logger import app_logger
-from src.gui.filter_tab import FilterTab
-from src.gui.analysis_tab import AnalysisTab
-from src.gui.view_tab import ViewTab
+# Tab imports will be done lazily when tabs are created
+# from src.gui.filter_tab import FilterTab
+# from src.gui.analysis_tab import AnalysisTab
+# from src.gui.view_tab import ViewTab
 from src.gui.action_potential_tab import ActionPotentialTab
 from src.io_utils.io_utils import ATFHandler
 from src.filtering.filtering import combined_filter
@@ -36,6 +39,11 @@ class SignalAnalyzerApp:
         """Initialize the Signal Analyzer application with memory optimization."""
         self.master = master
         self.master.title("Signal Analyzer - Memory Optimized")
+        
+        # Lazy import flags
+        self._matplotlib_imported = False
+        self._numpy_imported = False
+        self._pandas_imported = False
 
         # Initialize data variables with memory management
         self._data = None
@@ -74,8 +82,15 @@ class SignalAnalyzerApp:
         # Setup components
         self.setup_menubar()
         self.setup_toolbar()
-        self.setup_plot()
-        self.setup_plot_interaction()
+        
+        # Defer plot setup until first file is loaded
+        self.plot_initialized = False
+        self.fig = None
+        self.ax = None
+        self.canvas = None
+        self.toolbar = None
+        self.point_tracker = None
+        
         self.setup_tabs()
 
         # Setup hot reload for development (only if enabled)
@@ -97,8 +112,45 @@ class SignalAnalyzerApp:
         self.fix_window_sizing()
 
         # Curve fitting will be initialized lazily when Action Potential tab is accessed
-
-        app_logger.info("Application initialized successfully with memory optimization")
+    
+    def _ensure_matplotlib(self):
+        """Lazily import matplotlib modules when needed."""
+        if not self._matplotlib_imported:
+            global Figure, FigureCanvasTkAgg, NavigationToolbar2Tk, plt, matplotlib
+            
+            # Optimize matplotlib for faster startup
+            import matplotlib
+            matplotlib.use('TkAgg')  # Set backend before importing pyplot
+            
+            # Disable font manager rebuild on startup
+            import matplotlib.font_manager
+            matplotlib.font_manager._rebuild = lambda: None
+            
+            # Set non-interactive mode until needed
+            matplotlib.interactive(False)
+            
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+            import matplotlib.pyplot as plt
+            
+            self._matplotlib_imported = True
+            app_logger.info("Matplotlib modules imported with optimizations")
+    
+    def _ensure_numpy(self):
+        """Lazily import numpy when needed."""
+        if not self._numpy_imported:
+            global np
+            import numpy as np
+            self._numpy_imported = True
+            app_logger.info("Numpy imported")
+    
+    def _ensure_pandas(self):
+        """Lazily import pandas when needed."""
+        if not self._pandas_imported:
+            global pd
+            import pandas as pd
+            self._pandas_imported = True
+            app_logger.info("Pandas imported")
 
     # Property-based data management with automatic cleanup
     @property
@@ -584,6 +636,16 @@ class SignalAnalyzerApp:
         # Add frames to PanedWindow
         self.main_container.add(self.plot_frame, weight=3)
         self.main_container.add(self.control_frame, weight=1)
+        
+        # Add placeholder for plot area
+        self.plot_placeholder = ttk.Label(
+            self.plot_frame,
+            text="Load a file to display the plot\n\nDrag and drop an ATF file here\nor use File → Load Data",
+            font=("Arial", 14),
+            foreground="gray",
+            justify="center"
+        )
+        self.plot_placeholder.pack(expand=True)
 
         # Create status bar at the bottom
         self.status_bar_frame = ttk.Frame(self.master, relief=tk.SUNKEN, border=1)
@@ -1762,8 +1824,21 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Error plotting regression line: {str(e)}")
 
+    def _ensure_plot_initialized(self):
+        """Initialize plot on first use to improve startup time"""
+        if not self.plot_initialized:
+            self.setup_plot()
+            self.plot_initialized = True
+    
     def setup_plot(self):
         """Setup the matplotlib plot area with point tracking"""
+        # Ensure matplotlib is imported
+        self._ensure_matplotlib()
+        
+        # Remove placeholder if it exists
+        if hasattr(self, 'plot_placeholder') and self.plot_placeholder.winfo_exists():
+            self.plot_placeholder.destroy()
+        
         # Create figure and canvas
         self.fig = Figure(figsize=(10, 6), dpi=100)
         self.ax = self.fig.add_subplot(111)
@@ -1785,6 +1860,9 @@ class SignalAnalyzerApp:
 
         # Setup drag and drop functionality
         self.setup_drag_and_drop()
+        
+        # Setup plot interaction
+        self.setup_plot_interaction()
 
         app_logger.info("Plot setup complete with zoom state preservation")
 
@@ -1898,6 +1976,9 @@ class SignalAnalyzerApp:
                 return
 
             app_logger.info(f"📁 Loading dropped file: {filepath}")
+            
+            # Ensure plot is initialized before loading data
+            self._ensure_plot_initialized()
 
             # Clear existing data
             self.clear_all_data()
@@ -1961,32 +2042,50 @@ class SignalAnalyzerApp:
             messagebox.showerror("Load Error", f"Failed to load file:\n{str(e)}")
 
     def setup_tabs(self):
-        """Setup the control tabs"""
+        """Setup the control tabs with lazy loading"""
         # Create notebook for tabs
         self.notebook = ttk.Notebook(self.control_frame)
         self.notebook.pack(fill="both", expand=True)
 
         # Create tabs dictionary to store tab references
         self.tabs = {}
+        
+        # Lazy loading flags
+        self._filter_loaded = False
+        self._analysis_loaded = False
+        self._view_loaded = False
+        self._action_potential_loaded = True  # Keep this loaded as it's critical
+        
+        # Create placeholders for lazy-loaded tabs
+        self._filter_placeholder = ttk.Frame(self.notebook)
+        ttk.Label(
+            self._filter_placeholder,
+            text="Filters (Click to load)",
+            justify="center",
+        ).pack(padx=20, pady=20)
+        self.notebook.add(self._filter_placeholder, text="Filters")
+        
+        self._analysis_placeholder = ttk.Frame(self.notebook)
+        ttk.Label(
+            self._analysis_placeholder,
+            text="Analysis (Click to load)",
+            justify="center",
+        ).pack(padx=20, pady=20)
+        self.notebook.add(self._analysis_placeholder, text="Analysis")
+        
+        self._view_placeholder = ttk.Frame(self.notebook)
+        ttk.Label(
+            self._view_placeholder,
+            text="View (Click to load)",
+            justify="center",
+        ).pack(padx=20, pady=20)
+        self.notebook.add(self._view_placeholder, text="View")
 
-        # Create tabs
-        self.filter_tab = FilterTab(self.notebook, self.on_filter_change)
-        self.analysis_tab = AnalysisTab(self.notebook, self.on_analysis_update)
-        self.view_tab = ViewTab(self.notebook, self.on_view_change)
+        # Create Action Potential tab immediately as it's commonly used
         self.action_potential_tab = ActionPotentialTab(
             self.notebook, self.on_action_potential_analysis
         )
-
-        # Store tab references
-        self.tabs["filter"] = self.filter_tab
-        self.tabs["analysis"] = self.analysis_tab
-        self.tabs["view"] = self.view_tab
         self.tabs["action_potential"] = self.action_potential_tab
-
-        # Add tabs to notebook
-        self.notebook.add(self.filter_tab.frame, text="Filters")
-        self.notebook.add(self.analysis_tab.frame, text="Analysis")
-        self.notebook.add(self.view_tab.frame, text="View")
         self.notebook.add(self.action_potential_tab.frame, text="Action Potential")
 
         # Add AI Analysis tab with lazy loading (only load when accessed)
@@ -2021,8 +2120,20 @@ class SignalAnalyzerApp:
             current_tab = self.notebook.select()
             tab_text = self.notebook.tab(current_tab, "text")
             
+            # Load Filter tab if needed
+            if tab_text == "Filters" and not self._filter_loaded:
+                self._load_filter_tab()
+            
+            # Load Analysis tab if needed
+            elif tab_text == "Analysis" and not self._analysis_loaded:
+                self._load_analysis_tab()
+            
+            # Load View tab if needed
+            elif tab_text == "View" and not self._view_loaded:
+                self._load_view_tab()
+            
             # Load AI Analysis tab if needed
-            if tab_text == "AI Analysis" and not self._ai_analysis_loaded:
+            elif tab_text == "AI Analysis" and not self._ai_analysis_loaded:
                 self._load_ai_analysis_tab()
             
             # Load Excel Learning tab if needed
@@ -2092,6 +2203,93 @@ class SignalAnalyzerApp:
                 self._excel_learning_placeholder,
                 text=f"Excel Learning unavailable: {e}",
                 justify="center",
+            ).pack(padx=20, pady=20)
+    
+    def _load_filter_tab(self):
+        """Lazy load the Filter tab."""
+        try:
+            # Import FilterTab only when needed
+            from src.gui.filter_tab import FilterTab
+            
+            # Create the tab
+            self.filter_tab = FilterTab(self.notebook, self.on_filter_change)
+            
+            # Replace placeholder with actual tab
+            self.notebook.forget(self._filter_placeholder)
+            self.notebook.insert(0, self.filter_tab.frame, text="Filters")
+            
+            # Store reference and mark as loaded
+            self.tabs["filter"] = self.filter_tab
+            self._filter_loaded = True
+            
+            app_logger.info("Filter tab loaded successfully")
+        except Exception as e:
+            app_logger.error(f"Failed to load Filter tab: {e}")
+            # Show error in placeholder
+            for widget in self._filter_placeholder.winfo_children():
+                widget.destroy()
+            ttk.Label(
+                self._filter_placeholder,
+                text=f"Failed to load Filter tab:\n{str(e)}",
+                foreground="red",
+            ).pack(padx=20, pady=20)
+    
+    def _load_analysis_tab(self):
+        """Lazy load the Analysis tab."""
+        try:
+            # Import AnalysisTab only when needed
+            from src.gui.analysis_tab import AnalysisTab
+            
+            # Create the tab
+            self.analysis_tab = AnalysisTab(self.notebook, self.on_analysis_update)
+            
+            # Replace placeholder with actual tab
+            self.notebook.forget(self._analysis_placeholder)
+            self.notebook.insert(1, self.analysis_tab.frame, text="Analysis")
+            
+            # Store reference and mark as loaded
+            self.tabs["analysis"] = self.analysis_tab
+            self._analysis_loaded = True
+            
+            app_logger.info("Analysis tab loaded successfully")
+        except Exception as e:
+            app_logger.error(f"Failed to load Analysis tab: {e}")
+            # Show error in placeholder
+            for widget in self._analysis_placeholder.winfo_children():
+                widget.destroy()
+            ttk.Label(
+                self._analysis_placeholder,
+                text=f"Failed to load Analysis tab:\n{str(e)}",
+                foreground="red",
+            ).pack(padx=20, pady=20)
+    
+    def _load_view_tab(self):
+        """Lazy load the View tab."""
+        try:
+            # Import ViewTab only when needed
+            from src.gui.view_tab import ViewTab
+            
+            # Create the tab
+            self.view_tab = ViewTab(self.notebook, self.on_view_change)
+            
+            # Replace placeholder with actual tab
+            self.notebook.forget(self._view_placeholder)
+            self.notebook.insert(2, self.view_tab.frame, text="View")
+            
+            # Store reference and mark as loaded
+            self.tabs["view"] = self.view_tab
+            self._view_loaded = True
+            
+            app_logger.info("View tab loaded successfully")
+        except Exception as e:
+            app_logger.error(f"Failed to load View tab: {e}")
+            # Show error in placeholder
+            for widget in self._view_placeholder.winfo_children():
+                widget.destroy()
+            ttk.Label(
+                self._view_placeholder,
+                text=f"Failed to load View tab:\n{str(e)}",
+                foreground="red",
             ).pack(padx=20, pady=20)
 
     def _load_export_modules_if_needed(self):
@@ -2504,6 +2702,9 @@ class SignalAnalyzerApp:
                 return
 
             app_logger.info(f"Loading file: {filepath}")
+            
+            # Ensure plot is initialized before loading data
+            self._ensure_plot_initialized()
 
             # Clear existing data using the clear method
             self.clear_all_data()
