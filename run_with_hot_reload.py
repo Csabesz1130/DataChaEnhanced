@@ -15,5 +15,5 @@ sys.path.insert(0, str(project_root))
 
 # Import and run the main application
 if __name__ == "__main__":
-    from run import main
+    from src.main import main
     main()
