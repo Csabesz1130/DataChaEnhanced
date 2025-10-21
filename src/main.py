@@ -14,11 +14,32 @@ if current_dir not in sys.path:
 # Import only what's needed at startup
 import tkinter as tk
 
+# Try to import tkinterdnd2 for drag and drop functionality
+DRAG_DROP_AVAILABLE = False
+TkinterDnD = None
+
+def _check_drag_drop_availability():
+    """Check if tkinterdnd2 is available"""
+    global DRAG_DROP_AVAILABLE, TkinterDnD
+    try:
+        from tkinterdnd2 import TkinterDnD
+        DRAG_DROP_AVAILABLE = True
+        return True
+    except ImportError:
+        DRAG_DROP_AVAILABLE = False
+        return False
+
+# Initial check
+_check_drag_drop_availability()
+
 def main():
     """Main application entry point"""
     try:
-        # Create the main window
-        root = tk.Tk()
+        # Create the main window with drag and drop support if available
+        if _check_drag_drop_availability():
+            root = TkinterDnD.Tk()
+        else:
+            root = tk.Tk()
         root.title("Signal Analyzer - Excel Learning Enhanced")
         root.geometry("1200x800")
         

@@ -8,6 +8,7 @@ import os, time
 from pathlib import Path
 from src.gui.curve_fitting_gui import CurveFittingPanel
 from src.analysis.curve_fitting_manager import CurveFittingManager
+from typing import Dict, Any
 import tkinter as tk
 print(f"action_potential_tab.py last modified: {time.ctime(os.path.getmtime(__file__))}")
 
