@@ -35,7 +35,7 @@ _check_drag_drop_availability()
 # Heavy imports will be done lazily inside methods
 # from matplotlib.figure import Figure
 # from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-# import numpy as np
+import numpy as np
 # import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib
@@ -122,18 +122,27 @@ class SignalAnalyzerApp:
         self.setup_tabs()
 
         # Setup hot reload for development (only if enabled)
-        if (
-            os.environ.get("DEV_MODE") == "1"
-            or os.environ.get("ENABLE_HOT_RELOAD") == "1"
-        ):
+        # Setup hot reload only if explicitly enabled by environment variable
+        # This prevents automatic hot reload that can make the app unusable
+        if os.environ.get("ENABLE_HOT_RELOAD") == "1":
             self.setup_hot_reload()
+            app_logger.info("Hot reload enabled via environment variable")
+        else:
+            app_logger.info("Hot reload disabled by default - use the Hot Reload button to enable")
 
         # Hot reload debouncing
         self._last_reload_time = 0
         self._reload_debounce_delay = (
-            2.0  # Minimum 2 seconds between reloads to prevent UI corruption
+            5.0  # Increased to 5 seconds to prevent constant reloading
         )
-        self._hot_reload_enabled = True  # Can be disabled if too disruptive
+        self._hot_reload_enabled = False  # DISABLED BY DEFAULT - user must enable manually
+        self._drag_drop_active = False  # Flag to prevent reload during drag operations
+
+        # Setup drag and drop immediately after app initialization
+        self.master.after(500, self.setup_drag_and_drop)
+        
+        # Flag to prevent multiple drag and drop setups
+        self._drag_drop_setup_done = False
 
         # Setup memory management
         self.setup_memory_management()
@@ -686,6 +695,9 @@ class SignalAnalyzerApp:
             justify="center",
         )
         self.plot_placeholder.pack(expand=True)
+        
+        # Setup drag and drop on the placeholder immediately
+        self.master.after(100, self._setup_placeholder_drag_drop)
 
         # Create status bar at the bottom
         self.status_bar_frame = ttk.Frame(self.master, relief=tk.SUNKEN, border=1)
@@ -1017,6 +1029,11 @@ class SignalAnalyzerApp:
                 app_logger.debug("Hot reload disabled")
                 return
 
+            # Don't reload during drag and drop operations
+            if hasattr(self, '_drag_drop_active') and self._drag_drop_active:
+                app_logger.info("🖱️ Hot reload skipped - drag and drop operation in progress")
+                return
+
             # Debounce rapid reloads
             current_time = time.time()
             if current_time - self._last_reload_time < self._reload_debounce_delay:
@@ -1069,6 +1086,14 @@ class SignalAnalyzerApp:
         enabled = self.toggle_hot_reload()
         button_text = "Hot Reload: ON" if enabled else "Hot Reload: OFF"
         self.hot_reload_button.config(text=button_text)
+        
+        # Show user feedback
+        if enabled:
+            app_logger.info("🔥 Hot reload ENABLED - app will auto-reload on code changes")
+            # Show a brief message to user
+            self.master.after(100, lambda: app_logger.info("⚠️  Hot reload is now active - changes to code will trigger automatic reloads"))
+        else:
+            app_logger.info("❌ Hot reload DISABLED - app will not auto-reload")
 
     def _refresh_analysis_processors(self):
         """Refresh analysis processors and related components."""
@@ -1905,42 +1930,57 @@ class SignalAnalyzerApp:
         self.point_tracker = CurvePointTracker(self.fig, self.ax, self.point_status_var)
         self.setup_plot_context_menu()
 
-        # Setup drag and drop functionality
-        self.setup_drag_and_drop()
-
-        # Setup plot interaction
+        # Setup plot interaction first
         self.setup_plot_interaction()
+
+        # Setup drag and drop functionality after plot is ready
+        # Use after() to ensure canvas is fully initialized
+        self.master.after(100, self.setup_drag_and_drop)
 
         app_logger.info("Plot setup complete with zoom state preservation")
 
     def setup_drag_and_drop(self):
         """Setup drag and drop functionality for file loading."""
         try:
+            # Prevent multiple setups
+            if hasattr(self, '_drag_drop_setup_done') and self._drag_drop_setup_done:
+                app_logger.info("🖱️ Drag and drop already set up, skipping...")
+                return
+                
+            app_logger.info("🖱️ Setting up drag and drop...")
+            
             # Recheck availability in case of hot reload
             if not _check_drag_drop_availability():
                 app_logger.warning(
                     "Drag and drop not available - using double-click fallback"
                 )
-                # Fallback to double-click functionality
-                canvas_widget = self.canvas.get_tk_widget()
-                canvas_widget.bind("<Double-Button-1>", self._on_canvas_double_click)
-                self._add_drag_drop_tooltip(canvas_widget)
+                return
+
+            # Check if plot is initialized
+            if not hasattr(self, 'canvas') or not self.canvas:
+                app_logger.info("🖱️ Plot not initialized yet, retrying in 1 second...")
+                self.master.after(1000, self.setup_drag_and_drop)
                 return
 
             # Get the canvas widget and plot frame
             canvas_widget = self.canvas.get_tk_widget()
             plot_frame = self.plot_frame
+            
+            app_logger.info(f"🖱️ Canvas widget: {canvas_widget}")
+            app_logger.info(f"🖱️ Plot frame: {plot_frame}")
+            app_logger.info(f"🖱️ DND_FILES: {DND_FILES}")
 
             # Enable drag and drop on both canvas and plot frame for better coverage
             for widget in [canvas_widget, plot_frame]:
                 try:
+                    app_logger.info(f"🖱️ Registering drop target on {widget}")
                     widget.drop_target_register(DND_FILES)
                     widget.dnd_bind("<<Drop>>", self._on_file_drop)
                     widget.dnd_bind("<<DragEnter>>", self._on_drag_enter_dnd)
                     widget.dnd_bind("<<DragLeave>>", self._on_drag_leave_dnd)
-                    app_logger.info(f"🖱️ Drop target registered on {widget}")
+                    app_logger.info(f"🖱️ Drop target registered successfully on {widget}")
                 except Exception as e:
-                    app_logger.warning(f"Could not register drop target on {widget}: {e}")
+                    app_logger.error(f"Could not register drop target on {widget}: {e}")
 
             # Add visual feedback and double-click to load
             canvas_widget.bind("<Enter>", self._on_drag_enter)
@@ -1949,11 +1989,19 @@ class SignalAnalyzerApp:
 
             # Add a helpful tooltip
             self._add_drag_drop_tooltip(canvas_widget)
+            
+            # Test button removed to prevent multiple setups
 
-            app_logger.info("🖱️ Drag and drop enabled for ATF files")
+            app_logger.info("🖱️ Drag and drop setup complete for ATF files")
+            
+            # Mark as done to prevent multiple setups
+            self._drag_drop_setup_done = True
 
         except Exception as e:
             app_logger.error(f"Error setting up drag and drop: {e}")
+            # Try again after a short delay
+            app_logger.info("🖱️ Retrying drag and drop setup in 1 second...")
+            self.master.after(1000, self.setup_drag_and_drop)
 
     def _add_drag_drop_tooltip(self, widget):
         """Add a tooltip to indicate drag and drop functionality."""
@@ -2005,11 +2053,15 @@ class SignalAnalyzerApp:
     def _on_drag_enter_dnd(self, event):
         """Handle tkinterdnd2 drag enter event."""
         try:
+            # Disable hot reload during drag operations
+            self._drag_drop_active = True
             app_logger.info("🖱️ DND Drag enter - checking file types")
+            app_logger.info(f"🖱️ Event data: {getattr(event, 'data', 'No data')}")
             # Check if the dragged data contains files
             if hasattr(event, 'data') and event.data:
                 # Parse the data to check for ATF files
                 files = event.data.split()
+                app_logger.info(f"🖱️ Parsed files: {files}")
                 atf_files = [f for f in files if f.lower().endswith('.atf')]
                 if atf_files:
                     app_logger.info(f"🖱️ ATF files detected: {atf_files}")
@@ -2026,8 +2078,46 @@ class SignalAnalyzerApp:
         """Handle tkinterdnd2 drag leave event."""
         try:
             app_logger.info("🖱️ DND Drag leave")
+            # Re-enable hot reload after drag operations
+            self._drag_drop_active = False
         except Exception as e:
             app_logger.error(f"DND drag leave error: {e}")
+
+    def _test_drag_drop_setup(self):
+        """Test method to manually trigger drag and drop setup"""
+        try:
+            app_logger.info("🧪 Manual drag and drop test triggered")
+            self.setup_drag_and_drop()
+        except Exception as e:
+            app_logger.error(f"Manual drag and drop test failed: {e}")
+
+    def _setup_placeholder_drag_drop(self):
+        """Setup drag and drop on the placeholder area"""
+        try:
+            app_logger.info("🖱️ Setting up placeholder drag and drop...")
+            
+            # Recheck availability
+            if not _check_drag_drop_availability():
+                app_logger.warning("Drag and drop not available for placeholder")
+                return
+
+            # Setup drag and drop on the plot frame (which contains the placeholder)
+            plot_frame = self.plot_frame
+            
+            app_logger.info(f"🖱️ Setting up placeholder drop target on {plot_frame}")
+            plot_frame.drop_target_register(DND_FILES)
+            plot_frame.dnd_bind("<<Drop>>", self._on_file_drop)
+            plot_frame.dnd_bind("<<DragEnter>>", self._on_drag_enter_dnd)
+            plot_frame.dnd_bind("<<DragLeave>>", self._on_drag_leave_dnd)
+            
+            # Add visual feedback
+            plot_frame.bind("<Enter>", self._on_drag_enter)
+            plot_frame.bind("<Leave>", self._on_drag_leave)
+            
+            app_logger.info("🖱️ Placeholder drag and drop setup complete")
+
+        except Exception as e:
+            app_logger.error(f"Error setting up placeholder drag and drop: {e}")
 
     def _on_canvas_double_click(self, event):
         """Handle double-click on canvas to open file dialog."""
@@ -2063,10 +2153,15 @@ class SignalAnalyzerApp:
                     filepath = atf_files[0]
                     app_logger.info(f"🖱️ ATF file dropped: {filepath}")
                     
+                    # Re-enable hot reload after file processing
+                    self._drag_drop_active = False
+                    
                     # Load the file
                     self._load_dropped_file(filepath)
                 else:
                     app_logger.warning("🖱️ No ATF files found in drop - ignoring")
+                    # Re-enable hot reload
+                    self._drag_drop_active = False
                     messagebox.showwarning(
                         "Invalid File Type",
                         "Please drop an ATF file (.atf extension).\n\n"
@@ -2074,8 +2169,12 @@ class SignalAnalyzerApp:
                     )
             else:
                 app_logger.warning("🖱️ No files found in drop event")
+                # Re-enable hot reload
+                self._drag_drop_active = False
         except Exception as e:
             app_logger.error(f"Error handling file drop: {e}")
+            # Re-enable hot reload on error
+            self._drag_drop_active = False
 
     def _load_dropped_file(self, filepath):
         """Load a dropped file."""

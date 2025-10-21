@@ -3,7 +3,7 @@ from tkinter import ttk
 from src.utils.logger import app_logger
 
 # Heavy imports will be done lazily
-# import numpy as np
+import numpy as np
 # from scipy.signal import find_peaks
 
 class AnalysisTab:

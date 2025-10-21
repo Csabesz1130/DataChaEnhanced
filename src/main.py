@@ -57,6 +57,7 @@ def main():
         
         # Start the application
         app_logger.info("Starting Signal Analyzer application")
+        app_logger.info("🔥 Hot reload is DISABLED by default - use the 'Hot Reload' button to enable if needed")
         root.mainloop()
         
     except Exception as e:
