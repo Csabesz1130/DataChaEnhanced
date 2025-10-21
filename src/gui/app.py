@@ -1927,12 +1927,20 @@ class SignalAnalyzerApp:
                 self._add_drag_drop_tooltip(canvas_widget)
                 return
 
-            # Get the canvas widget
+            # Get the canvas widget and plot frame
             canvas_widget = self.canvas.get_tk_widget()
+            plot_frame = self.plot_frame
 
-            # Enable drag and drop on the canvas
-            canvas_widget.drop_target_register(DND_FILES)
-            canvas_widget.dnd_bind("<<Drop>>", self._on_file_drop)
+            # Enable drag and drop on both canvas and plot frame for better coverage
+            for widget in [canvas_widget, plot_frame]:
+                try:
+                    widget.drop_target_register(DND_FILES)
+                    widget.dnd_bind("<<Drop>>", self._on_file_drop)
+                    widget.dnd_bind("<<DragEnter>>", self._on_drag_enter_dnd)
+                    widget.dnd_bind("<<DragLeave>>", self._on_drag_leave_dnd)
+                    app_logger.info(f"🖱️ Drop target registered on {widget}")
+                except Exception as e:
+                    app_logger.warning(f"Could not register drop target on {widget}: {e}")
 
             # Add visual feedback and double-click to load
             canvas_widget.bind("<Enter>", self._on_drag_enter)
@@ -1994,6 +2002,33 @@ class SignalAnalyzerApp:
         except Exception as e:
             app_logger.error(f"Drag leave error: {e}")
 
+    def _on_drag_enter_dnd(self, event):
+        """Handle tkinterdnd2 drag enter event."""
+        try:
+            app_logger.info("🖱️ DND Drag enter - checking file types")
+            # Check if the dragged data contains files
+            if hasattr(event, 'data') and event.data:
+                # Parse the data to check for ATF files
+                files = event.data.split()
+                atf_files = [f for f in files if f.lower().endswith('.atf')]
+                if atf_files:
+                    app_logger.info(f"🖱️ ATF files detected: {atf_files}")
+                    # Accept the drop
+                    return True
+                else:
+                    app_logger.info("🖱️ No ATF files in drop data")
+            return False
+        except Exception as e:
+            app_logger.error(f"DND drag enter error: {e}")
+            return False
+
+    def _on_drag_leave_dnd(self, event):
+        """Handle tkinterdnd2 drag leave event."""
+        try:
+            app_logger.info("🖱️ DND Drag leave")
+        except Exception as e:
+            app_logger.error(f"DND drag leave error: {e}")
+
     def _on_canvas_double_click(self, event):
         """Handle double-click on canvas to open file dialog."""
         try:
@@ -2006,16 +2041,37 @@ class SignalAnalyzerApp:
         """Handle file drop event (tkinterdnd2)."""
         try:
             app_logger.info(f"🖱️ Drop event triggered with data: {event.data}")
-            # Get dropped files
-            files = event.data.split()
+            
+            # Parse dropped files - handle different formats
+            files = []
+            if hasattr(event, 'data') and event.data:
+                # Split by whitespace and clean up
+                raw_files = event.data.split()
+                for f in raw_files:
+                    # Remove braces and quotes if present
+                    clean_file = f.strip("{}").strip('"').strip("'")
+                    if clean_file:
+                        files.append(clean_file)
+            
             app_logger.info(f"🖱️ Parsed files: {files}")
+            
             if files:
-                # Take the first file
-                filepath = files[0].strip("{}")  # Remove braces if present
-                app_logger.info(f"🖱️ File dropped: {filepath}")
-
-                # Load the file
-                self._load_dropped_file(filepath)
+                # Filter for ATF files only
+                atf_files = [f for f in files if f.lower().endswith('.atf')]
+                if atf_files:
+                    # Take the first ATF file
+                    filepath = atf_files[0]
+                    app_logger.info(f"🖱️ ATF file dropped: {filepath}")
+                    
+                    # Load the file
+                    self._load_dropped_file(filepath)
+                else:
+                    app_logger.warning("🖱️ No ATF files found in drop - ignoring")
+                    messagebox.showwarning(
+                        "Invalid File Type",
+                        "Please drop an ATF file (.atf extension).\n\n"
+                        f"Files dropped: {', '.join(files)}"
+                    )
             else:
                 app_logger.warning("🖱️ No files found in drop event")
         except Exception as e:
