@@ -81,11 +81,12 @@ class CurveFittingPanel:
         global_frame = ttk.Frame(main_frame)
         global_frame.pack(fill='x', pady=(10, 5))
         
-        ttk.Button(global_frame, text="🗑️ Clear All",         ttk.Button(global_frame, text="💾 Export Results", 
+        ttk.Button(global_frame, text="🗑️ Clear All", 
+                  command=lambda: self.clear_fits(None)).pack(side='left', padx=2)
+        ttk.Button(global_frame, text="💾 Export Results", 
                   command=self.export_results).pack(side='left', padx=2)
         ttk.Button(global_frame, text="📊 Export to Excel", 
                   command=self.on_export_to_excel_click).pack(side='left', padx=2)
-        # Apply corrections buttons - separate for each curve typeide='left', padx=2)
         # Apply corrections buttons - separate for each curve type
         ttk.Button(global_frame, text="📈 Apply Hyperpol", 
                   command=lambda: self.apply_corrections('hyperpol')).pack(side='left', padx=2)
