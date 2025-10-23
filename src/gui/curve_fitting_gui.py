@@ -81,10 +81,11 @@ class CurveFittingPanel:
         global_frame = ttk.Frame(main_frame)
         global_frame.pack(fill='x', pady=(10, 5))
         
-        ttk.Button(global_frame, text="🗑️ Clear All", 
-                  command=lambda: self.clear_fits(None)).pack(side='left', padx=2)
-        ttk.Button(global_frame, text="💾 Export Results", 
+        ttk.Button(global_frame, text="🗑️ Clear All",         ttk.Button(global_frame, text="💾 Export Results", 
                   command=self.export_results).pack(side='left', padx=2)
+        ttk.Button(global_frame, text="📊 Export to Excel", 
+                  command=self.on_export_to_excel_click).pack(side='left', padx=2)
+        # Apply corrections buttons - separate for each curve typeide='left', padx=2)
         # Apply corrections buttons - separate for each curve type
         ttk.Button(global_frame, text="📈 Apply Hyperpol", 
                   command=lambda: self.apply_corrections('hyperpol')).pack(side='left', padx=2)
@@ -520,4 +521,253 @@ class CurveFittingPanel:
         for btn_name in buttons:
             btn = getattr(self, btn_name, None)
             if btn:
-                btn.config(state='normal')
+                btn.config(state='normal')    
+    def on_export_to_excel_click(self):
+        """Handle Export to Excel button click."""
+        try:
+            # Check if analysis has been run
+            if not self._check_analysis_available():
+                return
+            
+            # Check if curve fitting has been performed
+            if not self._check_curve_fitting_available():
+                return
+            
+            # Collect export data
+            export_data = self.collect_export_data()
+            
+            # Create backup before export
+            from src.excel_export.export_backup_manager import backup_manager
+            backup_path = backup_manager.create_backup(export_data, export_data['filename'])
+            if backup_path:
+                logger.info(f"Backup created: {backup_path}")
+            
+            # Open file dialog for save location
+            filetypes = [
+                ('Excel files', '*.xlsx'),
+                ('All files', '*.*')
+            ]
+            
+            filename = export_data['filename']
+            if '.' in filename:
+                filename = filename.rsplit('.', 1)[0]
+            default_filename = f"{filename}_curve_analysis.xlsx"
+            
+            filepath = filedialog.asksaveasfilename(
+                title="Save Excel Export",
+                defaultextension=".xlsx",
+                filetypes=filetypes,
+                initialfile=default_filename
+            )
+            
+            if not filepath:
+                return  # User cancelled
+            
+            # Export to Excel
+            from src.excel_export.curve_analysis_export import export_curve_analysis_to_excel
+            
+            success = export_curve_analysis_to_excel(export_data, filepath)
+            
+            if success:
+                messagebox.showinfo("Export Successful", f"Data exported successfully to:\n{filepath}")
+                logger.info(f"Excel export completed: {filepath}")
+            else:
+                messagebox.showerror("Export Failed", "Failed to export data to Excel. Check logs for details.")
+                logger.error("Excel export failed")
+                
+        except Exception as e:
+            logger.error(f"Error in Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during export:\n{str(e)}")
+    
+    def _check_analysis_available(self):
+        """Check if analysis has been run.
+        
+        Returns:
+            bool: True if analysis is available, False otherwise
+        """
+        processor = getattr(self.main_app, 'action_potential_processor', None)
+        if not processor:
+            messagebox.showwarning("No Data", "Please run analysis first.")
+            return False
+        
+        # Check if purple curves exist
+        if (not hasattr(processor, 'modified_hyperpol') or 
+            not hasattr(processor, 'modified_depol') or
+            processor.modified_hyperpol is None or
+            processor.modified_depol is None):
+            messagebox.showwarning("Missing Data", 
+                                 "Analysis does not contain required curves. "
+                                 "Please run analysis with 'Show Modified Peaks' enabled.")
+            return False
+        
+        return True
+    
+    def _check_curve_fitting_available(self):
+        """Check if curve fitting has been performed.
+        
+        Returns:
+            bool: True if curve fitting is available, False otherwise
+        """
+        if not self.fitting_manager:
+            messagebox.showwarning("No Fitting", "Fitting manager not initialized.")
+            return False
+        
+        results = self.fitting_manager.get_fitting_results()
+        if not results:
+            messagebox.showwarning("No Fitting Results", 
+                                 "Please perform curve fitting first.\n\n"
+                                 "Use 'Start Linear Fit' and/or 'Start Exp Fit' buttons.")
+            return False
+        
+        # Check if at least one curve has been fitted
+        has_fitting = False
+        for curve_type in ['hyperpol', 'depol']:
+            if curve_type in results:
+                if 'linear' in results[curve_type] or 'exponential' in results[curve_type]:
+                    has_fitting = True
+                    break
+        
+        if not has_fitting:
+            messagebox.showwarning("No Fitting Results", 
+                                 "Please perform curve fitting first.\n\n"
+                                 "Use 'Start Linear Fit' and/or 'Start Exp Fit' buttons.")
+            return False
+        
+        return True
+    
+    def collect_export_data(self):
+        """Collect all data needed for Excel export.
+        
+        Returns:
+            dict: Dictionary containing all export data
+        """
+        import os
+        
+        # Get processor
+        processor = getattr(self.main_app, 'action_potential_processor', None)
+        
+        # Get fitting results
+        results = self.fitting_manager.get_fitting_results()
+        
+        # Get filename
+        filename = "Unknown"
+        if hasattr(self.main_app, 'current_file') and self.main_app.current_file:
+            filename = os.path.basename(self.main_app.current_file)
+        
+        # Get voltage
+        voltage = 'N/A'
+        if processor and hasattr(processor, 'params'):
+            voltage = processor.params.get('V2', 'N/A')
+        
+        # Prepare export data structure
+        export_data = {
+            'filename': filename,
+            'voltage': voltage,
+            'linear_fitting': {},
+            'exponential_fitting': {},
+            'integration': {},
+            'capacitance': {}
+        }
+        
+        # Fill linear fitting data
+        for curve_type in ['hyperpol', 'depol']:
+            if curve_type in results and 'linear' in results[curve_type]:
+                linear = results[curve_type]['linear']
+                export_data['linear_fitting'][curve_type] = {
+                    'slope': f"{linear['slope']:.6f}",
+                    'intercept': f"{linear['intercept']:.6f}",
+                    'r_squared': f"{linear['r_squared']:.6f}",
+                    'equation': linear['equation']
+                }
+            else:
+                export_data['linear_fitting'][curve_type] = {
+                    'slope': 'N/A',
+                    'intercept': 'N/A',
+                    'r_squared': 'N/A',
+                    'equation': 'N/A'
+                }
+        
+        # Fill exponential fitting data
+        for curve_type in ['hyperpol', 'depol']:
+            if curve_type in results and 'exponential' in results[curve_type]:
+                exp = results[curve_type]['exponential']
+                export_data['exponential_fitting'][curve_type] = {
+                    'tau': f"{exp['tau']:.6f}",
+                    'A': f"{exp['A']:.6f}",
+                    'C': f"{exp['C']:.6f}",
+                    'r_squared': f"{exp['r_squared']:.6f}",
+                    'equation': exp['equation']
+                }
+            else:
+                export_data['exponential_fitting'][curve_type] = {
+                    'tau': 'N/A',
+                    'A': 'N/A',
+                    'C': 'N/A',
+                    'r_squared': 'N/A',
+                    'equation': 'N/A'
+                }
+        
+        # Fill integration data (if available from fitting manager)
+        for curve_type in ['hyperpol', 'depol']:
+            if curve_type in results and 'integration' in results[curve_type]:
+                integration = results[curve_type]['integration']
+                export_data['integration'][curve_type] = {
+                    'integral': f"{integration['integral']:.6f}",
+                    'start_point': integration.get('start_index', 0),
+                    'end_point': integration.get('end_index', 0)
+                }
+            else:
+                # Try to get from action potential tab
+                if hasattr(self.main_app, 'action_potential_tab'):
+                    tab = self.main_app.action_potential_tab
+                    if curve_type == 'hyperpol':
+                        integral_str = tab.hyperpol_result.get()
+                    else:
+                        integral_str = tab.depol_result.get()
+                    
+                    # Parse integral value
+                    try:
+                        if ' pC' in integral_str:
+                            integral_val = float(integral_str.replace(' pC', ''))
+                        else:
+                            integral_val = 'N/A'
+                    except:
+                        integral_val = 'N/A'
+                    
+                    export_data['integration'][curve_type] = {
+                        'integral': f"{integral_val:.6f}" if integral_val != 'N/A' else 'N/A',
+                        'start_point': 0,
+                        'end_point': 200
+                    }
+                else:
+                    export_data['integration'][curve_type] = {
+                        'integral': 'N/A',
+                        'start_point': 0,
+                        'end_point': 0
+                    }
+        
+        # Calculate capacitance
+        try:
+            if processor and hasattr(processor, 'params'):
+                hyperpol_integral_str = export_data['integration']['hyperpol']['integral']
+                depol_integral_str = export_data['integration']['depol']['integral']
+                
+                if hyperpol_integral_str != 'N/A' and depol_integral_str != 'N/A':
+                    hyperpol_integral = float(hyperpol_integral_str)
+                    depol_integral = float(depol_integral_str)
+                    
+                    voltage_diff = abs(processor.params.get('V2', 0) - processor.params.get('V0', -80))
+                    if voltage_diff > 0:
+                        capacitance = abs(hyperpol_integral - depol_integral) / voltage_diff
+                        export_data['capacitance']['linear_capacitance'] = f"{capacitance:.6f} nF"
+                    else:
+                        export_data['capacitance']['linear_capacitance'] = 'N/A'
+                else:
+                    export_data['capacitance']['linear_capacitance'] = 'N/A'
+            else:
+                export_data['capacitance']['linear_capacitance'] = 'N/A'
+        except Exception as e:
+            logger.error(f"Error calculating capacitance: {str(e)}")
+            export_data['capacitance']['linear_capacitance'] = 'N/A'
+        
+        return export_data
