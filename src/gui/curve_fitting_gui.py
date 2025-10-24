@@ -85,6 +85,10 @@ class CurveFittingPanel:
                   command=lambda: self.clear_fits(None)).pack(side='left', padx=2)
         ttk.Button(global_frame, text="💾 Export Results", 
                   command=self.export_results).pack(side='left', padx=2)
+        ttk.Button(global_frame, text="📊 Export to Excel (Single)", 
+                  command=self.export_to_excel_single).pack(side='left', padx=2)
+        ttk.Button(global_frame, text="📊 Export Sets to Excel", 
+                  command=self.export_to_excel_sets).pack(side='left', padx=2)
         # Apply corrections buttons - separate for each curve type
         ttk.Button(global_frame, text="📈 Apply Hyperpol", 
                   command=lambda: self.apply_corrections('hyperpol')).pack(side='left', padx=2)
@@ -521,3 +525,29 @@ class CurveFittingPanel:
             btn = getattr(self, btn_name, None)
             if btn:
                 btn.config(state='normal')
+    
+    def export_to_excel_single(self):
+        """Export current file to Excel (single file export)."""
+        try:
+            # Get the action potential tab from the main app
+            app = self.main_app
+            if hasattr(app, 'action_potential_tab'):
+                app.action_potential_tab.on_export_to_excel_click()
+            else:
+                messagebox.showerror("Error", "Action potential tab not available.")
+        except Exception as e:
+            logger.error(f"Error in single Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during single file export:\n{str(e)}")
+    
+    def export_to_excel_sets(self):
+        """Export multiple files organized by sets to Excel."""
+        try:
+            # Get the action potential tab from the main app
+            app = self.main_app
+            if hasattr(app, 'action_potential_tab'):
+                app.action_potential_tab.on_export_sets_to_excel_click()
+            else:
+                messagebox.showerror("Error", "Action potential tab not available.")
+        except Exception as e:
+            logger.error(f"Error in sets Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during sets export:\n{str(e)}")

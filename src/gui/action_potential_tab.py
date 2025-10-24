@@ -1588,3 +1588,219 @@ class ActionPotentialTab:
             
         except Exception as e:
             app_logger.error(f"Error handling auto-optimize change: {str(e)}")
+    
+    def _check_analysis_available(self) -> bool:
+        """Check if analysis has been run and data is available."""
+        try:
+            # Get the processor from the main app
+            app = self.parent.master
+            processor = getattr(app, 'action_potential_processor', None)
+            
+            if not processor:
+                messagebox.showwarning("No Analysis", "Please run analysis first.")
+                return False
+            
+            # Check if we have the required curves
+            if (not hasattr(processor, 'modified_hyperpol') or 
+                not hasattr(processor, 'modified_depol') or
+                processor.modified_hyperpol is None or
+                processor.modified_depol is None):
+                messagebox.showwarning("Missing Data", 
+                                     "Analysis does not contain required curves. "
+                                     "Please run analysis with 'Show Modified Peaks' enabled.")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            app_logger.error(f"Error checking analysis availability: {str(e)}")
+            messagebox.showerror("Error", f"Error checking analysis: {str(e)}")
+            return False
+    
+    def _check_curve_fitting_available(self) -> bool:
+        """Check if curve fitting has been performed."""
+        try:
+            # Check if curve fitting panel exists
+            if not hasattr(self, 'curve_fitting_panel') or not self.curve_fitting_panel:
+                messagebox.showwarning("No Fitting", "Curve fitting panel not available.")
+                return False
+            
+            # Check if fitting manager exists
+            fitting_manager = getattr(self.curve_fitting_panel, 'fitting_manager', None)
+            if not fitting_manager:
+                messagebox.showwarning("No Fitting", "Fitting manager not initialized.")
+                return False
+            
+            # Check if any fitting has been performed
+            fitting_results = fitting_manager.get_fitting_results()
+            if not fitting_results:
+                messagebox.showwarning("No Fitting", "No curve fitting has been performed. "
+                                                  "Please perform linear or exponential fitting first.")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            app_logger.error(f"Error checking curve fitting availability: {str(e)}")
+            messagebox.showerror("Error", f"Error checking curve fitting: {str(e)}")
+            return False
+    
+    def collect_export_data(self) -> dict:
+        """Collect all data needed for Excel export."""
+        try:
+            from datetime import datetime
+            
+            # Get the processor from the main app
+            app = self.parent.master
+            processor = getattr(app, 'action_potential_processor', None)
+            
+            if not processor:
+                raise ValueError("No processor available")
+            
+            # Get current file information
+            current_file = getattr(app, 'current_file', 'Unknown')
+            filename = os.path.basename(current_file) if current_file else 'Unknown'
+            
+            # Extract voltage from filename if possible
+            voltage = 'N/A'
+            if filename and '_' in filename:
+                try:
+                    # Pattern: 0057_0_-100.atf
+                    parts = filename.split('_')
+                    if len(parts) >= 3:
+                        voltage = parts[2].split('.')[0]
+                except:
+                    pass
+            
+            # Get fitting results
+            fitting_results = {}
+            if hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel:
+                fitting_manager = getattr(self.curve_fitting_panel, 'fitting_manager', None)
+                if fitting_manager:
+                    fitting_results = fitting_manager.get_fitting_results()
+            
+            # Get integration data (placeholder - would need actual implementation)
+            integration_data = {
+                'hyperpol': {
+                    'integral_value': 'N/A',
+                    'start_index': 'N/A',
+                    'end_index': 'N/A',
+                    'method': 'N/A'
+                },
+                'depol': {
+                    'integral_value': 'N/A',
+                    'start_index': 'N/A',
+                    'end_index': 'N/A',
+                    'method': 'N/A'
+                }
+            }
+            
+            # Get capacitance data (placeholder - would need actual implementation)
+            capacitance_data = {
+                'linear_capacitance': 'N/A',
+                'method': 'Linear Fit',
+                'notes': 'Calculated from linear fitting parameters'
+            }
+            
+            # Compile export data
+            export_data = {
+                'filename': filename,
+                'voltage': voltage,
+                'file_path': current_file,
+                'export_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'analysis_type': 'Curve Fitting',
+                'export_type': 'single_file',
+                'fitting_results': fitting_results,
+                'integration_data': integration_data,
+                'capacitance_data': capacitance_data
+            }
+            
+            app_logger.info(f"Collected export data for {filename}")
+            return export_data
+            
+        except Exception as e:
+            app_logger.error(f"Error collecting export data: {str(e)}")
+            raise
+    
+    def on_export_to_excel_click(self):
+        """Handle Export to Excel button click."""
+        try:
+            # Check if analysis has been run
+            if not self._check_analysis_available():
+                return
+            
+            # Check if curve fitting has been performed
+            if not self._check_curve_fitting_available():
+                return
+            
+            # Collect export data
+            export_data = self.collect_export_data()
+            
+            # Create backup before export
+            from src.excel_export.export_backup_manager import backup_manager
+            backup_path = backup_manager.create_backup(export_data, export_data['filename'])
+            if backup_path:
+                app_logger.info(f"Backup created: {backup_path}")
+            
+            # Open file dialog for save location
+            from tkinter import filedialog
+            filetypes = [
+                ('Excel files', '*.xlsx'),
+                ('All files', '*.*')
+            ]
+            
+            filename = export_data['filename']
+            if '.' in filename:
+                filename = filename.rsplit('.', 1)[0]
+            default_filename = f"{filename}_curve_analysis.xlsx"
+            
+            filepath = filedialog.asksaveasfilename(
+                title="Save Excel Export",
+                defaultextension=".xlsx",
+                filetypes=filetypes,
+                initialvalue=default_filename
+            )
+            
+            if not filepath:
+                return  # User cancelled
+            
+            # Export to Excel
+            from src.excel_export.curve_analysis_export import export_curve_analysis_to_excel
+            
+            success = export_curve_analysis_to_excel(export_data, filepath)
+            
+            if success:
+                messagebox.showinfo("Export Successful", f"Data exported successfully to:\n{filepath}")
+                app_logger.info(f"Excel export completed: {filepath}")
+            else:
+                messagebox.showerror("Export Failed", "Failed to export data to Excel. Check logs for details.")
+                app_logger.error("Excel export failed")
+                
+        except Exception as e:
+            app_logger.error(f"Error in Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during export:\n{str(e)}")
+    
+    def on_export_sets_to_excel_click(self):
+        """Handle Export Sets to Excel button click."""
+        try:
+            # Check if analysis has been run
+            if not self._check_analysis_available():
+                return
+            
+            # Check if curve fitting has been performed
+            if not self._check_curve_fitting_available():
+                return
+            
+            # Use the set-based export functionality
+            from src.excel_export.set_based_export import export_sets_to_excel
+            
+            success = export_sets_to_excel(self.parent.master)
+            
+            if success:
+                app_logger.info("Set-based Excel export completed")
+            else:
+                app_logger.warning("Set-based Excel export failed or was cancelled")
+                
+        except Exception as e:
+            app_logger.error(f"Error in set-based Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during set-based export:\n{str(e)}")

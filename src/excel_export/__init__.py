@@ -11,6 +11,9 @@ from .integration_calculator import (
     calculate_integral_scenario_a,
     calculate_integral_scenario_b
 )
+from .export_backup_manager import backup_manager
+from .curve_analysis_export import export_curve_analysis_to_excel
+from .set_based_export import export_sets_to_excel
 
 __all__ = [
     'export_to_excel',
@@ -20,5 +23,8 @@ __all__ = [
     'apply_curve_correction',
     'resample_data',
     'calculate_integral_scenario_a',
-    'calculate_integral_scenario_b'
+    'calculate_integral_scenario_b',
+    'backup_manager',
+    'export_curve_analysis_to_excel',
+    'export_sets_to_excel'
 ]

@@ -237,5 +237,23 @@
     "timestamp": "2025-09-22 00:37:35.665207",
     "data": {},
     "read": false
+  },
+  {
+    "notification_id": "e3710f9a-5ece-47fb-9411-da99edf82a00",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-23 23:28:09.897777",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "ac4bad31-32f3-4bc5-a72a-82e9177aca83",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-24 12:42:11.916150",
+    "data": {},
+    "read": false
   }
 ]
