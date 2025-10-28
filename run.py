@@ -10,12 +10,16 @@ if getattr(sys, 'frozen', False):
     # Running as compiled executable
     application_path = sys._MEIPASS
     src_path = os.path.join(application_path, 'src')
-    sys.path.insert(0, src_path)
-    sys.path.insert(0, application_path)
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+    if application_path not in sys.path:
+        sys.path.insert(0, application_path)
 else:
-    # Running as script
-    sys.path.insert(0, current_dir)
-    sys.path.insert(0, src_dir)
+    # Running as script - conditional path additions
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+    if src_dir not in sys.path:
+        sys.path.insert(0, src_dir)
 
 # Now import and run the main function
 try:

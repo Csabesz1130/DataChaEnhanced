@@ -6,7 +6,6 @@ Contains default parameters and settings for AI-powered integral calculation.
 Based on manual Excel analysis patterns.
 """
 
-import numpy as np
 from typing import Dict, Tuple, List, Optional, Union
 
 class AIConfig:

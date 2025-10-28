@@ -1638,6 +1638,20 @@ class ActionPotentialTab:
                                                   "Please perform linear or exponential fitting first.")
                 return False
             
+            # Check if we have at least some fitting data
+            has_fitting_data = False
+            for curve_type in ['hyperpol', 'depol']:
+                if curve_type in fitting_results:
+                    curve_data = fitting_results[curve_type]
+                    if 'linear' in curve_data or 'exponential' in curve_data:
+                        has_fitting_data = True
+                        break
+            
+            if not has_fitting_data:
+                messagebox.showwarning("No Fitting", "No valid fitting data found. "
+                                                  "Please perform linear or exponential fitting first.")
+                return False
+            
             return True
             
         except Exception as e:
@@ -1725,11 +1739,7 @@ class ActionPotentialTab:
     def on_export_to_excel_click(self):
         """Handle Export to Excel button click."""
         try:
-            # Check if analysis has been run
-            if not self._check_analysis_available():
-                return
-            
-            # Check if curve fitting has been performed
+            # Check if curve fitting has been performed (this is the main requirement)
             if not self._check_curve_fitting_available():
                 return
             
@@ -1783,11 +1793,7 @@ class ActionPotentialTab:
     def on_export_sets_to_excel_click(self):
         """Handle Export Sets to Excel button click."""
         try:
-            # Check if analysis has been run
-            if not self._check_analysis_available():
-                return
-            
-            # Check if curve fitting has been performed
+            # Check if curve fitting has been performed (this is the main requirement)
             if not self._check_curve_fitting_available():
                 return
             

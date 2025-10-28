@@ -7,15 +7,17 @@ import sys
 import os
 
 # Add the current directory to Python path to fix import issues
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from src.gui.app import SignalAnalyzerApp
-import tkinter as tk
-from src.utils.logger import app_logger
+if os.path.dirname(os.path.dirname(os.path.abspath(__file__))) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def main():
-    """Main application entry point"""
+    """Main application entry point with lazy imports"""
     try:
+        # Lazy imports inside main for better startup performance
+        from src.gui.app import SignalAnalyzerApp
+        import tkinter as tk
+        from src.utils.logger import app_logger
+        
         # Create the main window
         root = tk.Tk()
         root.title("Signal Analyzer - Excel Learning Enhanced")
@@ -32,6 +34,7 @@ def main():
         root.mainloop()
         
     except Exception as e:
+        from src.utils.logger import app_logger
         app_logger.critical(f"Application failed to start: {str(e)}")
         raise
 

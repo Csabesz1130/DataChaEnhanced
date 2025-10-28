@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "original_filename": "test_file.atf",
+    "backup_timestamp": "20251024_141859",
+    "backup_created": "2025-10-24T14:18:59.260119",
+    "export_type": "unknown"
+  },
+  "export_data": {
+    "filename": "test_file.atf",
+    "voltage": "-100",
+    "fitting_results": {
+      "hyperpol": {
+        "linear": {
+          "slope": -311.581116,
+          "intercept": 185.055482,
+          "r_squared": 0.1246
+        }
+      }
+    }
+  }
+}

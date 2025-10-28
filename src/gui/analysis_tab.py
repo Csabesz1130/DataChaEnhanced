@@ -1,7 +1,5 @@
 import tkinter as tk
 from tkinter import ttk
-import numpy as np
-from scipy.signal import find_peaks
 from src.utils.logger import app_logger
 
 class AnalysisTab:
@@ -15,6 +13,10 @@ class AnalysisTab:
         """
         self.parent = parent
         self.update_callback = callback
+        
+        # Lazy loading flags
+        self._numpy_imported = False
+        self._scipy_imported = False
         
         # Initialize data holders
         self.data = None
@@ -34,6 +36,20 @@ class AnalysisTab:
         self.setup_event_analysis()
         
         app_logger.debug("Analysis tab initialized")
+
+    def _ensure_numpy(self):
+        """Lazily import numpy when needed"""
+        if not self._numpy_imported:
+            global np
+            import numpy as np
+            self._numpy_imported = True
+
+    def _ensure_scipy(self):
+        """Lazily import scipy when needed"""
+        if not self._scipy_imported:
+            global find_peaks
+            from scipy.signal import find_peaks
+            self._scipy_imported = True
 
     def init_variables(self):
         """Initialize control variables"""
@@ -168,6 +184,8 @@ class AnalysisTab:
 
     def update_statistics(self):
         """Update basic signal statistics"""
+        self._ensure_numpy()
+        
         if self.filtered_data is None:
             return
             
@@ -199,6 +217,9 @@ class AnalysisTab:
 
     def update_peak_detection(self):
         """Update peak detection analysis"""
+        self._ensure_scipy()
+        self._ensure_numpy()
+        
         if not self.detect_peaks.get() or self.filtered_data is None:
             return
             
