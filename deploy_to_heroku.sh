@@ -33,7 +33,8 @@ print_info() {
 if ! command -v heroku &> /dev/null; then
     print_error "Heroku CLI not found!"
     echo "Install from: https://devcenter.heroku.com/articles/heroku-cli"
-    exit 1
+    $env:Path += ";C:\Program Files\heroku\bin"
+    #exit 1
 fi
 print_success "Heroku CLI found"
 

@@ -1,0 +1,47 @@
+# Flask Backend Requirements for Heroku Deployment
+
+# Web Framework
+Flask==2.3.3
+Flask-CORS==4.0.0
+Flask-SQLAlchemy==3.0.5
+Flask-Compress==1.14
+
+# Database
+psycopg2-binary==2.9.7  # PostgreSQL adapter
+SQLAlchemy==2.0.20
+
+# WSGI Server (for production)
+gunicorn==21.2.0
+
+# Desktop code dependencies (reused from src/)
+numpy==1.24.3
+scipy==1.11.2
+pandas==2.0.3
+matplotlib==3.7.2
+PyWavelets==1.4.1
+
+# File handling
+Werkzeug==2.3.7
+python-magic==0.4.27  # File type detection
+
+# Utilities
+python-dotenv==1.0.0
+
+# Optional: Async tasks
+# celery==5.3.1
+# redis==4.6.0
+
+# Optional: Caching
+# Flask-Caching==2.0.2
+
+# Optional: Authentication
+# Flask-JWT-Extended==4.5.2
+
+# Optional: API documentation
+# flask-swagger-ui==4.11.1
+# flasgger==0.9.7.1
+
+# Optional: Testing
+# pytest==7.4.0
+# pytest-flask==1.2.0
+
