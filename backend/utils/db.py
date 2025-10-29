@@ -79,7 +79,7 @@ class Session(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_accessed = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = db.Column(db.JSON)
+    session_data = db.Column(db.JSON)  # Renamed from 'metadata' to avoid SQLAlchemy conflict
     
     def __repr__(self):
         return f'<Session {self.id}>'
