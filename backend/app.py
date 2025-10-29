@@ -11,7 +11,7 @@ from pathlib import Path
 parent_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(parent_dir))
 
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 from flask_compress import Compress
 from werkzeug.utils import secure_filename
@@ -63,22 +63,24 @@ def health_check():
     })
 
 
-# Root endpoint
-@app.route('/')
-def index():
-    """Root endpoint - API info"""
-    return jsonify({
-        'name': 'Signal Analyzer API',
-        'version': '1.0.0',
-        'endpoints': {
-            'health': '/api/health',
-            'analysis': '/api/analysis/*',
-            'filtering': '/api/filter/*',
-            'files': '/api/files/*',
-            'export': '/api/export/*'
-        },
-        'documentation': '/api/docs'
-    })
+# Serve React frontend
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    """Serve React frontend"""
+    # Get the frontend build directory
+    frontend_dir = os.path.join(parent_dir, 'frontend', 'build')
+    
+    # If path is for API, let Flask handle it
+    if path.startswith('api/'):
+        return jsonify({'error': 'Not found'}), 404
+    
+    # Serve static files
+    if path and os.path.exists(os.path.join(frontend_dir, path)):
+        return send_from_directory(frontend_dir, path)
+    
+    # Serve index.html for all other routes (React Router)
+    return send_from_directory(frontend_dir, 'index.html')
 
 
 # Error handlers
