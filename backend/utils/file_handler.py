@@ -9,7 +9,7 @@ from werkzeug.utils import secure_filename
 from flask import current_app
 import numpy as np
 
-from src.io_utils.io_utils import ATFFileReader
+from src.io_utils.io_utils import ATFHandler
 
 
 ALLOWED_EXTENSIONS = {'atf', 'txt', 'csv'}
@@ -109,8 +109,10 @@ def get_file_data(file_id):
         raise ValueError(f"File no longer exists: {file_path}")
     
     # Parse ATF file using desktop code
-    reader = ATFFileReader(file_path)
-    data, time_data = reader.load_atf()
+    reader = ATFHandler(file_path)
+    reader.load_atf()
+    data = reader.data
+    time_data = data[:, 0] if data is not None and len(data.shape) > 1 else None
     
     file_info = {
         'file_id': str(file_record.id),

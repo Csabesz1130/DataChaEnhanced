@@ -115,10 +115,42 @@ class CurveFittingPanel:
                           command=lambda: self.start_linear_fitting(curve_type)))
         getattr(self, f'{curve_type}_linear_btn').pack(fill='x', pady=2)
         
+        # Linear fit undo/redo buttons in a horizontal layout
+        linear_history_frame = ttk.Frame(frame)
+        linear_history_frame.pack(fill='x', pady=2)
+        
+        setattr(self, f'{curve_type}_linear_undo_btn',
+                ttk.Button(linear_history_frame, text="⬅️ Undo Linear", width=15,
+                          command=lambda: self.undo_fitting(curve_type, 'linear'),
+                          state='disabled'))
+        getattr(self, f'{curve_type}_linear_undo_btn').pack(side='left', padx=2)
+        
+        setattr(self, f'{curve_type}_linear_redo_btn',
+                ttk.Button(linear_history_frame, text="➡️ Redo Linear", width=15,
+                          command=lambda: self.redo_fitting(curve_type, 'linear'),
+                          state='disabled'))
+        getattr(self, f'{curve_type}_linear_redo_btn').pack(side='right', padx=2)
+        
         setattr(self, f'{curve_type}_exp_btn',
                 ttk.Button(frame, text="📈 Start Exp Fit",
                           command=lambda: self.start_exponential_fitting(curve_type)))
         getattr(self, f'{curve_type}_exp_btn').pack(fill='x', pady=2)
+        
+        # Exponential fit undo/redo buttons in a horizontal layout
+        exp_history_frame = ttk.Frame(frame)
+        exp_history_frame.pack(fill='x', pady=2)
+        
+        setattr(self, f'{curve_type}_exp_undo_btn',
+                ttk.Button(exp_history_frame, text="⬅️ Undo Exp", width=15,
+                          command=lambda: self.undo_fitting(curve_type, 'exp'),
+                          state='disabled'))
+        getattr(self, f'{curve_type}_exp_undo_btn').pack(side='left', padx=2)
+        
+        setattr(self, f'{curve_type}_exp_redo_btn',
+                ttk.Button(exp_history_frame, text="➡️ Redo Exp", width=15,
+                          command=lambda: self.redo_fitting(curve_type, 'exp'),
+                          state='disabled'))
+        getattr(self, f'{curve_type}_exp_redo_btn').pack(side='right', padx=2)
         
         ttk.Button(frame, text="Clear", 
                   command=lambda: self.clear_fits(curve_type)).pack(fill='x', pady=2)
@@ -181,6 +213,7 @@ class CurveFittingPanel:
         
         self.fitting_manager = CurveFittingManager(figure, ax)
         self.fitting_manager.on_fit_complete = self.on_fitting_completed
+        self.fitting_manager.on_state_change = self.on_state_change
         
         # Add reference to main app for plot refresh functionality
         if hasattr(self, 'main_app'):
@@ -469,10 +502,60 @@ class CurveFittingPanel:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to export: {str(e)}")
     
+    def undo_fitting(self, curve_type: str, fit_type: str):
+        """Undo the last fitting operation."""
+        if not self.fitting_manager:
+            return
+        
+        if self.fitting_manager.undo(curve_type, fit_type):
+            self._update_results_display()
+            self._update_history_buttons(curve_type, fit_type)
+            self.status_var.set(f"Undo {fit_type} fitting for {curve_type}")
+        else:
+            messagebox.showinfo("Info", f"No more {fit_type} states to undo for {curve_type}")
+    
+    def redo_fitting(self, curve_type: str, fit_type: str):
+        """Redo the next fitting operation."""
+        if not self.fitting_manager:
+            return
+        
+        if self.fitting_manager.redo(curve_type, fit_type):
+            self._update_results_display()
+            self._update_history_buttons(curve_type, fit_type)
+            self.status_var.set(f"Redo {fit_type} fitting for {curve_type}")
+        else:
+            messagebox.showinfo("Info", f"No more {fit_type} states to redo for {curve_type}")
+    
+    def on_state_change(self, curve_type: str, fit_type: str):
+        """Callback when state history changes."""
+        self._update_history_buttons(curve_type, fit_type)
+    
+    def _update_history_buttons(self, curve_type: str, fit_type: str):
+        """Update the enabled/disabled state of history buttons."""
+        if not self.fitting_manager:
+            return
+        
+        # Update undo button
+        undo_btn = getattr(self, f'{curve_type}_{fit_type}_undo_btn', None)
+        if undo_btn:
+            if self.fitting_manager.can_undo(curve_type, fit_type):
+                undo_btn.config(state='normal')
+            else:
+                undo_btn.config(state='disabled')
+        
+        # Update redo button
+        redo_btn = getattr(self, f'{curve_type}_{fit_type}_redo_btn', None)
+        if redo_btn:
+            if self.fitting_manager.can_redo(curve_type, fit_type):
+                redo_btn.config(state='normal')
+            else:
+                redo_btn.config(state='disabled')
+    
     def on_fitting_completed(self, curve_type: str, fit_type: str):
         """Callback when fitting is completed."""
         self._update_results_display()
         self._enable_all_buttons()
+        self._update_history_buttons(curve_type, fit_type)
         self.status_var.set(f"{fit_type.title()} fitting completed for {curve_type}")
     
     def _update_results_display(self):
@@ -515,6 +598,8 @@ class CurveFittingPanel:
                 btn = getattr(self, btn_name, None)
                 if btn:
                     btn.config(state='disabled')
+        
+        # Don't disable history buttons - they should remain usable
     
     def _enable_all_buttons(self):
         """Enable all buttons."""
@@ -525,6 +610,11 @@ class CurveFittingPanel:
             btn = getattr(self, btn_name, None)
             if btn:
                 btn.config(state='normal')
+        
+        # Update history buttons based on their actual state
+        for curve_type in ['hyperpol', 'depol']:
+            for fit_type in ['linear', 'exp']:
+                self._update_history_buttons(curve_type, fit_type)
     
     def export_to_excel_single(self):
         """Export current file to Excel (single file export)."""

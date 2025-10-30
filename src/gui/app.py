@@ -80,8 +80,11 @@ class SignalAnalyzerApp:
         self.setup_toolbar()
         # Defer plot creation to improve startup time
         self.setup_plot_placeholder()
-        self.setup_plot_interaction()
         self.setup_tabs()
+        
+        # Initialize curve fitting panel after tabs are created
+        # Use a small delay to ensure everything is ready
+        self.master.after(100, self.initialize_curve_fitting)
 
         # Setup hot reload for development
         self.setup_hot_reload()
@@ -99,9 +102,6 @@ class SignalAnalyzerApp:
 
         # Fix window sizing issues
         self.fix_window_sizing()
-    
-        # Initialize curve fitting (after plot and tabs are created)
-        self.master.after(500, self.initialize_curve_fitting)
         
         app_logger.info("Application initialized successfully with memory optimization")
 
@@ -237,7 +237,10 @@ class SignalAnalyzerApp:
 
     def setup_memory_management(self):
         """Setup memory management and monitoring"""
-        # Configure matplotlib for memory efficiency
+        # Configure matplotlib for memory efficiency (lazy load if needed)
+        self._ensure_matplotlib()
+        # Import matplotlib directly (it's already loaded by _ensure_matplotlib)
+        import matplotlib
         matplotlib.rcParams['figure.max_open_warning'] = 5
         
         # Set up periodic cleanup
@@ -281,22 +284,30 @@ class SignalAnalyzerApp:
     def initialize_curve_fitting(self):
         """Initialize curve fitting functionality after plot and tabs are created."""
         try:
-            if (hasattr(self, 'fig') and hasattr(self, 'ax') and 
-                hasattr(self, 'action_potential_tab')):
+            # Create the panel as soon as action_potential_tab exists
+            if hasattr(self, 'action_potential_tab') and self.action_potential_tab:
+                # Check if panel already exists
+                if hasattr(self.action_potential_tab, 'curve_fitting_panel') and self.action_potential_tab.curve_fitting_panel:
+                    app_logger.debug("Curve fitting panel already exists")
+                    return
                 
                 # Create curve fitting panel in the action potential tab's scrollable frame
                 parent_frame = self.action_potential_tab.scrollable_frame
                 
-                # Create the panel
+                # Create the panel (it can exist without the plot initially)
                 self.curve_fitting_panel = CurveFittingPanel(parent_frame, self)
-                
-                # Initialize with the main app's figure and axes
-                self.curve_fitting_panel.initialize_fitting_manager(self.fig, self.ax)
                 
                 # Store reference in action potential tab too
                 self.action_potential_tab.curve_fitting_panel = self.curve_fitting_panel
                 
-                app_logger.info("Curve fitting panel initialized successfully")
+                app_logger.info("Curve fitting panel created successfully")
+                
+                # Initialize fitting manager if plot already exists
+                if hasattr(self, 'fig') and hasattr(self, 'ax') and self.fig and self.ax:
+                    self.curve_fitting_panel.initialize_fitting_manager(self.fig, self.ax)
+                    app_logger.info("Curve fitting manager initialized with existing plot")
+            else:
+                app_logger.warning("ActionPotentialTab not available for curve fitting panel")
                 
         except Exception as e:
             app_logger.error(f"Error initializing curve fitting: {str(e)}")
@@ -1300,6 +1311,16 @@ class SignalAnalyzerApp:
         from src.utils.point_counter import CurvePointTracker
         self.point_tracker = CurvePointTracker(self.fig, self.ax, self.point_status_var)
         self.setup_plot_context_menu()
+        
+        # Setup plot interaction (span selectors) now that ax exists
+        self.setup_plot_interaction()
+        
+        # Initialize curve fitting manager if panel exists
+        if hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel:
+            if not self.curve_fitting_panel.fitting_manager:
+                self.curve_fitting_panel.initialize_fitting_manager(self.fig, self.ax)
+                app_logger.info("Curve fitting manager initialized after plot creation")
+        
         app_logger.info("Plot setup complete with zoom state preservation")
 
     def setup_tabs(self):

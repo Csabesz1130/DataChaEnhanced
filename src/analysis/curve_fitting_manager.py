@@ -68,8 +68,19 @@ class CurveFittingManager:
             'depol': {'data': None, 'times': None}
         }
         
+        # State history for undo/redo functionality
+        self.state_history = {
+            'hyperpol': {'linear': [], 'exp': []},
+            'depol': {'linear': [], 'exp': []}
+        }
+        self.state_position = {
+            'hyperpol': {'linear': -1, 'exp': -1},
+            'depol': {'linear': -1, 'exp': -1}
+        }
+        
         # Callbacks
         self.on_fit_complete = None
+        self.on_state_change = None  # Callback when state history changes
         
         # Event handling
         self.click_cid = None
@@ -354,6 +365,146 @@ class CurveFittingManager:
         self.plot_elements['selected_points'] = []
         self.fig.canvas.draw_idle()
     
+    def _save_state(self, curve_type: str, fit_type: str):
+        """Save current fitting state to history."""
+        import copy
+        
+        state = {
+            'fitted_curves': copy.deepcopy(self.fitted_curves[curve_type]),
+            'selected_points': copy.deepcopy(self.selected_points[curve_type]),
+            'timestamp': np.datetime64('now')
+        }
+        
+        # Get current position
+        current_pos = self.state_position[curve_type][fit_type]
+        
+        # Remove any states after current position (for when user does undo then new action)
+        self.state_history[curve_type][fit_type] = self.state_history[curve_type][fit_type][:current_pos + 1]
+        
+        # Add new state
+        self.state_history[curve_type][fit_type].append(state)
+        self.state_position[curve_type][fit_type] = len(self.state_history[curve_type][fit_type]) - 1
+        
+        logger.info(f"Saved {fit_type} state for {curve_type} at position {self.state_position[curve_type][fit_type]}")
+        
+        # Notify state change
+        if self.on_state_change:
+            self.on_state_change(curve_type, fit_type)
+    
+    def _restore_state(self, curve_type: str, fit_type: str, state: dict):
+        """Restore a fitting state from history."""
+        import copy
+        
+        # Restore fitted curves
+        self.fitted_curves[curve_type] = copy.deepcopy(state['fitted_curves'])
+        
+        # Restore selected points
+        self.selected_points[curve_type] = copy.deepcopy(state['selected_points'])
+        
+        # Clear and redraw plot elements
+        self._clear_plot_elements(curve_type, fit_type)
+        
+        # Redraw based on fit type
+        if fit_type == 'linear' and self.fitted_curves[curve_type]['linear_curve']:
+            curve_data = self.fitted_curves[curve_type]['linear_curve']
+            self._plot_linear_fit(curve_type, curve_data['times'], curve_data['data'])
+            
+            # Redraw selection markers
+            for i, point in enumerate(self.selected_points[curve_type]['linear_points']):
+                self._add_enhanced_selection_marker(
+                    point['time'] * 1000, point['value'], 
+                    f'P{i+1}', 'red', point.get('info', {})
+                )
+        
+        elif fit_type == 'exp' and self.fitted_curves[curve_type]['exp_curve']:
+            curve_data = self.fitted_curves[curve_type]['exp_curve']
+            self._plot_exp_fit(curve_type, curve_data['times'], curve_data['data'])
+            
+            # Redraw selection markers
+            for i, point in enumerate(self.selected_points[curve_type]['exp_points']):
+                self._add_enhanced_selection_marker(
+                    point['time'] * 1000, point['value'], 
+                    f'P{i+1}', 'blue', point.get('info', {})
+                )
+        
+        logger.info(f"Restored {fit_type} state for {curve_type}")
+    
+    def can_undo(self, curve_type: str, fit_type: str) -> bool:
+        """Check if undo is available."""
+        return self.state_position[curve_type][fit_type] > 0
+    
+    def can_redo(self, curve_type: str, fit_type: str) -> bool:
+        """Check if redo is available."""
+        return self.state_position[curve_type][fit_type] < len(self.state_history[curve_type][fit_type]) - 1
+    
+    def undo(self, curve_type: str, fit_type: str):
+        """Undo to previous state."""
+        if not self.can_undo(curve_type, fit_type):
+            logger.warning(f"Cannot undo {fit_type} for {curve_type} - already at oldest state")
+            return False
+        
+        self.state_position[curve_type][fit_type] -= 1
+        state = self.state_history[curve_type][fit_type][self.state_position[curve_type][fit_type]]
+        self._restore_state(curve_type, fit_type, state)
+        
+        logger.info(f"Undo {fit_type} for {curve_type} to position {self.state_position[curve_type][fit_type]}")
+        
+        # Notify state change
+        if self.on_state_change:
+            self.on_state_change(curve_type, fit_type)
+        
+        return True
+    
+    def redo(self, curve_type: str, fit_type: str):
+        """Redo to next state."""
+        if not self.can_redo(curve_type, fit_type):
+            logger.warning(f"Cannot redo {fit_type} for {curve_type} - already at newest state")
+            return False
+        
+        self.state_position[curve_type][fit_type] += 1
+        state = self.state_history[curve_type][fit_type][self.state_position[curve_type][fit_type]]
+        self._restore_state(curve_type, fit_type, state)
+        
+        logger.info(f"Redo {fit_type} for {curve_type} to position {self.state_position[curve_type][fit_type]}")
+        
+        # Notify state change
+        if self.on_state_change:
+            self.on_state_change(curve_type, fit_type)
+        
+        return True
+    
+    def _clear_plot_elements(self, curve_type: str, fit_type: str):
+        """Clear specific plot elements for a curve and fit type."""
+        if fit_type == 'linear':
+            # Clear linear fit lines
+            for element in self.plot_elements['linear_fits'][:]:
+                try:
+                    # Check if this element belongs to the curve_type
+                    if self._get_curve_type_from_line(element) == curve_type:
+                        element.remove()
+                        self.plot_elements['linear_fits'].remove(element)
+                except:
+                    pass
+        elif fit_type == 'exp':
+            # Clear exp fit lines
+            for element in self.plot_elements['exp_fits'][:]:
+                try:
+                    if self._get_curve_type_from_line(element) == curve_type:
+                        element.remove()
+                        self.plot_elements['exp_fits'].remove(element)
+                except:
+                    pass
+        
+        # Clear selection markers
+        for element in self.plot_elements['selected_points'][:]:
+            try:
+                element.remove()
+            except:
+                pass
+        self.plot_elements['selected_points'] = []
+        
+        self.fig.canvas.draw_idle()
+    
     def _fit_linear(self, curve_type: str):
         """Perform linear fitting between two selected points."""
         points = self.selected_points[curve_type]['linear_points']
@@ -401,6 +552,9 @@ class CurveFittingManager:
         
         # Plot the fitted line
         self._plot_linear_fit(curve_type, time_segment, fitted_data)
+        
+        # Save state to history
+        self._save_state(curve_type, 'linear')
         
         logger.info(f"Linear fit for {curve_type}:")
         logger.info(f"  Equation: y = {slope:.6f}x + {intercept:.6f}")
@@ -493,6 +647,9 @@ class CurveFittingManager:
             
             # Plot the fitted curve
             self._plot_exp_fit(curve_type, time_segment, fitted_exp)
+            
+            # Save state to history
+            self._save_state(curve_type, 'exp')
             
             logger.info(f"Exponential fit for {curve_type}:")
             logger.info(f"  A = {A_fit:.6f} pA")

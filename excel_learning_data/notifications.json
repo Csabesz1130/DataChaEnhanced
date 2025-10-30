@@ -264,5 +264,32 @@
     "timestamp": "2025-10-27 00:51:57.784510",
     "data": {},
     "read": false
+  },
+  {
+    "notification_id": "9516287a-28b6-4517-8eee-88f4811f0895",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-30 19:38:01.141656",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "496fa6a0-f17c-439e-abf5-d9ac0499e287",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-30 19:41:46.308218",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "d0917e7d-732b-4ce9-9e89-41be270e07de",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-30 19:54:50.960776",
+    "data": {},
+    "read": false
   }
 ]
