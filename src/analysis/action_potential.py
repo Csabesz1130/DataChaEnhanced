@@ -249,7 +249,7 @@ class ActionPotentialProcessor:
             else:
                 app_logger.info("No depol slice info stored.")
 
-    def process_signal(self, use_alternative_method=False):
+    def process_signal(self, use_alternative_method=False, auto_optimize_starting_point=True):
         """Process signal and generate all curves."""
         try:
             # Initial processing steps
@@ -257,6 +257,23 @@ class ActionPotentialProcessor:
             self.advanced_baseline_normalization()
             #self.generate_orange_curve()
             self.process_orange_curve_with_spike_removal()
+            
+            # Auto-optimize starting point if enabled and no custom starting point provided
+            if auto_optimize_starting_point and 'normalization_points' not in self.params:
+                app_logger.info("Auto-optimizing starting point...")
+                optimal_starting_point = self._auto_optimize_starting_point()
+                if optimal_starting_point is not None:
+                    app_logger.info(f"Auto-optimized starting point: {optimal_starting_point}")
+                    # Update params with optimal starting point
+                    self.params['normalization_points'] = {
+                        'seg1': (optimal_starting_point, optimal_starting_point + 199),
+                        'seg2': (optimal_starting_point + 200, optimal_starting_point + 399),
+                        'seg3': (optimal_starting_point + 400, optimal_starting_point + 599),
+                        'seg4': (optimal_starting_point + 600, optimal_starting_point + 799)
+                    }
+                else:
+                    app_logger.warning("Auto-optimization failed, using default starting point (35)")
+            
             self.normalized_curve, self.normalized_curve_times = self.calculate_normalized_curve()
             self.average_curve, self.average_curve_times = self.calculate_segment_average()
             
@@ -291,6 +308,67 @@ class ActionPotentialProcessor:
         except Exception as e:
             app_logger.error(f"Error in process_signal: {str(e)}")
             return (None,) * 7 + ({"error": str(e)},)
+
+    def _auto_optimize_starting_point(self, test_range=(10, 80), step_size=10):
+        """
+        Automatically find the optimal starting point for smooth purple curves.
+        
+        Args:
+            test_range: Tuple of (min, max) starting points to test
+            step_size: Step size between tests
+            
+        Returns:
+            Optimal starting point or None if optimization fails
+        """
+        try:
+            from src.analysis.starting_point_simulator import StartingPointSimulator
+            
+            app_logger.info(f"Auto-optimizing starting point in range {test_range} with step {step_size}")
+            
+            # Create simulator with current data
+            simulator = StartingPointSimulator(self.data, self.time_data, self.params)
+            simulator.start_point_range = test_range
+            simulator.step_size = step_size
+            
+            # Run quick simulation
+            results = simulator.run_simulation()
+            
+            if 'error' in results:
+                app_logger.error(f"Auto-optimization failed: {results['error']}")
+                return None
+            
+            optimal_point = results.get('optimal_starting_point')
+            if optimal_point is None:
+                app_logger.warning("No optimal starting point found")
+                return None
+            
+            # Get quality metrics
+            recommendation = results.get('recommendation', {})
+            confidence = recommendation.get('confidence', 'unknown')
+            quality = recommendation.get('quality', 'unknown')
+            
+            app_logger.info(f"Auto-optimization complete: point={optimal_point}, confidence={confidence}, quality={quality}")
+            
+            # Only use optimization if it's significantly better than default
+            default_result = results.get('results', {}).get(35, {})
+            if 'smoothness_score' in default_result and 'smoothness_score' in results.get('results', {}).get(optimal_point, {}):
+                optimal_smoothness = results['results'][optimal_point]['smoothness_score']
+                default_smoothness = default_result['smoothness_score']
+                improvement = optimal_smoothness - default_smoothness
+                
+                # Only use if improvement is significant (>0.1) or confidence is high
+                if improvement > 0.1 or confidence == 'high':
+                    app_logger.info(f"Using optimized starting point {optimal_point} (improvement: {improvement:.3f})")
+                    return optimal_point
+                else:
+                    app_logger.info(f"Optimization improvement too small ({improvement:.3f}), using default")
+                    return 35
+            
+            return optimal_point
+            
+        except Exception as e:
+            app_logger.error(f"Error in auto-optimization: {str(e)}")
+            return None
 
     def calculate_segment_average(self):
         """

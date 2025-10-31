@@ -5,6 +5,9 @@ import numpy as np
 from src.gui.range_selection_utils import RangeSelectionManager
 from src.gui.direct_spike_removal import remove_spikes_from_processor
 import os, time
+from src.gui.curve_fitting_gui import CurveFittingPanel
+from src.analysis.curve_fitting_manager import CurveFittingManager
+import tkinter as tk
 print(f"action_potential_tab.py last modified: {time.ctime(os.path.getmtime(__file__))}")
 
 class ActionPotentialTab:
@@ -16,6 +19,8 @@ class ActionPotentialTab:
         # Create main frame
         self.frame = ttk.LabelFrame(parent, text="Action Potential Analysis")
         self.frame.pack(fill='both', expand=True, padx=5, pady=5)
+
+        self.curve_fitting_panel = None
         
         # Create canvas and scrollbar for scrolling
         self.canvas = tk.Canvas(self.frame, width=260)
@@ -128,7 +133,7 @@ class ActionPotentialTab:
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def setup_normalization_points(self):
-        """Setup single input field for the starting point"""
+        """Setup single input field for the starting point with simulation feature"""
         norm_frame = ttk.LabelFrame(self.scrollable_frame, text="Normalization Point")
         norm_frame.pack(fill='x', padx=5, pady=5)
 
@@ -140,10 +145,32 @@ class ActionPotentialTab:
         norm_entry = ttk.Entry(point_frame, textvariable=self.norm_point, width=10)
         norm_entry.pack(side='left', padx=5)
         
+        # Simulation button
+        self.simulate_button = ttk.Button(
+            point_frame, 
+            text="Find Optimal Point", 
+            command=self.run_starting_point_simulation,
+            width=15
+        )
+        self.simulate_button.pack(side='left', padx=5)
+        
+        # Auto-optimization checkbox
+        auto_opt_frame = ttk.Frame(norm_frame)
+        auto_opt_frame.pack(fill='x', padx=5, pady=2)
+        
+        self.auto_optimize = tk.BooleanVar(value=True)
+        auto_opt_check = ttk.Checkbutton(
+            auto_opt_frame,
+            text="Auto-optimize starting point",
+            variable=self.auto_optimize,
+            command=self.on_auto_optimize_change
+        )
+        auto_opt_check.pack(side='left')
+        
         # Info label
         ttk.Label(
             norm_frame,
-            text="Leave blank to use default value (35)",
+            text="Leave blank to use default value (35). Auto-optimization finds the best starting point automatically.",
             font=('TkDefaultFont', 8, 'italic')
         ).pack(pady=2)
 
@@ -402,6 +429,52 @@ class ActionPotentialTab:
                 if hasattr(self, slider):
                     slider.configure(state=state)
 
+    def initialize_curve_fitting(self):
+        """Initialize curve fitting functionality after plot and tabs are created."""
+        try:
+            if (hasattr(self, 'fig') and hasattr(self, 'ax') and 
+                hasattr(self, 'action_potential_tab')):
+                
+                # Create curve fitting panel in the action potential tab's scrollable frame
+                parent_frame = self.action_potential_tab.scrollable_frame
+                
+                # Create the panel
+                self.curve_fitting_panel = CurveFittingPanel(parent_frame, self)
+                
+                # Initialize with the main app's figure and axes
+                self.curve_fitting_panel.initialize_fitting_manager(self.fig, self.ax)
+                
+                # Store reference in action potential tab too
+                self.action_potential_tab.curve_fitting_panel = self.curve_fitting_panel
+                
+                app_logger.info("Curve fitting panel initialized successfully")
+                
+        except Exception as e:
+            app_logger.error(f"Error initializing curve fitting: {str(e)}")
+
+    def setup_curve_fitting_panel(self, fig, ax, main_app):
+        """
+        Initialize curve fitting panel with external figure/axes.
+        Call this from main app after creating the plot.
+        """
+        from src.gui.curve_fitting_gui import CurveFittingPanel
+        
+        # Create the panel in the scrollable frame
+        self.curve_fitting_panel = CurveFittingPanel(self.scrollable_frame, main_app)
+        
+        # Initialize with the provided figure and axes
+        self.curve_fitting_panel.initialize_fitting_manager(fig, ax)
+        
+        # Store references
+        self.fig = fig
+        self.ax = ax
+        self.main_app = main_app
+
+    def update_curve_fitting_data(self):
+        """Update curve fitting data after analysis."""
+        if hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel:
+            self.curve_fitting_panel.update_curve_data()
+
     def get_results_dict(self):
         """Get the current analysis results as a dictionary, including range manager integrals."""
         results = {}
@@ -447,6 +520,40 @@ class ActionPotentialTab:
                 results['capacitance_nF'] = f"{capacitance:.3f} nF"
         
         return results
+
+    def update_integration_values(self, integration_results):
+        """Update integration values from curve fitting manager."""
+        try:
+            if not integration_results:
+                return
+            
+            # Update hyperpol integration if available
+            if 'hyperpol' in integration_results:
+                hyperpol_data = integration_results['hyperpol']
+                hyperpol_value = f"{hyperpol_data['integral']:.3f} pC"
+                self.hyperpol_result.set(hyperpol_value)
+                app_logger.info(f"Updated hyperpol integration: {hyperpol_value}")
+            
+            # Update depol integration if available
+            if 'depol' in integration_results:
+                depol_data = integration_results['depol']
+                depol_value = f"{depol_data['integral']:.3f} pC"
+                self.depol_result.set(depol_value)
+                app_logger.info(f"Updated depol integration: {depol_value}")
+            
+            # Calculate total integral
+            total_integral = 0
+            if 'hyperpol' in integration_results:
+                total_integral += integration_results['hyperpol']['integral']
+            if 'depol' in integration_results:
+                total_integral += integration_results['depol']['integral']
+            
+            if total_integral != 0:
+                self.integral_result.set(f"{total_integral:.3f} pC")
+                app_logger.info(f"Updated total integral: {total_integral:.3f} pC")
+            
+        except Exception as e:
+            app_logger.error(f"Failed to update integration values: {str(e)}")
 
     def update_range_display(self):
         """Update the display of current integration ranges."""
@@ -679,6 +786,9 @@ class ActionPotentialTab:
             # Single normalization point
             self.norm_point = tk.StringVar()
             
+            # Auto-optimization setting
+            self.auto_optimize = tk.BooleanVar(value=True)
+            
         except Exception as e:
             app_logger.error(f"Error initializing variables: {str(e)}")
             raise
@@ -818,6 +928,28 @@ class ActionPotentialTab:
         )
         self.progress.pack(fill='x', pady=2)
         ttk.Label(progress_frame, textvariable=self.status_text).pack(anchor='w')
+
+    def fix_canvas_sizing(self):
+        """Fix canvas sizing to allow proper zooming."""
+        if hasattr(self, 'canvas'):
+            # Make canvas properly resizable
+            self.canvas.get_tk_widget().pack_forget()
+            self.canvas.get_tk_widget().pack(fill='both', expand=True)
+            
+            # Update figure size on resize
+            def on_canvas_resize(event=None):
+                if event and event.width > 0 and event.height > 0:
+                    # Convert pixels to inches (assuming 100 DPI)
+                    width_inches = event.width / 100
+                    height_inches = event.height / 100
+                    
+                    # Update figure size
+                    if hasattr(self, 'fig'):
+                        self.fig.set_size_inches(width_inches, height_inches, forward=False)
+                        self.canvas.draw_idle()
+            
+            # Bind resize event
+            self.canvas.get_tk_widget().bind('<Configure>', on_canvas_resize)
 
     def on_remove_spikes_click(self):
         """
@@ -1126,6 +1258,23 @@ class ActionPotentialTab:
                                        text="Analyze Signal",
                                        command=self.analyze_signal)
         self.analyze_button.pack(pady=5)
+        
+        # Fast-track mode button
+        fast_track_frame = ttk.LabelFrame(analysis_frame, text="Fast Track Mode")
+        fast_track_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Label(fast_track_frame, 
+                 text="Automate workflow:\nFilters → Analysis → Fitting → Export",
+                 font=('Arial', 8)).pack(pady=2)
+        
+        self.fast_track_button = ttk.Button(fast_track_frame,
+                                          text="⚡ Fast Track",
+                                          command=self.start_fast_track)
+        self.fast_track_button.pack(pady=2)
+        
+        ttk.Button(fast_track_frame,
+                  text="💾 Save Session Log",
+                  command=self.save_session_log).pack(pady=2)
 
     def analyze_signal(self):
         """Perform signal analysis with current parameters."""
@@ -1141,11 +1290,26 @@ class ActionPotentialTab:
             if norm_points:
                 params['normalization_points'] = norm_points
             
+            # Log analysis start if action logger is available
+            main_app = self._get_main_app()
+            if main_app and hasattr(main_app, 'action_logger') and main_app.action_logger:
+                try:
+                    main_app.action_logger.log_analysis_start(params)
+                except Exception as e:
+                    app_logger.warning(f"Failed to log analysis start: {e}")
+            
             # Update progress
             self.progress_var.set(50)
             
             # Call callback with parameters
             self.update_callback(params)
+            
+            # Log analysis complete if action logger is available
+            if main_app and hasattr(main_app, 'action_logger') and main_app.action_logger:
+                try:
+                    main_app.action_logger.log_analysis_complete()
+                except Exception as e:
+                    app_logger.warning(f"Failed to log analysis complete: {e}")
             
             # Reset UI
             self.progress_var.set(100)
@@ -1162,6 +1326,7 @@ class ActionPotentialTab:
         """Handle changes in display options."""
         try:
             params = self.get_parameters()
+            params['visibility_update'] = True  # Flag as visibility-only update to preserve zoom
             self.update_callback(params)
         except Exception as e:
             app_logger.error(f"Error handling display change: {str(e)}")
@@ -1202,6 +1367,7 @@ class ActionPotentialTab:
                 'V1': self.V1.get(),
                 'V2': self.V2.get(),
                 'use_alternative_method': self.integration_method.get() == "alternative",
+                'auto_optimize_starting_point': self.auto_optimize.get(),
                 'integration_ranges': self.get_integration_ranges(),
                 'display_options': {
                     'show_noisy_original': self.show_noisy_original.get(),
@@ -1318,3 +1484,466 @@ class ActionPotentialTab:
         except Exception as e:
             app_logger.error(f"Error resetting tab: {str(e)}")
             raise
+
+    def run_starting_point_simulation(self):
+        """Run starting point simulation to find optimal value."""
+        try:
+            # Check if we have data available
+            app = self.parent.master
+            
+            # Debug logging
+            app_logger.info(f"Starting point simulation requested")
+            app_logger.info(f"Checking data availability:")
+            app_logger.info(f"  filtered_data: {app.filtered_data is not None}")
+            app_logger.info(f"  time_data: {app.time_data is not None}")
+            if app.filtered_data is not None:
+                app_logger.info(f"  filtered_data length: {len(app.filtered_data)}")
+            if app.time_data is not None:
+                app_logger.info(f"  time_data length: {len(app.time_data)}")
+            
+            # Also check if we have the data property
+            app_logger.info(f"  hasattr filtered_data: {hasattr(app, 'filtered_data')}")
+            app_logger.info(f"  hasattr time_data: {hasattr(app, 'time_data')}")
+            app_logger.info(f"  app type: {type(app)}")
+            app_logger.info(f"  app dir: {[attr for attr in dir(app) if 'data' in attr.lower()]}")
+            
+            # Get data with fallback methods
+            filtered_data = None
+            time_data = None
+            
+            # Try property access first
+            if hasattr(app, 'filtered_data') and app.filtered_data is not None:
+                filtered_data = app.filtered_data
+                app_logger.info("Using filtered_data from property")
+            elif hasattr(app, '_filtered_data') and app._filtered_data is not None:
+                filtered_data = app._filtered_data
+                app_logger.info("Using filtered_data from private attribute")
+            elif hasattr(app, 'data') and app.data is not None:
+                filtered_data = app.data
+                app_logger.info("Using raw data as filtered_data")
+            
+            if hasattr(app, 'time_data') and app.time_data is not None:
+                time_data = app.time_data
+                app_logger.info("Using time_data from property")
+            elif hasattr(app, '_time_data') and app._time_data is not None:
+                time_data = app._time_data
+                app_logger.info("Using time_data from private attribute")
+            
+            # Check if we have both datasets
+            if filtered_data is None:
+                app_logger.warning("No filtered data available for simulation")
+                messagebox.showwarning("No Data", "Please load data first before running simulation.")
+                return
+            
+            if time_data is None:
+                app_logger.warning("No time data available for simulation")
+                messagebox.showwarning("No Data", "Time data not available for simulation.")
+                return
+            
+            # Disable simulation button during processing
+            self.simulate_button.state(['disabled'])
+            self.simulate_button.config(text="Running Simulation...")
+            
+            # Get current parameters
+            current_params = self.get_parameters()
+            
+            # Create and show simulation dialog
+            self._show_simulation_dialog(filtered_data, time_data, current_params)
+            
+        except Exception as e:
+            app_logger.error(f"Error running starting point simulation: {str(e)}")
+            messagebox.showerror("Simulation Error", f"Failed to run simulation: {str(e)}")
+        finally:
+            # Re-enable simulation button
+            if hasattr(self, 'simulate_button'):
+                self.simulate_button.state(['!disabled'])
+                self.simulate_button.config(text="Find Optimal Point")
+    
+    def _show_simulation_dialog(self, data, time_data, params):
+        """Show the simulation dialog window."""
+        try:
+            # Create simulation dialog window
+            dialog = tk.Toplevel(self.parent)
+            dialog.title("Starting Point Simulation")
+            dialog.geometry("800x600")
+            dialog.transient(self.parent)
+            dialog.grab_set()
+            
+            # Center the dialog
+            dialog.update_idletasks()
+            x = (dialog.winfo_screenwidth() // 2) - (800 // 2)
+            y = (dialog.winfo_screenheight() // 2) - (600 // 2)
+            dialog.geometry(f"800x600+{x}+{y}")
+            
+            # Create simulation GUI
+            from src.analysis.starting_point_simulator import StartingPointSimulationGUI
+            sim_gui = StartingPointSimulationGUI(dialog, data, time_data, params)
+            
+            # Add close handler
+            def on_close():
+                dialog.destroy()
+            
+            dialog.protocol("WM_DELETE_WINDOW", on_close)
+            
+            # Add apply button handler
+            def apply_recommendation():
+                recommended_point = sim_gui.get_recommended_starting_point()
+                if recommended_point is not None:
+                    # Update the starting point in the tab
+                    self.norm_point.set(str(recommended_point))
+                    messagebox.showinfo("Applied", f"Starting point set to {recommended_point}")
+                    dialog.destroy()
+                else:
+                    messagebox.showwarning("No Recommendation", "No recommendation available to apply")
+            
+            # Override the apply method to close dialog
+            sim_gui.apply_recommendation = apply_recommendation
+            
+        except Exception as e:
+            app_logger.error(f"Error showing simulation dialog: {str(e)}")
+            messagebox.showerror("Dialog Error", f"Failed to show simulation dialog: {str(e)}")
+
+    def on_auto_optimize_change(self):
+        """Handle changes to auto-optimization checkbox."""
+        try:
+            auto_optimize = self.auto_optimize.get()
+            
+            # Enable/disable manual simulation button based on auto-optimization
+            if hasattr(self, 'simulate_button'):
+                if auto_optimize:
+                    self.simulate_button.config(text="Find Optimal Point (Manual)")
+                    # Show info about auto-optimization
+                    app_logger.info("Auto-optimization enabled - starting point will be optimized automatically")
+                else:
+                    self.simulate_button.config(text="Find Optimal Point")
+                    app_logger.info("Auto-optimization disabled - manual optimization available")
+            
+        except Exception as e:
+            app_logger.error(f"Error handling auto-optimize change: {str(e)}")
+    
+    def _check_analysis_available(self) -> bool:
+        """Check if analysis has been run and data is available."""
+        try:
+            # Get the processor from the main app
+            app = self.parent.master
+            processor = getattr(app, 'action_potential_processor', None)
+            
+            if not processor:
+                messagebox.showwarning("No Analysis", "Please run analysis first.")
+                return False
+            
+            # Check if we have the required curves
+            if (not hasattr(processor, 'modified_hyperpol') or 
+                not hasattr(processor, 'modified_depol') or
+                processor.modified_hyperpol is None or
+                processor.modified_depol is None):
+                messagebox.showwarning("Missing Data", 
+                                     "Analysis does not contain required curves. "
+                                     "Please run analysis with 'Show Modified Peaks' enabled.")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            app_logger.error(f"Error checking analysis availability: {str(e)}")
+            messagebox.showerror("Error", f"Error checking analysis: {str(e)}")
+            return False
+    
+    def _check_curve_fitting_available(self) -> bool:
+        """Check if curve fitting has been performed."""
+        try:
+            # Check if curve fitting panel exists
+            if not hasattr(self, 'curve_fitting_panel') or not self.curve_fitting_panel:
+                messagebox.showwarning("No Fitting", "Curve fitting panel not available.")
+                return False
+            
+            # Check if fitting manager exists
+            fitting_manager = getattr(self.curve_fitting_panel, 'fitting_manager', None)
+            if not fitting_manager:
+                messagebox.showwarning("No Fitting", "Fitting manager not initialized.")
+                return False
+            
+            # Check if any fitting has been performed
+            fitting_results = fitting_manager.get_fitting_results()
+            if not fitting_results:
+                messagebox.showwarning("No Fitting", "No curve fitting has been performed. "
+                                                  "Please perform linear or exponential fitting first.")
+                return False
+            
+            # Check if we have at least some fitting data
+            has_fitting_data = False
+            for curve_type in ['hyperpol', 'depol']:
+                if curve_type in fitting_results:
+                    curve_data = fitting_results[curve_type]
+                    if 'linear' in curve_data or 'exponential' in curve_data:
+                        has_fitting_data = True
+                        break
+            
+            if not has_fitting_data:
+                messagebox.showwarning("No Fitting", "No valid fitting data found. "
+                                                  "Please perform linear or exponential fitting first.")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            app_logger.error(f"Error checking curve fitting availability: {str(e)}")
+            messagebox.showerror("Error", f"Error checking curve fitting: {str(e)}")
+            return False
+    
+    def collect_export_data(self) -> dict:
+        """Collect all data needed for Excel export."""
+        try:
+            from datetime import datetime
+            
+            # Get the processor from the main app
+            app = self.parent.master
+            processor = getattr(app, 'action_potential_processor', None)
+            
+            if not processor:
+                raise ValueError("No processor available")
+            
+            # Get current file information
+            current_file = getattr(app, 'current_file', 'Unknown')
+            filename = os.path.basename(current_file) if current_file else 'Unknown'
+            
+            # Extract voltage from filename if possible
+            voltage = 'N/A'
+            if filename and '_' in filename:
+                try:
+                    # Pattern: 0057_0_-100.atf
+                    parts = filename.split('_')
+                    if len(parts) >= 3:
+                        voltage = parts[2].split('.')[0]
+                except:
+                    pass
+            
+            # Get fitting results
+            fitting_results = {}
+            if hasattr(self, 'curve_fitting_panel') and self.curve_fitting_panel:
+                fitting_manager = getattr(self.curve_fitting_panel, 'fitting_manager', None)
+                if fitting_manager:
+                    fitting_results = fitting_manager.get_fitting_results()
+            
+            # Get integration data (placeholder - would need actual implementation)
+            integration_data = {
+                'hyperpol': {
+                    'integral_value': 'N/A',
+                    'start_index': 'N/A',
+                    'end_index': 'N/A',
+                    'method': 'N/A'
+                },
+                'depol': {
+                    'integral_value': 'N/A',
+                    'start_index': 'N/A',
+                    'end_index': 'N/A',
+                    'method': 'N/A'
+                }
+            }
+            
+            # Get capacitance data (placeholder - would need actual implementation)
+            capacitance_data = {
+                'linear_capacitance': 'N/A',
+                'method': 'Linear Fit',
+                'notes': 'Calculated from linear fitting parameters'
+            }
+            
+            # Compile export data
+            export_data = {
+                'filename': filename,
+                'voltage': voltage,
+                'file_path': current_file,
+                'export_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'analysis_type': 'Curve Fitting',
+                'export_type': 'single_file',
+                'fitting_results': fitting_results,
+                'integration_data': integration_data,
+                'capacitance_data': capacitance_data
+            }
+            
+            app_logger.info(f"Collected export data for {filename}")
+            return export_data
+            
+        except Exception as e:
+            app_logger.error(f"Error collecting export data: {str(e)}")
+            raise
+    
+    def on_export_to_excel_click(self):
+        """Handle Export to Excel button click."""
+        try:
+            # Check if curve fitting has been performed (this is the main requirement)
+            if not self._check_curve_fitting_available():
+                return
+            
+            # Collect export data
+            export_data = self.collect_export_data()
+            
+            # Create backup before export
+            from src.excel_export.export_backup_manager import backup_manager
+            backup_path = backup_manager.create_backup(export_data, export_data['filename'])
+            if backup_path:
+                app_logger.info(f"Backup created: {backup_path}")
+            
+            # Open file dialog for save location
+            from tkinter import filedialog
+            filetypes = [
+                ('Excel files', '*.xlsx'),
+                ('All files', '*.*')
+            ]
+            
+            filename = export_data['filename']
+            if '.' in filename:
+                filename = filename.rsplit('.', 1)[0]
+            default_filename = f"{filename}_curve_analysis.xlsx"
+            
+            filepath = filedialog.asksaveasfilename(
+                title="Save Excel Export",
+                defaultextension=".xlsx",
+                filetypes=filetypes,
+                initialvalue=default_filename
+            )
+            
+            if not filepath:
+                return  # User cancelled
+            
+            # Export to Excel
+            from src.excel_export.curve_analysis_export import export_curve_analysis_to_excel
+            
+            success = export_curve_analysis_to_excel(export_data, filepath)
+            
+            if success:
+                messagebox.showinfo("Export Successful", f"Data exported successfully to:\n{filepath}")
+                app_logger.info(f"Excel export completed: {filepath}")
+                
+                # Log export action
+                main_app = self._get_main_app()
+                if main_app and hasattr(main_app, 'action_logger') and main_app.action_logger:
+                    try:
+                        main_app.action_logger.log_export('excel_single', filepath)
+                    except Exception as e:
+                        app_logger.warning(f"Failed to log export: {e}")
+            else:
+                messagebox.showerror("Export Failed", "Failed to export data to Excel. Check logs for details.")
+                app_logger.error("Excel export failed")
+                
+        except Exception as e:
+            app_logger.error(f"Error in Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during export:\n{str(e)}")
+    
+    def on_export_sets_to_excel_click(self):
+        """Handle Export Sets to Excel button click."""
+        try:
+            # Check if curve fitting has been performed (this is the main requirement)
+            if not self._check_curve_fitting_available():
+                return
+            
+            # Use the set-based export functionality
+            from src.excel_export.set_based_export import export_sets_to_excel
+            
+            main_app = self._get_main_app()
+            if main_app:
+                success = export_sets_to_excel(main_app)
+            
+            if success:
+                app_logger.info("Set-based Excel export completed")
+            else:
+                app_logger.warning("Set-based Excel export failed or was cancelled")
+                
+        except Exception as e:
+            app_logger.error(f"Error in set-based Excel export: {str(e)}")
+            messagebox.showerror("Export Error", f"An error occurred during set-based export:\n{str(e)}")
+    
+    def _get_main_app(self):
+        """Get reference to main application."""
+        try:
+            # Try to get main app from callback
+            if hasattr(self.update_callback, '__self__'):
+                return self.update_callback.__self__
+            # Try parent hierarchy
+            widget = self.parent
+            while widget:
+                if hasattr(widget, 'action_logger'):
+                    return widget
+                widget = getattr(widget, 'master', None)
+            return None
+        except Exception as e:
+            app_logger.warning(f"Could not get main app reference: {e}")
+            return None
+    
+    def start_fast_track(self):
+        """Start fast-track automated workflow."""
+        try:
+            main_app = self._get_main_app()
+            if not main_app or not hasattr(main_app, 'fast_track_mode'):
+                messagebox.showerror("Error", "Fast-track mode not available")
+                return
+            
+            # Confirm with user
+            result = messagebox.askyesno(
+                "Fast Track Mode",
+                "This will automate the analysis workflow:\n\n"
+                "1. Set filters (Savitzky-Golay, Butterworth)\n"
+                "2. Run analysis\n"
+                "3. Perform fittings (if points are saved)\n"
+                "4. Export to Excel\n\n"
+                "Continue?"
+            )
+            
+            if not result:
+                return
+            
+            # Disable button during execution
+            self.fast_track_button.state(['disabled'])
+            self.status_text.set("Fast-track mode running...")
+            
+            # Execute workflow in background
+            def execute():
+                try:
+                    success = main_app.fast_track_mode.execute_workflow()
+                    self.parent.after(0, lambda: self._fast_track_complete(success))
+                except Exception as e:
+                    app_logger.error(f"Fast-track error: {e}")
+                    self.parent.after(0, lambda: self._fast_track_complete(False, str(e)))
+            
+            import threading
+            thread = threading.Thread(target=execute, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            app_logger.error(f"Error starting fast-track: {e}")
+            messagebox.showerror("Error", f"Failed to start fast-track mode: {e}")
+            self.fast_track_button.state(['!disabled'])
+    
+    def _fast_track_complete(self, success: bool, error_msg: str = None):
+        """Handle fast-track completion."""
+        self.fast_track_button.state(['!disabled'])
+        if success:
+            self.status_text.set("Fast-track completed successfully")
+            messagebox.showinfo("Success", "Fast-track workflow completed successfully!")
+        else:
+            self.status_text.set(f"Fast-track failed: {error_msg or 'Unknown error'}")
+            messagebox.showerror("Error", f"Fast-track workflow failed:\n{error_msg or 'Unknown error'}")
+    
+    def save_session_log(self):
+        """Save current session log to file."""
+        try:
+            main_app = self._get_main_app()
+            if not main_app or not hasattr(main_app, 'action_logger'):
+                messagebox.showwarning("Warning", "Action logger not available")
+                return
+            
+            from tkinter import filedialog
+            filename = filedialog.asksaveasfilename(
+                title="Save Session Log",
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            
+            if filename:
+                filepath = main_app.action_logger.save_session(filename)
+                messagebox.showinfo("Success", f"Session log saved to:\n{filepath}")
+                app_logger.info(f"Session log saved: {filepath}")
+        
+        except Exception as e:
+            app_logger.error(f"Error saving session log: {e}")
+            messagebox.showerror("Error", f"Failed to save session log: {e}")

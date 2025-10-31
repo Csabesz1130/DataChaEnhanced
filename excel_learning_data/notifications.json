@@ -1,0 +1,295 @@
+[
+  {
+    "notification_id": "908480d8-5b41-4b00-9814-74ce6c41f990",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-10 02:43:17.528470",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "7c485435-1b6d-439f-986d-22122f11eaab",
+    "task_id": "1301d001-03b0-42c0-ade6-628717473e28",
+    "notification_type": "task_started",
+    "message": "Task 1301d001-03b0-42c0-ade6-628717473e28 submitted for eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-10 02:45:13.181096",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "c9a6fa79-8852-4df4-b4b5-be53a1bf0da0",
+    "task_id": "1301d001-03b0-42c0-ade6-628717473e28",
+    "notification_type": "task_started",
+    "message": "Processing eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-10 02:45:13.181251",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "0bcd7268-c62b-4c94-b854-e3f8f6b516a8",
+    "task_id": "1301d001-03b0-42c0-ade6-628717473e28",
+    "notification_type": "task_completed",
+    "message": "Task completed: eredm\u00e9nyek_control.xlsx",
+    "timestamp": "2025-08-10 02:45:13.572952",
+    "data": {
+      "result_summary": {
+        "excel_analysis": {
+          "sheets_analyzed": 6,
+          "total_cells": 5063,
+          "formulas_found": 0
+        },
+        "formula_learning": {
+          "formulas_learned": 0
+        },
+        "chart_learning": {
+          "charts_learned": 0
+        }
+      }
+    },
+    "read": false
+  },
+  {
+    "notification_id": "1dfb1206-f3b6-465a-88ab-f6e4dc8e4113",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-25 14:54:11.126268",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "ef3b2d6f-a202-4887-8bdd-fb791bb6f18d",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-29 04:07:54.900930",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "2a6f29c8-fd0f-4652-b332-10edbdf5a32d",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-08-29 13:45:07.730777",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "c6270a0d-e8f7-426d-b951-b1951c1e9b4f",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-01 01:01:05.368620",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "a57275fb-d781-436d-9faa-65f00a1567ed",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-01 03:39:03.767530",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "f605a3e7-4f99-4f67-b7ee-f5ab73a94855",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-01 03:43:51.682920",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "d6a3a961-f492-4d08-b122-96389e6c3fa1",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-01 10:05:37.072961",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "ea86ba98-9839-4f77-920f-00c55fc6ea91",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-19 22:09:59.515131",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "7dfdaac2-52ce-487b-9c0a-d97f9dd18bfe",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-19 22:17:13.723662",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "96998b97-0aba-4af4-83c0-059c11cbc14d",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-19 22:26:04.892779",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "5beae1e6-1261-41c2-b71b-0ef5b9ff0550",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-19 23:00:50.925500",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "21470439-51a5-4f1a-b803-c0bcff24daea",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 00:09:56.137255",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "4306d75a-7e36-4371-a5ac-f97275d8f59a",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 01:51:55.535932",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "784b530f-e0ae-4f4a-91f5-024aaa0997ec",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 02:45:41.980112",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "07b55f29-b06a-4135-a8b7-ec6b4ad4b637",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 13:08:51.334181",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "812abca2-06d4-473f-9d43-7dc6e6f21bfd",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 14:21:32.606014",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "0b8b30e1-5962-42c6-8383-d4e4a948e6cb",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 14:41:49.893538",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "69fa1e6b-a021-41c1-ad4a-410dadb7b9d4",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 16:44:24.651244",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "1cd57f9d-6733-43d4-b635-21b4c4361a5d",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-20 22:25:07.294769",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "75e24fb8-22bd-497b-89c4-fd58fb7835a0",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-21 01:49:58.337338",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "b5258ec3-8a0c-4166-89f9-f1b6d9fcc044",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-09-22 00:37:35.665207",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "e3710f9a-5ece-47fb-9411-da99edf82a00",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-23 23:28:09.897777",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "ac4bad31-32f3-4bc5-a72a-82e9177aca83",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-24 12:42:11.916150",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "1d30336d-fe85-4e21-9e95-a6b850e95718",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-27 00:51:57.784510",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "9516287a-28b6-4517-8eee-88f4811f0895",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-30 19:38:01.141656",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "496fa6a0-f17c-439e-abf5-d9ac0499e287",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-30 19:41:46.308218",
+    "data": {},
+    "read": false
+  },
+  {
+    "notification_id": "d0917e7d-732b-4ce9-9e89-41be270e07de",
+    "task_id": "",
+    "notification_type": "system_ready",
+    "message": "Background processor is ready",
+    "timestamp": "2025-10-30 19:54:50.960776",
+    "data": {},
+    "read": false
+  }
+]

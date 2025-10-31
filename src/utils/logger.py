@@ -19,28 +19,36 @@ class AppLogger:
     def __init__(self):
         if not self._initialized:
             self._initialized = True
+            self._handler_created = False
             self._setup_logger()
 
     def _setup_logger(self):
-        """Setup detailed logging configuration"""
+        """Setup optimized logging configuration with lazy handler creation"""
         self.logger = logging.getLogger('SignalAnalysisApp')
-        self.logger.setLevel(logging.DEBUG)
+        self.logger.setLevel(logging.INFO)  # Use INFO level for better startup performance
 
-        # Create console handler with detailed formatting
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.DEBUG)
-        
-        # Create a detailed format for terminal output
-        formatter = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        console_handler.setFormatter(formatter)
-        
-        self.logger.addHandler(console_handler)
-
+    def _ensure_handler(self):
+        """Create handler on first use to improve startup time"""
+        if not self._handler_created:
+            # Create console handler with simplified formatting
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(logging.INFO)
+            
+            # Simpler formatter for better performance
+            formatter = logging.Formatter(
+                '%(asctime)s | %(levelname)s | %(message)s',
+                datefmt='%H:%M:%S'
+            )
+            console_handler.setFormatter(formatter)
+            
+            self.logger.addHandler(console_handler)
+            self._handler_created = True
+    
     def get_logger(self):
         """Get the configured logger"""
+        # Ensure handler is created on first log
+        if not self._handler_created:
+            self._ensure_handler()
         return self.logger
 
 # Create logger instance
