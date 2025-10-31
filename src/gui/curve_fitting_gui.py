@@ -218,6 +218,9 @@ class CurveFittingPanel:
         # Add reference to main app for plot refresh functionality
         if hasattr(self, 'main_app'):
             self.fitting_manager.main_app = self.main_app
+            # Pass action logger to fitting manager
+            if hasattr(self.main_app, 'action_logger'):
+                self.fitting_manager.action_logger = self.main_app.action_logger
         
         self.update_curve_data()
         logger.info("Fitting manager initialized")

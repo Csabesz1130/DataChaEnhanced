@@ -75,6 +75,12 @@ class SignalAnalyzerApp:
         # Initialize history manager
         self.history_manager = AnalysisHistoryManager(self)
         
+        # Initialize user action logger for reproducibility
+        from src.utils.user_action_logger import UserActionLogger
+        from src.utils.fast_track_mode import FastTrackMode
+        self.action_logger = UserActionLogger()
+        self.fast_track_mode = FastTrackMode(self, self.action_logger)
+        
         # Setup components
         self.setup_menubar()
         self.setup_toolbar()

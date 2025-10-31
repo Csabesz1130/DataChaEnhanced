@@ -210,6 +210,30 @@ class CurveFittingManager:
         index, time, value, point_info = point_result
         logger.info(f"Selected point: index={index}, time={time:.3f}s, value={value:.2f}pA, precise={point_info.get('precision_mode', False)}")
         
+        # Extract selection type
+        selection_type = None
+        if 'linear' in self.selection_mode:
+            selection_type = 'linear'
+        elif 'exp' in self.selection_mode:
+            selection_type = 'exp'
+        elif 'integration' in self.selection_mode:
+            selection_type = 'integration'
+        
+        # Log point selection if action logger is available
+        if hasattr(self, 'action_logger') and self.action_logger:
+            try:
+                self.action_logger.log_plot_point_selection(
+                    selection_type=selection_type,
+                    curve_type=curve_type,
+                    point_index=index,
+                    time_ms=time * 1000,
+                    value=value,
+                    point_number=len(self.selected_points[curve_type].get(f'{selection_type}_points', [])) + 1 if selection_type else 1,
+                    precision_mode=point_info.get('precision_mode', False)
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log point selection: {e}")
+        
         # Handle different selection modes
         if 'linear' in self.selection_mode:
             points = self.selected_points[curve_type]['linear_points']
@@ -556,6 +580,25 @@ class CurveFittingManager:
         # Save state to history
         self._save_state(curve_type, 'linear')
         
+        # Log fitting completion if action logger is available
+        if hasattr(self, 'action_logger') and self.action_logger:
+            try:
+                self.action_logger.log_fitting_complete(
+                    fit_type='linear',
+                    curve_type=curve_type,
+                    params={
+                        'slope': slope,
+                        'intercept': intercept,
+                        'r_squared': r_squared,
+                        'start_idx': idx1,
+                        'end_idx': idx2,
+                        'start_time': time_segment[0],
+                        'end_time': time_segment[-1]
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log fitting completion: {e}")
+        
         logger.info(f"Linear fit for {curve_type}:")
         logger.info(f"  Equation: y = {slope:.6f}x + {intercept:.6f}")
         logger.info(f"  R² = {r_squared:.4f}")
@@ -651,6 +694,27 @@ class CurveFittingManager:
             # Save state to history
             self._save_state(curve_type, 'exp')
             
+            # Log fitting completion if action logger is available
+            if hasattr(self, 'action_logger') and self.action_logger:
+                try:
+                    self.action_logger.log_fitting_complete(
+                        fit_type='exp',
+                        curve_type=curve_type,
+                        params={
+                            'A': A_fit,
+                            'tau': tau_fit,
+                            'C': C_fit,
+                            'r_squared': r_squared,
+                            'start_idx': start_idx,
+                            'end_idx': end_idx,
+                            'start_time': time_segment[0],
+                            'end_time': time_segment[-1],
+                            'model_type': 'decay' if curve_type == 'hyperpol' else 'rise'
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log fitting completion: {e}")
+            
             logger.info(f"Exponential fit for {curve_type}:")
             logger.info(f"  A = {A_fit:.6f} pA")
             logger.info(f"  τ = {tau_fit:.6f} s ({tau_fit*1000:.3f} ms)")
@@ -706,6 +770,20 @@ class CurveFittingManager:
         logger.info(f"  Range: {time_ms[0]:.2f} - {time_ms[-1]:.2f} ms")
         logger.info(f"  Points: {len(data_segment)}")
         logger.info(f"  Integral: {integral:.3f} pC")
+        
+        # Log integration range if action logger is available
+        if hasattr(self, 'action_logger') and self.action_logger:
+            try:
+                self.action_logger.log_integration_range(
+                    curve_type=curve_type,
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    start_time_ms=time_ms[0],
+                    end_time_ms=time_ms[-1],
+                    integral_value=integral
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log integration range: {e}")
         
         # Notify main app about integration update
         if hasattr(self, 'main_app') and self.main_app:

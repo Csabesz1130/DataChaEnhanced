@@ -1258,6 +1258,23 @@ class ActionPotentialTab:
                                        text="Analyze Signal",
                                        command=self.analyze_signal)
         self.analyze_button.pack(pady=5)
+        
+        # Fast-track mode button
+        fast_track_frame = ttk.LabelFrame(analysis_frame, text="Fast Track Mode")
+        fast_track_frame.pack(fill='x', padx=5, pady=5)
+        
+        ttk.Label(fast_track_frame, 
+                 text="Automate workflow:\nFilters → Analysis → Fitting → Export",
+                 font=('Arial', 8)).pack(pady=2)
+        
+        self.fast_track_button = ttk.Button(fast_track_frame,
+                                          text="⚡ Fast Track",
+                                          command=self.start_fast_track)
+        self.fast_track_button.pack(pady=2)
+        
+        ttk.Button(fast_track_frame,
+                  text="💾 Save Session Log",
+                  command=self.save_session_log).pack(pady=2)
 
     def analyze_signal(self):
         """Perform signal analysis with current parameters."""
@@ -1273,11 +1290,26 @@ class ActionPotentialTab:
             if norm_points:
                 params['normalization_points'] = norm_points
             
+            # Log analysis start if action logger is available
+            main_app = self._get_main_app()
+            if main_app and hasattr(main_app, 'action_logger') and main_app.action_logger:
+                try:
+                    main_app.action_logger.log_analysis_start(params)
+                except Exception as e:
+                    app_logger.warning(f"Failed to log analysis start: {e}")
+            
             # Update progress
             self.progress_var.set(50)
             
             # Call callback with parameters
             self.update_callback(params)
+            
+            # Log analysis complete if action logger is available
+            if main_app and hasattr(main_app, 'action_logger') and main_app.action_logger:
+                try:
+                    main_app.action_logger.log_analysis_complete()
+                except Exception as e:
+                    app_logger.warning(f"Failed to log analysis complete: {e}")
             
             # Reset UI
             self.progress_var.set(100)
@@ -1782,6 +1814,14 @@ class ActionPotentialTab:
             if success:
                 messagebox.showinfo("Export Successful", f"Data exported successfully to:\n{filepath}")
                 app_logger.info(f"Excel export completed: {filepath}")
+                
+                # Log export action
+                main_app = self._get_main_app()
+                if main_app and hasattr(main_app, 'action_logger') and main_app.action_logger:
+                    try:
+                        main_app.action_logger.log_export('excel_single', filepath)
+                    except Exception as e:
+                        app_logger.warning(f"Failed to log export: {e}")
             else:
                 messagebox.showerror("Export Failed", "Failed to export data to Excel. Check logs for details.")
                 app_logger.error("Excel export failed")
@@ -1800,7 +1840,9 @@ class ActionPotentialTab:
             # Use the set-based export functionality
             from src.excel_export.set_based_export import export_sets_to_excel
             
-            success = export_sets_to_excel(self.parent.master)
+            main_app = self._get_main_app()
+            if main_app:
+                success = export_sets_to_excel(main_app)
             
             if success:
                 app_logger.info("Set-based Excel export completed")
@@ -1810,3 +1852,98 @@ class ActionPotentialTab:
         except Exception as e:
             app_logger.error(f"Error in set-based Excel export: {str(e)}")
             messagebox.showerror("Export Error", f"An error occurred during set-based export:\n{str(e)}")
+    
+    def _get_main_app(self):
+        """Get reference to main application."""
+        try:
+            # Try to get main app from callback
+            if hasattr(self.update_callback, '__self__'):
+                return self.update_callback.__self__
+            # Try parent hierarchy
+            widget = self.parent
+            while widget:
+                if hasattr(widget, 'action_logger'):
+                    return widget
+                widget = getattr(widget, 'master', None)
+            return None
+        except Exception as e:
+            app_logger.warning(f"Could not get main app reference: {e}")
+            return None
+    
+    def start_fast_track(self):
+        """Start fast-track automated workflow."""
+        try:
+            main_app = self._get_main_app()
+            if not main_app or not hasattr(main_app, 'fast_track_mode'):
+                messagebox.showerror("Error", "Fast-track mode not available")
+                return
+            
+            # Confirm with user
+            result = messagebox.askyesno(
+                "Fast Track Mode",
+                "This will automate the analysis workflow:\n\n"
+                "1. Set filters (Savitzky-Golay, Butterworth)\n"
+                "2. Run analysis\n"
+                "3. Perform fittings (if points are saved)\n"
+                "4. Export to Excel\n\n"
+                "Continue?"
+            )
+            
+            if not result:
+                return
+            
+            # Disable button during execution
+            self.fast_track_button.state(['disabled'])
+            self.status_text.set("Fast-track mode running...")
+            
+            # Execute workflow in background
+            def execute():
+                try:
+                    success = main_app.fast_track_mode.execute_workflow()
+                    self.parent.after(0, lambda: self._fast_track_complete(success))
+                except Exception as e:
+                    app_logger.error(f"Fast-track error: {e}")
+                    self.parent.after(0, lambda: self._fast_track_complete(False, str(e)))
+            
+            import threading
+            thread = threading.Thread(target=execute, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            app_logger.error(f"Error starting fast-track: {e}")
+            messagebox.showerror("Error", f"Failed to start fast-track mode: {e}")
+            self.fast_track_button.state(['!disabled'])
+    
+    def _fast_track_complete(self, success: bool, error_msg: str = None):
+        """Handle fast-track completion."""
+        self.fast_track_button.state(['!disabled'])
+        if success:
+            self.status_text.set("Fast-track completed successfully")
+            messagebox.showinfo("Success", "Fast-track workflow completed successfully!")
+        else:
+            self.status_text.set(f"Fast-track failed: {error_msg or 'Unknown error'}")
+            messagebox.showerror("Error", f"Fast-track workflow failed:\n{error_msg or 'Unknown error'}")
+    
+    def save_session_log(self):
+        """Save current session log to file."""
+        try:
+            main_app = self._get_main_app()
+            if not main_app or not hasattr(main_app, 'action_logger'):
+                messagebox.showwarning("Warning", "Action logger not available")
+                return
+            
+            from tkinter import filedialog
+            filename = filedialog.asksaveasfilename(
+                title="Save Session Log",
+                defaultextension=".json",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+            )
+            
+            if filename:
+                filepath = main_app.action_logger.save_session(filename)
+                messagebox.showinfo("Success", f"Session log saved to:\n{filepath}")
+                app_logger.info(f"Session log saved: {filepath}")
+        
+        except Exception as e:
+            app_logger.error(f"Error saving session log: {e}")
+            messagebox.showerror("Error", f"Failed to save session log: {e}")
