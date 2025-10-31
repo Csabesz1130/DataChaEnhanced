@@ -92,18 +92,33 @@ $appName = Read-Host "Enter your Heroku app name (or press Enter to create new)"
 
 if ([string]::IsNullOrWhiteSpace($appName)) {
     Write-Host "Creating new Heroku app..." -ForegroundColor Yellow
-    $createOutput = heroku create 2>&1
+    $createOutput = heroku create 2>&1 | Out-String
     if ($LASTEXITCODE -eq 0) {
-        # Extract app name from output
-        if ($createOutput -match 'https://([^.]+)\.herokuapp\.com') {
+        # Extract app name from output - try multiple patterns
+        $appName = $null
+        if ($createOutput -match 'https://([a-z0-9-]+)\.herokuapp\.com') {
             $appName = $matches[1]
-            Write-Host "Created app: $appName" -ForegroundColor Green
-        } else {
+        } elseif ($createOutput -match 'created\s+([a-z0-9-]+)') {
+            $appName = $matches[1]
+        } elseif ($createOutput -match '\| ([a-z0-9-]+) \|') {
+            $appName = $matches[1]
+        }
+        
+        if ([string]::IsNullOrWhiteSpace($appName)) {
             Write-Host "Failed to extract app name from output" -ForegroundColor Red
-            exit 1
+            Write-Host "Output was: $createOutput" -ForegroundColor Yellow
+            Write-Host "Please enter the app name manually:" -ForegroundColor Yellow
+            $appName = Read-Host "App name"
+            if ([string]::IsNullOrWhiteSpace($appName)) {
+                Write-Host "App name is required" -ForegroundColor Red
+                exit 1
+            }
+        } else {
+            Write-Host "Created app: $appName" -ForegroundColor Green
         }
     } else {
         Write-Host "Failed to create Heroku app" -ForegroundColor Red
+        Write-Host "Output: $createOutput" -ForegroundColor Yellow
         exit 1
     }
 } else {
@@ -121,6 +136,12 @@ if ([string]::IsNullOrWhiteSpace($appName)) {
             exit 1
         }
     }
+}
+
+# Validate app name before proceeding
+if ([string]::IsNullOrWhiteSpace($appName)) {
+    Write-Host "Error: App name is empty! Cannot proceed." -ForegroundColor Red
+    exit 1
 }
 
 Write-Host ""
@@ -145,6 +166,8 @@ if ($addons -notmatch 'heroku-postgresql') {
 # Add Redis addon (optional)
 $addRedis = Read-Host "Add Redis addon? (y/N)"
 if ($addRedis -eq "y" -or $addRedis -eq "Y") {
+    # Refresh addons list
+    $addons = heroku addons --app $appName 2>&1
     if ($addons -notmatch 'heroku-redis') {
         heroku addons:create heroku-redis:mini --app $appName
         if ($LASTEXITCODE -eq 0) {
@@ -161,10 +184,12 @@ Write-Host "Setting environment variables..." -ForegroundColor Yellow
 # Generate secret key if not set
 $secretKey = heroku config:get SECRET_KEY --app $appName 2>&1
 if ([string]::IsNullOrWhiteSpace($secretKey) -or $LASTEXITCODE -ne 0) {
-    # Generate random secret key
+    # Generate random secret key (compatible with older PowerShell versions)
+    $rng = [System.Security.Cryptography.RNGCryptoServiceProvider]::Create()
     $bytes = New-Object byte[] 32
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $rng.GetBytes($bytes)
     $secretKey = [System.BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+    $rng.Dispose()
     heroku config:set SECRET_KEY="$secretKey" --app $appName
     Write-Host "SECRET_KEY set" -ForegroundColor Green
 }
@@ -206,6 +231,12 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "Changes committed" -ForegroundColor Green
 }
 
+# Validate app name before proceeding
+if ([string]::IsNullOrWhiteSpace($appName)) {
+    Write-Host "Error: App name is empty!" -ForegroundColor Red
+    exit 1
+}
+
 # Add Heroku remote if not exists
 $remotes = git remote 2>&1
 if ($remotes -notmatch 'heroku') {
@@ -216,7 +247,16 @@ if ($remotes -notmatch 'heroku') {
 # Deploy to Heroku
 Write-Host "Deploying to Heroku..." -ForegroundColor Yellow
 Write-Host ""
-git push heroku main
+
+# Check current branch and push appropriately
+$currentBranch = git rev-parse --abbrev-ref HEAD
+if ($currentBranch -eq "main" -or $currentBranch -eq "master") {
+    git push heroku $currentBranch
+} else {
+    Write-Host "Current branch is '$currentBranch', pushing to 'main' branch on Heroku..." -ForegroundColor Yellow
+    git push heroku $currentBranch:main
+}
+
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Deployment successful!" -ForegroundColor Green
 } else {
@@ -227,8 +267,14 @@ if ($LASTEXITCODE -eq 0) {
 
 # Initialize database
 Write-Host "Initializing database..." -ForegroundColor Yellow
-heroku run "python -c `"from backend.app import app, db; app.app_context().push(); db.create_all()`"" --app $appName
-Write-Host "Database initialized" -ForegroundColor Green
+# Use proper escaping for PowerShell
+$pythonCmd = 'python -c "from backend.app import app, db; app.app_context().push(); db.create_all()"'
+heroku run $pythonCmd --app $appName
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Database initialized" -ForegroundColor Green
+} else {
+    Write-Host "Warning: Database initialization may have failed" -ForegroundColor Yellow
+}
 
 # Open app
 Write-Host ""
