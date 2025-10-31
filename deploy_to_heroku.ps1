@@ -153,11 +153,16 @@ Write-Host "Checking for PostgreSQL addon..." -ForegroundColor Yellow
 $addons = heroku addons --app $appName 2>&1
 if ($addons -notmatch 'heroku-postgresql') {
     Write-Host "Adding PostgreSQL addon..." -ForegroundColor Yellow
-    heroku addons:create heroku-postgresql:mini --app $appName
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "PostgreSQL addon added" -ForegroundColor Green
+    Write-Host "Note: Using 'essential-0' plan (mini plan is end-of-life)" -ForegroundColor Yellow
+    # Try essential-0 plan first (free tier alternative)
+    heroku addons:create heroku-postgresql:essential-0 --app $appName
+    if ($LASTEXITCODE -ne 0) {
+        # If that fails, try to get available plans
+        Write-Host "Failed to add essential-0 plan. Checking available plans..." -ForegroundColor Yellow
+        heroku addons:plans heroku-postgresql 2>&1 | Out-String
+        Write-Host "Please manually add PostgreSQL addon with: heroku addons:create heroku-postgresql:PLAN_NAME --app $appName" -ForegroundColor Yellow
     } else {
-        Write-Host "Warning: Failed to add PostgreSQL addon" -ForegroundColor Yellow
+        Write-Host "PostgreSQL addon added" -ForegroundColor Green
     }
 } else {
     Write-Host "PostgreSQL addon already exists" -ForegroundColor Green
@@ -250,11 +255,31 @@ Write-Host ""
 
 # Check current branch and push appropriately
 $currentBranch = git rev-parse --abbrev-ref HEAD
-if ($currentBranch -eq "main" -or $currentBranch -eq "master") {
-    git push heroku $currentBranch
+Write-Host "Current branch: $currentBranch" -ForegroundColor Yellow
+
+# Heroku requires pushing to 'main' or 'master' branch to trigger builds
+# Check if main or master branch exists locally
+git show-ref --verify --quiet refs/heads/main 2>$null
+$mainExists = ($LASTEXITCODE -eq 0)
+git show-ref --verify --quiet refs/heads/master 2>$null
+$masterExists = ($LASTEXITCODE -eq 0)
+
+if ($mainExists -or $masterExists) {
+    # If main/master exists, merge current branch into it and push
+    $targetBranch = if ($mainExists) { "main" } else { "master" }
+    Write-Host "Merging $currentBranch into $targetBranch and pushing to Heroku..." -ForegroundColor Yellow
+    git checkout $targetBranch
+    git merge $currentBranch --no-edit
+    git push heroku $targetBranch:main --force
+    git checkout $currentBranch
 } else {
-    Write-Host "Current branch is '$currentBranch', pushing to 'main' branch on Heroku..." -ForegroundColor Yellow
-    git push heroku $currentBranch:main
+    # No main/master branch exists, create one from current branch
+    Write-Host "Creating main branch from $currentBranch and pushing to Heroku..." -ForegroundColor Yellow
+    git branch -D main 2>$null
+    git checkout -b main
+    git push heroku main:main --force
+    git checkout $currentBranch
+    git branch -D main
 }
 
 if ($LASTEXITCODE -eq 0) {
@@ -267,9 +292,9 @@ if ($LASTEXITCODE -eq 0) {
 
 # Initialize database
 Write-Host "Initializing database..." -ForegroundColor Yellow
-# Use proper escaping for PowerShell
+# Use proper escaping for PowerShell - escape quotes properly
 $pythonCmd = 'python -c "from backend.app import app, db; app.app_context().push(); db.create_all()"'
-heroku run $pythonCmd --app $appName
+heroku run --app $appName -- $pythonCmd
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Database initialized" -ForegroundColor Green
 } else {
