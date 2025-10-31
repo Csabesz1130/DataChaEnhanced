@@ -1,250 +1,255 @@
 # Heroku Deployment Script for Signal Analyzer (PowerShell)
-# This script automates the deployment process
-
-$ErrorActionPreference = "Stop"
+# This script automates the deployment process for Windows
 
 Write-Host "======================================" -ForegroundColor Cyan
 Write-Host "Signal Analyzer - Heroku Deployment" -ForegroundColor Cyan
 Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Function to print colored output
-function Print-Success {
-    param([string]$Message)
-    Write-Host "✓ $Message" -ForegroundColor Green
-}
-
-function Print-Error {
-    param([string]$Message)
-    Write-Host "✗ $Message" -ForegroundColor Red
-}
-
-function Print-Info {
-    param([string]$Message)
-    Write-Host "➤ $Message" -ForegroundColor Yellow
+# Function to find Heroku CLI
+function Find-Heroku {
+    # Check if heroku is in PATH
+    if (Get-Command heroku -ErrorAction SilentlyContinue) {
+        return "heroku"
+    }
+    
+    # Common Heroku installation paths on Windows
+    $herokuPaths = @(
+        "C:\Program Files\heroku\bin\heroku.exe"
+        "C:\Program Files (x86)\heroku\bin\heroku.exe"
+        "$env:LOCALAPPDATA\Programs\heroku\bin\heroku.exe"
+        "$env:USERPROFILE\AppData\Local\Programs\heroku\bin\heroku.exe"
+    )
+    
+    foreach ($path in $herokuPaths) {
+        if (Test-Path $path) {
+            $herokuDir = Split-Path $path -Parent
+            if ($env:Path -notlike "*$herokuDir*") {
+                $env:Path += ";$herokuDir"
+            }
+            
+            # Verify it works
+            if (Get-Command heroku -ErrorAction SilentlyContinue) {
+                Write-Host "Found Heroku at: $path" -ForegroundColor Yellow
+                return "heroku"
+            }
+        }
+    }
+    
+    return $null
 }
 
 # Check if Heroku CLI is installed
-$herokuFound = $false
-try {
-    $null = Get-Command heroku -ErrorAction Stop
-    $herokuFound = $true
-} catch {
-    Print-Info "Heroku CLI not found in PATH, checking common installation locations..."
-    
-    # Common Heroku CLI installation paths
-    $possiblePaths = @(
-        "C:\Program Files\heroku\bin",
-        "${env:LOCALAPPDATA}\heroku\bin",
-        "${env:PROGRAMFILES}\heroku\bin",
-        "${env:PROGRAMFILES(X86)}\heroku\bin"
-    )
-    
-    foreach ($path in $possiblePaths) {
-        $herokuCmd = Join-Path $path "heroku.cmd"
-        if (Test-Path $herokuCmd) {
-            Print-Info "Found Heroku CLI at: $path"
-            Print-Info "Adding to current session PATH..."
-            $env:Path = $env:Path + ";" + $path
-            $herokuFound = $true
-            break
-        }
+Write-Host "Checking for Heroku CLI..." -ForegroundColor Yellow
+$herokuCmd = Find-Heroku
+
+if (-not $herokuCmd) {
+    Write-Host "Heroku CLI not found!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Please install Heroku CLI from: https://devcenter.heroku.com/articles/heroku-cli" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "After installation, you may need to:"
+    Write-Host "  1. Restart your terminal"
+    Write-Host "  2. Or manually add Heroku to your PATH"
+    Write-Host ""
+    Write-Host "Common installation location:"
+    Write-Host "  C:\Program Files\heroku\bin"
+    Write-Host ""
+    $continue = Read-Host "Do you want to continue anyway? (y/N)"
+    if ($continue -ne "y" -and $continue -ne "Y") {
+        exit 1
     }
-}
-
-if (-not $herokuFound) {
-    Print-Error "Heroku CLI not found!"
-    Write-Host "Install from: https://devcenter.heroku.com/articles/heroku-cli"
-    Write-Host "After installation, restart your terminal or Cursor."
-    exit 1
-}
-
-Print-Success "Heroku CLI found"
-
-# Verify Heroku is working
-try {
-    $herokuVersion = heroku --version 2>&1 | Out-String
-    Print-Success "Heroku CLI is working"
-} catch {
-    Print-Error "Failed to execute Heroku CLI"
-    exit 1
+} else {
+    Write-Host "Heroku CLI found" -ForegroundColor Green
+    # Verify it works
+    try {
+        $version = & heroku --version 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Heroku CLI found but not working properly" -ForegroundColor Red
+            exit 1
+        }
+    } catch {
+        Write-Host "Heroku CLI found but not working properly" -ForegroundColor Red
+        exit 1
+    }
 }
 
 # Check if logged in to Heroku
 try {
-    $username = heroku auth:whoami 2>&1 | Out-String
-    if ($username -match "not logged in") {
-        throw "Not logged in"
+    $whoami = & heroku auth:whoami 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Logging in to Heroku..." -ForegroundColor Yellow
+        heroku login
     }
-    Print-Success "Logged in to Heroku as: $($username.Trim())"
+    Write-Host "Logged in to Heroku" -ForegroundColor Green
 } catch {
-    Print-Info "Logging in to Heroku..."
-    heroku login
-    $username = heroku auth:whoami
-    Print-Success "Logged in as: $($username.Trim())"
+    Write-Host "Error checking Heroku login status" -ForegroundColor Red
+    exit 1
 }
 
 # Get app name
-Print-Info "Enter your Heroku app name (or press Enter to use 'datachaenhanced'):"
-$APP_NAME = Read-Host
-if ([string]::IsNullOrWhiteSpace($APP_NAME)) {
-    $APP_NAME = "datachaenhanced"
-}
+$appName = Read-Host "Enter your Heroku app name (or press Enter to create new)"
 
-# Check if app exists
-$appExists = $false
-try {
-    $appInfo = heroku apps:info --app $APP_NAME 2>&1
+if ([string]::IsNullOrWhiteSpace($appName)) {
+    Write-Host "Creating new Heroku app..." -ForegroundColor Yellow
+    $createOutput = heroku create 2>&1
     if ($LASTEXITCODE -eq 0) {
-        $appExists = $true
-        Print-Success "Using existing app: $APP_NAME"
+        # Extract app name from output
+        if ($createOutput -match 'https://([^.]+)\.herokuapp\.com') {
+            $appName = $matches[1]
+            Write-Host "Created app: $appName" -ForegroundColor Green
+        } else {
+            Write-Host "Failed to extract app name from output" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        Write-Host "Failed to create Heroku app" -ForegroundColor Red
+        exit 1
     }
-} catch {
-    # App doesn't exist
-}
-
-if (-not $appExists) {
-    Print-Info "App doesn't exist. Creating..."
-    heroku create $APP_NAME
-    Print-Success "Created app: $APP_NAME"
+} else {
+    # Check if app exists
+    $appInfo = heroku apps:info --app $appName 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "Using existing app: $appName" -ForegroundColor Green
+    } else {
+        Write-Host "App doesn't exist. Creating..." -ForegroundColor Yellow
+        heroku create $appName
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Created app: $appName" -ForegroundColor Green
+        } else {
+            Write-Host "Failed to create app" -ForegroundColor Red
+            exit 1
+        }
+    }
 }
 
 Write-Host ""
-Print-Info "App URL: https://$APP_NAME.herokuapp.com"
+Write-Host "App URL: https://$appName.herokuapp.com" -ForegroundColor Yellow
 Write-Host ""
 
 # Add PostgreSQL addon if not exists
-Print-Info "Checking for PostgreSQL addon..."
-$addons = heroku addons --app $APP_NAME 2>&1 | Out-String
-if ($addons -notmatch "heroku-postgresql") {
-    Print-Info "Adding PostgreSQL addon..."
-    try {
-        heroku addons:create heroku-postgresql:essential-0 --app $APP_NAME
-        Print-Success "PostgreSQL addon added"
-    } catch {
-        Print-Info "Note: Trying to add PostgreSQL addon..."
+Write-Host "Checking for PostgreSQL addon..." -ForegroundColor Yellow
+$addons = heroku addons --app $appName 2>&1
+if ($addons -notmatch 'heroku-postgresql') {
+    Write-Host "Adding PostgreSQL addon..." -ForegroundColor Yellow
+    heroku addons:create heroku-postgresql:mini --app $appName
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "PostgreSQL addon added" -ForegroundColor Green
+    } else {
+        Write-Host "Warning: Failed to add PostgreSQL addon" -ForegroundColor Yellow
     }
 } else {
-    Print-Success "PostgreSQL addon already exists"
+    Write-Host "PostgreSQL addon already exists" -ForegroundColor Green
+}
+
+# Add Redis addon (optional)
+$addRedis = Read-Host "Add Redis addon? (y/N)"
+if ($addRedis -eq "y" -or $addRedis -eq "Y") {
+    if ($addons -notmatch 'heroku-redis') {
+        heroku addons:create heroku-redis:mini --app $appName
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Redis addon added" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "Redis addon already exists" -ForegroundColor Green
+    }
 }
 
 # Set environment variables
-Print-Info "Setting environment variables..."
+Write-Host "Setting environment variables..." -ForegroundColor Yellow
 
 # Generate secret key if not set
-$existingSecret = heroku config:get SECRET_KEY --app $APP_NAME 2>&1 | Out-String
-if ([string]::IsNullOrWhiteSpace($existingSecret.Trim())) {
+$secretKey = heroku config:get SECRET_KEY --app $appName 2>&1
+if ([string]::IsNullOrWhiteSpace($secretKey) -or $LASTEXITCODE -ne 0) {
     # Generate random secret key
-    $SECRET_KEY = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 64 | ForEach-Object {[char]$_})
-    heroku config:set "SECRET_KEY=$SECRET_KEY" --app $APP_NAME
-    Print-Success "SECRET_KEY set"
-} else {
-    Print-Success "SECRET_KEY already exists"
+    $bytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $secretKey = [System.BitConverter]::ToString($bytes).Replace("-", "").ToLower()
+    heroku config:set SECRET_KEY="$secretKey" --app $appName
+    Write-Host "SECRET_KEY set" -ForegroundColor Green
 }
 
-heroku config:set FLASK_ENV=production --app $APP_NAME
-heroku config:set MAX_UPLOAD_SIZE=52428800 --app $APP_NAME
-heroku config:set "FRONTEND_URL=https://$APP_NAME.herokuapp.com" --app $APP_NAME
+heroku config:set FLASK_ENV=production --app $appName
+heroku config:set MAX_UPLOAD_SIZE=52428800 --app $appName
+heroku config:set FRONTEND_URL="https://$appName.herokuapp.com" --app $appName
 
-Print-Success "Environment variables configured"
+Write-Host "Environment variables configured" -ForegroundColor Green
 
 # Build frontend
-Print-Info "Building frontend..."
+Write-Host "Building frontend..." -ForegroundColor Yellow
 if (Test-Path "frontend") {
     Push-Location frontend
     
     if (-not (Test-Path "node_modules")) {
-        Print-Info "Installing frontend dependencies..."
+        Write-Host "Installing frontend dependencies..." -ForegroundColor Yellow
         npm install
     }
     
-    Print-Info "Building React app..."
+    Write-Host "Building React app..." -ForegroundColor Yellow
     npm run build
+    
     Pop-Location
-    Print-Success "Frontend built successfully"
+    Write-Host "Frontend built successfully" -ForegroundColor Green
 } else {
-    Print-Error "Frontend directory not found!"
+    Write-Host "Frontend directory not found!" -ForegroundColor Red
     exit 1
 }
 
-# Check current branch
-$currentBranch = git branch --show-current
-Print-Info "Current branch: $currentBranch"
-
 # Commit changes
-Print-Info "Committing changes..."
+Write-Host "Committing changes..." -ForegroundColor Yellow
 git add .
-$commitDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$commitMsg = "Deploy to Heroku - $commitDate"
-git commit -m $commitMsg 2>&1 | Out-Null
-if ($LASTEXITCODE -eq 0) {
-    Print-Success "Changes committed"
+$commitMessage = "Deploy to Heroku - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+git commit -m $commitMessage
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "No changes to commit" -ForegroundColor Yellow
 } else {
-    Print-Info "No changes to commit"
+    Write-Host "Changes committed" -ForegroundColor Green
 }
 
 # Add Heroku remote if not exists
-$remotes = git remote
-if ($remotes -notcontains "heroku") {
-    heroku git:remote --app $APP_NAME
-    Print-Success "Heroku remote added"
-} else {
-    Print-Success "Heroku remote already exists"
+$remotes = git remote 2>&1
+if ($remotes -notmatch 'heroku') {
+    heroku git:remote --app $appName
+    Write-Host "Heroku remote added" -ForegroundColor Green
 }
 
 # Deploy to Heroku
-Print-Info "Deploying to Heroku..."
+Write-Host "Deploying to Heroku..." -ForegroundColor Yellow
 Write-Host ""
-
-# Determine which branch to push
-if ($currentBranch -ne "main") {
-    Print-Info "You're on branch '$currentBranch', not 'main'"
-    $response = Read-Host "Push '$currentBranch' to Heroku? (Y/n)"
-    if ($response -ne "n" -and $response -ne "N") {
-        git push heroku "${currentBranch}:main"
-    } else {
-        Print-Info "Switching to main branch..."
-        git checkout main
-        git push heroku main
-    }
-} else {
-    git push heroku main
-}
-
+git push heroku main
 if ($LASTEXITCODE -eq 0) {
-    Print-Success "Deployment successful!"
+    Write-Host "Deployment successful!" -ForegroundColor Green
 } else {
-    Print-Error "Deployment failed!"
-    Print-Info "Check logs with: heroku logs --tail --app $APP_NAME"
+    Write-Host "Deployment failed!" -ForegroundColor Red
+    Write-Host "Check logs with: heroku logs --tail --app $appName" -ForegroundColor Yellow
     exit 1
 }
 
 # Initialize database
-Print-Info "Initializing database..."
-$dbInit = 'python -c "from backend.app import app, db; app.app_context().push(); db.create_all()"'
-heroku run $dbInit --app $APP_NAME
-Print-Success "Database initialization attempted"
+Write-Host "Initializing database..." -ForegroundColor Yellow
+heroku run "python -c `"from backend.app import app, db; app.app_context().push(); db.create_all()`"" --app $appName
+Write-Host "Database initialized" -ForegroundColor Green
 
-# Display completion message
+# Open app
 Write-Host ""
-Print-Success "======================================"
-Print-Success "Deployment Complete!"
-Print-Success "======================================"
+Write-Host "======================================" -ForegroundColor Green
+Write-Host "Deployment Complete!" -ForegroundColor Green
+Write-Host "======================================" -ForegroundColor Green
 Write-Host ""
-Print-Info "Your app is live at: https://$APP_NAME.herokuapp.com"
+Write-Host "Your app is live at: https://$appName.herokuapp.com" -ForegroundColor Yellow
 Write-Host ""
-Print-Info "Useful commands:"
-Write-Host "  heroku logs --tail --app $APP_NAME        # View logs" -ForegroundColor Cyan
-Write-Host "  heroku ps --app $APP_NAME                 # Check dyno status" -ForegroundColor Cyan
-Write-Host "  heroku config --app $APP_NAME             # View config vars" -ForegroundColor Cyan
-Write-Host "  heroku pg:psql --app $APP_NAME            # Connect to database" -ForegroundColor Cyan
-Write-Host "  heroku restart --app $APP_NAME            # Restart app" -ForegroundColor Cyan
+Write-Host "Useful commands:"
+Write-Host "  heroku logs --tail --app $appName        # View logs"
+Write-Host "  heroku ps --app $appName                 # Check dyno status"
+Write-Host "  heroku config --app $appName             # View config vars"
+Write-Host "  heroku pg:psql --app $appName            # Connect to database"
+Write-Host "  heroku restart --app $appName            # Restart app"
 Write-Host ""
 
 # Ask if user wants to open the app
-$openResponse = Read-Host "Open app in browser? (Y/n)"
-if ($openResponse -ne "n" -and $openResponse -ne "N") {
-    heroku open --app $APP_NAME
+$openApp = Read-Host "Open app in browser? (Y/n)"
+if ($openApp -ne "n" -and $openApp -ne "N") {
+    heroku open --app $appName
 }
 
-Print-Success "Done!"
+Write-Host "Done!" -ForegroundColor Green
