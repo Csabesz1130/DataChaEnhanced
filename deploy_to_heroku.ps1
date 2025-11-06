@@ -96,11 +96,17 @@ if ([string]::IsNullOrWhiteSpace($appName)) {
     if ($LASTEXITCODE -eq 0) {
         # Extract app name from output - try multiple patterns
         $appName = $null
-        if ($createOutput -match 'https://([a-z0-9-]+)\.herokuapp\.com') {
+        if ($createOutput -match 'done, [\p{Sc}\p{So}]?\s*([a-z0-9-]+)') {
             $appName = $matches[1]
-        } elseif ($createOutput -match 'created\s+([a-z0-9-]+)') {
+        } elseif ($createOutput -match 'Creating app\.?\s*([a-z0-9-]+)') {
+            $appName = $matches[1]
+        } elseif ($createOutput -match 'https://([a-z0-9-]+)\.herokuapp\.com') {
             $appName = $matches[1]
         } elseif ($createOutput -match '\| ([a-z0-9-]+) \|') {
+            $appName = $matches[1]
+        }
+
+        if ($appName -match '^([a-z0-9-]+)-[a-f0-9]{10,}$') {
             $appName = $matches[1]
         }
         
@@ -242,45 +248,36 @@ if ([string]::IsNullOrWhiteSpace($appName)) {
     exit 1
 }
 
-# Add Heroku remote if not exists
-$remotes = git remote 2>&1
-if ($remotes -notmatch 'heroku') {
-    heroku git:remote --app $appName
-    Write-Host "Heroku remote added" -ForegroundColor Green
+# Ensure Heroku remote points to the selected app
+Write-Host "Configuring Heroku git remote..." -ForegroundColor Yellow
+heroku git:remote --app $appName
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Heroku remote configured" -ForegroundColor Green
+} else {
+    Write-Host "Failed to configure Heroku remote" -ForegroundColor Red
+    exit 1
 }
 
 # Deploy to Heroku
 Write-Host "Deploying to Heroku..." -ForegroundColor Yellow
 Write-Host ""
 
-# Check current branch and push appropriately
-$currentBranch = git rev-parse --abbrev-ref HEAD
-Write-Host "Current branch: $currentBranch" -ForegroundColor Yellow
-
-# Heroku requires pushing to 'main' or 'master' branch to trigger builds
-# Check if main or master branch exists locally
-git show-ref --verify --quiet refs/heads/main 2>$null
-$mainExists = ($LASTEXITCODE -eq 0)
-git show-ref --verify --quiet refs/heads/master 2>$null
-$masterExists = ($LASTEXITCODE -eq 0)
-
-if ($mainExists -or $masterExists) {
-    # If main/master exists, merge current branch into it and push
-    $targetBranch = if ($mainExists) { "main" } else { "master" }
-    Write-Host "Merging $currentBranch into $targetBranch and pushing to Heroku..." -ForegroundColor Yellow
-    git checkout $targetBranch
-    git merge $currentBranch --no-edit
-    git push heroku $targetBranch:main --force
-    git checkout $currentBranch
-} else {
-    # No main/master branch exists, create one from current branch
-    Write-Host "Creating main branch from $currentBranch and pushing to Heroku..." -ForegroundColor Yellow
-    git branch -D main 2>$null
-    git checkout -b main
-    git push heroku main:main --force
-    git checkout $currentBranch
-    git branch -D main
+# Determine the ref we will push
+$currentBranch = (git rev-parse --abbrev-ref HEAD).Trim()
+if ([string]::IsNullOrWhiteSpace($currentBranch)) {
+    $currentBranch = "HEAD"
 }
+
+$pushSource = if ($currentBranch -eq "HEAD") { "HEAD" } else { $currentBranch }
+$commitHash = (git rev-parse HEAD).Trim()
+
+if ($pushSource -eq "HEAD") {
+    Write-Host "Detached HEAD detected; pushing commit $commitHash to Heroku main..." -ForegroundColor Yellow
+} else {
+    Write-Host "Pushing branch $pushSource (commit $commitHash) to Heroku main..." -ForegroundColor Yellow
+}
+
+git push heroku "$pushSource:main" --force-with-lease
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Deployment successful!" -ForegroundColor Green
