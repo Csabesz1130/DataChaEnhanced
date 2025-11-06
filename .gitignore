@@ -267,3 +267,4 @@ anaconda*/
 *.rar
 *.tar
 *.zip
+frontend/build/
