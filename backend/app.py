@@ -31,13 +31,21 @@ app = Flask(__name__)
 app.config.from_object(Config)
 
 # Enable CORS for frontend
+# Parse FRONTEND_URL - can be comma-separated string or single URL
+frontend_urls = app.config['FRONTEND_URL']
+if isinstance(frontend_urls, str) and ',' in frontend_urls:
+    frontend_urls = [url.strip() for url in frontend_urls.split(',')]
+elif isinstance(frontend_urls, str):
+    frontend_urls = [frontend_urls]
+
 CORS(app, resources={
     r"/api/*": {
-        "origins": app.config['FRONTEND_URL'],
+        "origins": frontend_urls,
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
     }
-})
+}, supports_credentials=True)
 
 # Enable compression
 Compress(app)

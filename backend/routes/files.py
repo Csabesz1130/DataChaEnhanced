@@ -10,7 +10,7 @@ from pathlib import Path
 
 from backend.utils.file_handler import allowed_file, save_uploaded_file, get_file_path
 from backend.utils.db import db, UploadedFile
-from src.io_utils.io_utils import ATFFileReader
+from src.io_utils.io_utils import ATFHandler
 
 bp = Blueprint('files', __name__)
 
@@ -53,14 +53,26 @@ def upload_file():
         
         # Parse file to get data info
         try:
-            reader = ATFFileReader(file_path)
-            data, time_data = reader.load_atf()
+            handler = ATFHandler(file_path)
+            handler.load_atf()
             
-            data_info = {
-                'num_points': len(data),
-                'duration': float(time_data[-1] - time_data[0]),
-                'sampling_rate': len(data) / (time_data[-1] - time_data[0]) if len(data) > 1 else 0
-            }
+            if handler.data is not None and len(handler.data.shape) > 1:
+                # First column is typically time
+                time_data = handler.get_column('time') if 'time' in [h.lower() for h in handler.headers] else handler.data[:, 0]
+                # Get signal data (second column or first trace)
+                signal_data = handler.get_column('#1') if len(handler.signal_map) > 0 else handler.data[:, 1] if handler.data.shape[1] > 1 else handler.data[:, 0]
+                
+                num_points = len(signal_data)
+                duration = float(time_data[-1] - time_data[0]) if len(time_data) > 1 else 0
+                sampling_rate = num_points / duration if duration > 0 else 0
+                
+                data_info = {
+                    'num_points': num_points,
+                    'duration': duration,
+                    'sampling_rate': sampling_rate
+                }
+            else:
+                data_info = None
         except Exception as e:
             current_app.logger.warning(f"Could not parse file info: {str(e)}")
             data_info = None
@@ -143,14 +155,22 @@ def get_file_data_endpoint(file_id):
             return jsonify({'error': 'File not found'}), 404
         
         # Parse file
-        reader = ATFFileReader(file_record.file_path)
-        data, time_data = reader.load_atf()
+        handler = ATFHandler(file_record.file_path)
+        handler.load_atf()
         
-        return jsonify({
-            'data': data.tolist(),
-            'time_data': time_data.tolist(),
-            'metadata': file_record.data_info
-        })
+        if handler.data is not None and len(handler.data.shape) > 1:
+            # First column is typically time
+            time_data = handler.get_column('time') if 'time' in [h.lower() for h in handler.headers] else handler.data[:, 0]
+            # Get signal data (second column or first trace)
+            signal_data = handler.get_column('#1') if len(handler.signal_map) > 0 else handler.data[:, 1] if handler.data.shape[1] > 1 else handler.data[:, 0]
+            
+            return jsonify({
+                'data': signal_data.tolist(),
+                'time_data': time_data.tolist(),
+                'metadata': file_record.data_info
+            })
+        else:
+            return jsonify({'error': 'No data found in file'}), 400
         
     except Exception as e:
         current_app.logger.error(f"Error reading file data: {str(e)}")

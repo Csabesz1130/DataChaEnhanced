@@ -9,7 +9,8 @@ import tempfile
 from pathlib import Path
 
 # Import desktop export code
-from src.excel_export.excel_export import ExcelExporter
+# Note: excel_export uses tkinter dialogs, so we'll implement web-specific export
+# from src.excel_export.excel_export import export_to_excel
 from src.csv_export.dual_curves_csv_export import export_dual_curves_to_csv
 
 from backend.utils.db import db, AnalysisResult, ExportFile

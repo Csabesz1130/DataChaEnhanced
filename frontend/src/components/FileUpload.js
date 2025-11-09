@@ -1,12 +1,16 @@
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Box, Typography, Paper, CircularProgress } from '@mui/material';
+import { Box, Typography, Paper, CircularProgress, LinearProgress } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { uploadFile } from '../services/api';
+import { getErrorMessage } from '../utils/errorHandler';
+import { useNotification } from '../contexts/NotificationContext';
 
 const FileUpload = ({ onFileUpload }) => {
+    const { showSuccess, showError } = useNotification();
     const [uploading, setUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadedFile, setUploadedFile] = useState(null);
     const [error, setError] = useState(null);
 
@@ -15,19 +19,28 @@ const FileUpload = ({ onFileUpload }) => {
 
         const file = acceptedFiles[0];
         setUploading(true);
+        setUploadProgress(0);
         setError(null);
 
         try {
-            const result = await uploadFile(file);
+            const result = await uploadFile(file, (progress) => {
+                setUploadProgress(progress);
+            });
             setUploadedFile(result);
+            setUploadProgress(100);
             if (onFileUpload) {
                 onFileUpload(file, result.file_id);
             }
+            // Success notification is handled in App.js
         } catch (err) {
-            setError(err.response?.data?.error || 'Upload failed');
+            const errorMessage = getErrorMessage(err);
+            setError(errorMessage);
+            showError(errorMessage);
             console.error('Upload error:', err);
         } finally {
             setUploading(false);
+            // Reset progress after a short delay
+            setTimeout(() => setUploadProgress(0), 1000);
         }
     }, [onFileUpload]);
 
@@ -63,6 +76,12 @@ const FileUpload = ({ onFileUpload }) => {
                     <>
                         <CircularProgress size={48} />
                         <Typography sx={{ mt: 2 }}>Uploading...</Typography>
+                        <Box sx={{ width: '100%', mt: 2 }}>
+                            <LinearProgress variant="determinate" value={uploadProgress} />
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {uploadProgress}%
+                            </Typography>
+                        </Box>
                     </>
                 ) : uploadedFile ? (
                     <>

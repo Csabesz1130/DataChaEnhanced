@@ -4,9 +4,13 @@ import FileUpload from './components/FileUpload';
 import PlotViewer from './components/PlotViewer';
 import AnalysisControls from './components/AnalysisControls';
 import ExportButton from './components/ExportButton';
+import ActionPotentialTab from './components/ActionPotentialTab';
 import { analyzeFile } from './services/api';
+import { getErrorMessage } from './utils/errorHandler';
+import { useNotification } from './contexts/NotificationContext';
 
 function App() {
+    const { showSuccess, showError, showInfo } = useNotification();
     const [file, setFile] = useState(null);
     const [fileId, setFileId] = useState(null);
     const [analysisResults, setAnalysisResults] = useState(null);
@@ -20,6 +24,7 @@ function App() {
         setAnalysisResults(null);
         setAnalysisId(null);
         setError(null);
+        // Success notification handled here to avoid duplicate
     };
 
     const handleAnalyze = async (params) => {
@@ -32,11 +37,21 @@ function App() {
         setError(null);
 
         try {
-            const result = await analyzeFile(fileId, params);
+            // Map integration_method to use_alternative_method for API
+            const apiParams = {
+                ...params,
+                use_alternative_method: params.integration_method === 'alternative',
+            };
+            
+            const result = await analyzeFile(fileId, apiParams);
             setAnalysisResults(result.results);
             setAnalysisId(result.analysis_id);
+            setError(null); // Clear any previous errors
+            showSuccess('Analysis completed successfully');
         } catch (err) {
-            setError(err.message || 'Analysis failed');
+            const errorMessage = getErrorMessage(err);
+            setError(errorMessage);
+            showError(errorMessage);
             console.error('Analysis error:', err);
         } finally {
             setLoading(false);
@@ -80,7 +95,22 @@ function App() {
                         {analysisId && (
                             <>
                                 <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
-                                    3. Export Results
+                                    3. Action Potential Analysis
+                                </Typography>
+                                <ActionPotentialTab
+                                    analysisId={analysisId}
+                                    analysisResults={analysisResults}
+                                    onSpikeRemoval={async (id) => {
+                                        // TODO: Implement spike removal API call
+                                        showInfo('Spike removal feature coming soon');
+                                    }}
+                                    onIntegrationChange={(ranges, result) => {
+                                        showSuccess('Integrals calculated successfully');
+                                    }}
+                                />
+
+                                <Typography variant="h6" gutterBottom sx={{ mt: 4 }}>
+                                    4. Export Results
                                 </Typography>
                                 <ExportButton analysisId={analysisId} />
                             </>

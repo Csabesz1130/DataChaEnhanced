@@ -24,12 +24,12 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # File uploads
-    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or '/tmp/uploads'
+    UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads')
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_UPLOAD_SIZE', 50 * 1024 * 1024))  # 50 MB
     ALLOWED_EXTENSIONS = {'atf', 'txt', 'csv'}
     
     # Frontend URL (for CORS)
-    FRONTEND_URL = os.environ.get('FRONTEND_URL') or 'http://localhost:3000'
+    FRONTEND_URL = os.environ.get('FRONTEND_URL') or 'http://localhost:3000,http://localhost:3001'
     
     # Session
     SESSION_TYPE = 'filesystem'
