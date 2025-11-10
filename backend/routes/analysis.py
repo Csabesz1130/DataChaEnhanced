@@ -69,55 +69,85 @@ def process_signal():
         current_app.logger.info(f"Processing signal for file_id: {file_id}")
         signal_data, time_data, file_info = get_file_data(file_id)
         
+        # Ensure data is numpy array and copy it (like desktop app's filtered_data)
+        import numpy as np
+        filtered_data = np.asarray(signal_data, dtype=np.float64).copy()
+        time_data = np.asarray(time_data, dtype=np.float64)
+        
         # Merge with default params
         default_params = current_app.config['DEFAULT_ANALYSIS_PARAMS'].copy()
         default_params.update(params)
         
-        # Create processor (REUSE desktop code!)
+        # Ensure 'n' parameter is handled correctly (convert to int if provided)
+        if 'n' in default_params and default_params['n'] is not None:
+            default_params['n'] = int(default_params['n'])
+        
+        # Create processor (REUSE desktop code!) - use filtered_data like desktop app
         processor = ActionPotentialProcessor(
-            signal_data, 
+            filtered_data, 
             time_data, 
             default_params
         )
         
-        # Process signal with options
+        # Process signal with options (exactly like desktop app)
         import time
         start_time = time.time()
         
-        processor.process_signal(
+        # Call process_signal and capture return values (like desktop app does)
+        (
+            processed_data,
+            orange_curve,
+            orange_times,
+            normalized_curve,
+            normalized_times,
+            average_curve,
+            average_times,
+            results
+        ) = processor.process_signal(
             use_alternative_method=options.get('use_alternative_method', False),
             auto_optimize_starting_point=options.get('auto_optimize_starting_point', True)
         )
         
+        # Check for pipeline failure (like desktop app)
+        if processed_data is None:
+            error_msg = results.get('error', 'Unknown error') if isinstance(results, dict) else 'Processing failed'
+            current_app.logger.error(f"Analysis pipeline failed: {error_msg}")
+            return jsonify({'error': 'Analysis failed', 'message': error_msg}), 500
+        
         processing_time = time.time() - start_time
         
-        # Extract results and convert numpy arrays to lists
-        results = {
-            'orange_curve': processor.orange_curve.tolist() if processor.orange_curve is not None else None,
-            'orange_curve_times': processor.orange_curve_times.tolist() if processor.orange_curve_times is not None else None,
+        # Extract results using the return values from process_signal (like desktop app)
+        # Also access processor attributes to ensure we have all curves
+        results_dict = {
+            'orange_curve': orange_curve.tolist() if orange_curve is not None else None,
+            'orange_curve_times': orange_times.tolist() if orange_times is not None else None,
             
-            'normalized_curve': processor.normalized_curve.tolist() if processor.normalized_curve is not None else None,
-            'normalized_curve_times': processor.normalized_curve_times.tolist() if processor.normalized_curve_times is not None else None,
+            'normalized_curve': normalized_curve.tolist() if normalized_curve is not None else None,
+            'normalized_curve_times': normalized_times.tolist() if normalized_times is not None else None,
             
-            'average_curve': processor.average_curve.tolist() if processor.average_curve is not None else None,
-            'average_curve_times': processor.average_curve_times.tolist() if processor.average_curve_times is not None else None,
+            'average_curve': average_curve.tolist() if average_curve is not None else None,
+            'average_curve_times': average_times.tolist() if average_times is not None else None,
             
-            'modified_hyperpol': processor.modified_hyperpol.tolist() if processor.modified_hyperpol is not None else None,
-            'modified_hyperpol_times': processor.modified_hyperpol_times.tolist() if processor.modified_hyperpol_times is not None else None,
+            # Purple curves are generated in process_signal, access from processor
+            'modified_hyperpol': processor.modified_hyperpol.tolist() if hasattr(processor, 'modified_hyperpol') and processor.modified_hyperpol is not None else None,
+            'modified_hyperpol_times': processor.modified_hyperpol_times.tolist() if hasattr(processor, 'modified_hyperpol_times') and processor.modified_hyperpol_times is not None else None,
             
-            'modified_depol': processor.modified_depol.tolist() if processor.modified_depol is not None else None,
-            'modified_depol_times': processor.modified_depol_times.tolist() if processor.modified_depol_times is not None else None,
+            'modified_depol': processor.modified_depol.tolist() if hasattr(processor, 'modified_depol') and processor.modified_depol is not None else None,
+            'modified_depol_times': processor.modified_depol_times.tolist() if hasattr(processor, 'modified_depol_times') and processor.modified_depol_times is not None else None,
             
             'baseline': float(processor.baseline) if hasattr(processor, 'baseline') and processor.baseline is not None else None,
             
-            'cycles': len(processor.cycles) if hasattr(processor, 'cycles') else 0
+            'cycles': len(processor.cycles) if hasattr(processor, 'cycles') and processor.cycles else 0,
+            
+            # Include processed_data for reference
+            'processed_data': processed_data.tolist() if processed_data is not None else None
         }
         
         # Save to database
         analysis_result = AnalysisResult(
             file_id=file_id,
             params=default_params,
-            results=results,
+            results=results_dict,
             processing_time=processing_time
         )
         db.session.add(analysis_result)
@@ -127,7 +157,7 @@ def process_signal():
         
         return jsonify({
             'analysis_id': str(analysis_result.id),
-            'results': results,
+            'results': results_dict,
             'metadata': {
                 'processing_time': processing_time,
                 'params_used': default_params,

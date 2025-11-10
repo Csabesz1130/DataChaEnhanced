@@ -109,10 +109,25 @@ def get_file_data(file_id):
         raise ValueError(f"File no longer exists: {file_path}")
     
     # Parse ATF file using desktop code
-    reader = ATFHandler(file_path)
-    reader.load_atf()
-    data = reader.data
-    time_data = data[:, 0] if data is not None and len(data.shape) > 1 else None
+    handler = ATFHandler(file_path)
+    handler.load_atf()
+    
+    if handler.data is None or len(handler.data.shape) < 2:
+        raise ValueError("Invalid file data: no data or wrong shape")
+    
+    # Extract time data (first column)
+    time_data = handler.get_column('time') if 'time' in [h.lower() for h in handler.headers] else handler.data[:, 0]
+    
+    # Extract signal data (first trace or second column)
+    if len(handler.signal_map) > 0:
+        # Use first trace from signal map
+        signal_data = handler.get_column('#1')
+    elif handler.data.shape[1] > 1:
+        # Use second column as signal
+        signal_data = handler.data[:, 1]
+    else:
+        # Fallback to first column if only one column
+        signal_data = handler.data[:, 0]
     
     file_info = {
         'file_id': str(file_record.id),
@@ -121,7 +136,7 @@ def get_file_data(file_id):
         'data_info': file_record.data_info
     }
     
-    return data, time_data, file_info
+    return signal_data, time_data, file_info
 
 
 def delete_file(file_id):
