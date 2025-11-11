@@ -321,3 +321,4 @@ if ($openApp -ne "n" -and $openApp -ne "N") {
 }
 
 Write-Host "Done!" -ForegroundColor Green
+with the todos

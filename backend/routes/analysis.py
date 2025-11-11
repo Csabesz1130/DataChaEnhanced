@@ -151,9 +151,30 @@ def process_signal():
             processing_time=processing_time
         )
         db.session.add(analysis_result)
+        
+        # Also create an AnalysisRun record for history
+        from backend.utils.db import AnalysisRun
+        from backend.utils.local_cache import cache_run
+        
+        analysis_run = AnalysisRun(
+            file_id=file_id,
+            analysis_id=analysis_result.id,
+            params=default_params,
+            results={
+                'baseline': results_dict.get('baseline'),
+                'cycles': results_dict.get('cycles'),
+                'has_curves': bool(results_dict.get('orange_curve')),
+            },
+            processing_time=processing_time
+        )
+        db.session.add(analysis_run)
         db.session.commit()
         
-        current_app.logger.info(f"Analysis completed in {processing_time:.2f}s, ID: {analysis_result.id}")
+        # Cache the run in TinyDB for fast lookup
+        run_dict = analysis_run.to_dict()
+        cache_run(str(analysis_run.id), run_dict)
+        
+        current_app.logger.info(f"Analysis completed in {processing_time:.2f}s, ID: {analysis_result.id}, Run ID: {analysis_run.id}")
         
         return jsonify({
             'analysis_id': str(analysis_result.id),

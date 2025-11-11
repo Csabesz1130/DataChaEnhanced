@@ -112,6 +112,22 @@ export const getAnalysisResults = async (analysisId) => {
     return response.data;
 };
 
+export const getAnalysisHistory = async (limit = 50, offset = 0) => {
+    const response = await retryWithBackoff(() =>
+        api.get('/run/list', {
+            params: { limit, offset },
+        })
+    );
+    return response.data;
+};
+
+export const getAnalysisRun = async (runId) => {
+    const response = await retryWithBackoff(() =>
+        api.get(`/run/${runId}`)
+    );
+    return response.data;
+};
+
 export const calculateIntegrals = async (analysisId, ranges, linregParams = null) => {
     const payload = {
         analysis_id: analysisId,

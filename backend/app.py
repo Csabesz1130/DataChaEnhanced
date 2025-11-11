@@ -53,11 +53,15 @@ Compress(app)
 # Initialize database
 db = init_db(app)
 
+# Import history routes
+from backend.routes import history_routes
+
 # Register blueprints
 app.register_blueprint(analysis.bp, url_prefix='/api/analysis')
 app.register_blueprint(filtering.bp, url_prefix='/api/filter')
 app.register_blueprint(files.bp, url_prefix='/api/files')
 app.register_blueprint(export_routes.bp, url_prefix='/api/export')
+app.register_blueprint(history_routes.bp, url_prefix='/api/run')
 
 
 # Health check endpoint

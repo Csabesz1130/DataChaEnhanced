@@ -84,3 +84,35 @@ class Session(db.Model):
     def __repr__(self):
         return f'<Session {self.id}>'
 
+
+class AnalysisRun(db.Model):
+    """Analysis run record for history tracking"""
+    __tablename__ = 'analysis_runs'
+    
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    file_id = db.Column(db.String(36), db.ForeignKey('uploaded_files.id'), nullable=False)
+    analysis_id = db.Column(db.String(36), db.ForeignKey('analysis_results.id'), nullable=True)  # Link to AnalysisResult
+    params = db.Column(db.JSON, nullable=False)  # Analysis parameters used
+    results = db.Column(db.JSON, nullable=False)  # Analysis results summary
+    processing_time = db.Column(db.Float)  # Processing time in seconds
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    file = db.relationship('UploadedFile', backref='runs', lazy='joined')
+    analysis = db.relationship('AnalysisResult', backref='runs', lazy='joined')
+    
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization"""
+        return {
+            'id': str(self.id),
+            'file_id': str(self.file_id),
+            'analysis_id': str(self.analysis_id) if self.analysis_id else None,
+            'file_name': self.file.filename if self.file else None,
+            'params': self.params,
+            'results': self.results,
+            'processing_time': self.processing_time,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+    
+    def __repr__(self):
+        return f'<AnalysisRun {self.id}>'
